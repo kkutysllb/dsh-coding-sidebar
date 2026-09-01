@@ -861,7 +861,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
           instance's, kept in lockstep with package.json by
           tests/service.spec.ts). */}
       <div className={css.versionBadge}>
-        <span className={css.versionBadgeName}>DSH-coding-sidebar</span>
+        <span className={css.versionBadgeName}>dsh-coding-sidebar</span>
         <span className={css.versionBadgeTag}>v{service.version}</span>
       </div>
 
