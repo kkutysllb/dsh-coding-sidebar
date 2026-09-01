@@ -1,0 +1,432 @@
+/**
+ * Per-session sidebar state: the panel geometry, the split-pane workbench
+ * tree, open tabs, and the explorer expansion set. One state instance per
+ * conversation id, persisted to localStorage under `dsh-sidebar:v1:<id>` so
+ * a reload restores the exact layout of the session it belongs to — switching
+ * conversations swaps the whole state (memory + isolation).
+ *
+ * The split tree is a recursive structure: a leaf holds a tab group, a split
+ * divides the space row- or column-wise with fractional sizes. All tree
+ * operations are pure functions over the node, unit-tested in tests/state.spec.ts.
+ */
+import { type SidebarPrefs } from '../prefs-shared.ts';
+/**
+ * Tab type identifier. Builtins register their ids (editor / git / terminal
+ * / subagent / browser / diff) through the sidebar service; external
+ * plugins register their own (e.g. `'my-plugin:db'`). Kept as `string` so
+ * the registry stays open.
+ */
+export type TabType = string;
+/** What a diff tab shows: a worktree/index change of one path, or one commit's full patch. */
+export type SidebarDiffRef = {
+    kind: 'worktree';
+    path: string;
+    staged: boolean;
+    untracked?: boolean;
+    worktree?: string;
+    repoRoot?: string;
+} | {
+    kind: 'commit';
+    hash: string;
+    hashFull: string;
+    subject: string;
+    worktree?: string;
+    repoRoot?: string;
+};
+/** One open tab. `path` carries the file (editor) or is absent (git/terminal);
+ *  `diff` carries the change a diff tab shows; `meta` (v0.12.0+) carries
+ *  plugin-owned JSON-serializable state, preserved across reloads. */
+export interface SidebarTab {
+    id: string;
+    type: TabType;
+    title: string;
+    path?: string;
+    diff?: SidebarDiffRef;
+    /** Plugin-owned state (v0.12.0+): MUST be JSON-serializable — it is
+     *  persisted with the layout and restored verbatim on reload. */
+    meta?: unknown;
+    /** Pinned-terminal marker (v0.17.0+): a pinned terminal tab survives a
+     *  session switch in its home session's state and surfaces in the
+     *  PinnedRail of every session the scope allows. `homeCwd` is the cwd
+     *  snapshot at pin time — a `workspace`-scoped pin is only visible to
+     *  sessions whose cwd matches it. Absent = unpinned (legacy states). */
+    pin?: {
+        scope: 'workspace' | 'global';
+        homeCwd?: string;
+    };
+}
+/** A tab group. */
+export interface SidebarLeaf {
+    kind: 'leaf';
+    id: string;
+    tabs: SidebarTab[];
+    active: string | null;
+}
+/** A recursive split between child panes (fractional sizes summing to 1). */
+export interface SidebarSplit {
+    kind: 'split';
+    id: string;
+    dir: 'row' | 'col';
+    sizes: number[];
+    children: SplitNode[];
+}
+export type SplitNode = SidebarLeaf | SidebarSplit;
+/**
+ * One free window: a tab dragged out of the workbench onto the conversation
+ * area floats in the panel host at viewport coordinates. The tab is OWNED by
+ * the window exactly like a pane owns its tabs (moved, not copied); geometry
+ * persists with the session so a reload restores the window in place.
+ * Stacking order is the array order (last = topmost).
+ */
+export interface FloatWindow {
+    id: string;
+    tab: SidebarTab;
+    /** Viewport coordinates of the window's top-left corner. */
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+/** The full per-session state. */
+export interface SidebarState {
+    panelOpen: boolean;
+    width: number;
+    /** The pane receiving newly opened tabs (last pane the user touched).
+     *  Referenced by id so a re-id survives sanitize — see {@link treeOf}. */
+    activePane: string | null;
+    /** Monotonic terminal tab counter (ids survive reloads). */
+    nextTerminal: number;
+    /** Monotonic browser tab counter (ids survive reloads; mirrors nextTerminal). */
+    nextBrowser: number;
+    /** Explorer expansion set (absolute directory paths). */
+    expanded: string[];
+    /**
+     * Explorer rows highlighted by a "Show in folder" reveal (absolute paths).
+     * Transient by design: sanitizeState never restores it, so a reload starts
+     * unhighlighted.
+     */
+    revealed: string[];
+    /** The right sidebar's split tree (the original workbench). */
+    splits: SplitNode;
+    /** Free windows (tabs dragged out onto the conversation area). */
+    floats: FloatWindow[];
+}
+export declare const PANEL_MIN = 280;
+export declare const PANEL_MAX = 640;
+export declare const PANEL_DEFAULT = 400;
+export declare const TAB_MAX_WIDTH = 160;
+/** Free-window geometry contract: the floor keeps the window usable (a
+ *  header plus some content), the ceiling is the viewport. */
+export declare const FLOAT_MIN_W = 320;
+export declare const FLOAT_MIN_H = 200;
+/** Geometry a fresh free window starts with: a phone-like portrait ratio
+ *  (390×780 ≈ 1:2). The creation path additionally caps the size to the
+ *  viewport (minus a 24px margin), so a short viewport gets a shorter —
+ *  not overflowing — window instead of an exact ratio. */
+export declare const FLOAT_DEFAULT_W = 390;
+export declare const FLOAT_DEFAULT_H = 780;
+/** Mint a fresh uid-based tab id. The `'editor:' + path` convention only
+ *  covers openSidebarFile opens (per-path dedupe); opens that must not
+ *  dedupe (the tree's "open to the side") mint through here. */
+export declare function mintTabId(): string;
+/** The default tab a fresh session seeds. */
+export type DefaultSeed = 'editor-home' | 'none';
+/** A fresh default state: one seeded tab in one pane, open per the caller's
+ * preference. `width` is the caller's preferred panel width (default
+ * PANEL_DEFAULT) and `panelOpen` whether the panel starts expanded (default
+ * true); the store seeds new sessions from the user's side card prefs.
+ * `seed` picks the seeded tab: 'editor-home' places the EMPTY files window
+ * (an editor tab with no path whose tree panel starts open,
+ * `meta.treeOpen: true`) — in BOTH editorExplorer modes that window is the
+ * file explorer page — and 'none' starts with an empty pane (the store
+ * passes it when the user disabled the editor tab type in settings). */
+export declare function makeDefaultState(width?: number, panelOpen?: boolean, seed?: DefaultSeed): SidebarState;
+/** Which tree owns a pane/split id. The bottom panel was removed in v1.0.0 —
+ *  only the right tree remains; kept as a function so call sites stay
+ *  written against the (formerly two-tree) resolution seam. */
+export declare function treeOf(_state: SidebarState, _id: string): 'splits';
+/** Walk the tree and apply `visit` to the leaf with the given id. */
+export declare function mapLeaf(node: SplitNode, paneId: string, visit: (leaf: SidebarLeaf) => void): SplitNode;
+/** The first leaf of the tree (fallback pane when activePane is gone). */
+export declare function firstLeaf(node: SplitNode): SidebarLeaf;
+/** Find the leaf containing a tab id, if any. */
+export declare function leafWithTab(node: SplitNode, tabId: string): SidebarLeaf | undefined;
+/** All leaves of the tree, depth-first. */
+export declare function allLeaves(node: SplitNode): SidebarLeaf[];
+/** Whether a tab exists anywhere in a state (any pane, or any free window —
+ *  a floating tab is as open as a docked one). */
+export declare function tabOpenIn(state: SidebarState, tabId: string): boolean;
+/** The free window holding a tab id, if any. */
+export declare function floatWithTab(state: SidebarState, tabId: string): FloatWindow | undefined;
+/** The free window with the given window id, if any. */
+export declare function floatById(state: SidebarState, floatId: string): FloatWindow | undefined;
+/** Replace a leaf with a split of it plus a fresh empty leaf. */
+export declare function splitLeafAt(node: SplitNode, paneId: string, dir: 'row' | 'col'): SplitNode;
+/**
+ * Split a leaf by inserting a fresh leaf holding `tab` beside it — the
+ * VSCode drag-to-edge gesture. `dir` is the split direction ('row' for
+ * left/right, 'col' for up/down); `front` places the new leaf first (left/
+ * up) or second (right/down).
+ * @returns the new tree plus the fresh leaf's id (the drop's active pane).
+ */
+export declare function insertLeafAt(node: SplitNode, paneId: string, dir: 'row' | 'col', tab: SidebarTab, front: boolean): {
+    node: SplitNode;
+    leafId: string;
+};
+/** Where a tab drop lands on a pane: an edge creates a split, center merges. */
+export type DropZone = 'left' | 'right' | 'up' | 'down' | 'center';
+/**
+ * The VSCode drag gesture: move a tab out of its pane and either merge it
+ * into the target pane (center) or split the target pane with the tab in a
+ * fresh leaf (edge). The source pane collapses when it empties.
+ */
+export declare function moveTabToEdge(state: SidebarState, fromPane: string, tabId: string, toPane: string, zone: DropZone): SidebarState;
+/**
+ * Remove a leaf from the tree. A split left with one child promotes that
+ * child; removing the last leaf yields an empty leaf.
+ */
+export declare function removeLeafAt(node: SplitNode, paneId: string): SplitNode;
+/** Close a tab; an emptied leaf is removed (unless it is the only pane). */
+export declare function closeTab(state: SidebarState, paneId: string, tabId: string): SidebarState;
+/** Activate a tab in its pane (the pane's own tree). */
+export declare function activateTab(state: SidebarState, paneId: string, tabId: string): SidebarState;
+/** Update the display fields of one open tab (title / path / meta) without
+ *  re-opening it. The browser tab persists its current URL and hostname
+ *  title through this reducer so a reload restores the visited page. A
+ *  missing tab id is a no-op. The tab may live in any pane or a free
+ *  window. */
+export declare function patchTab(state: SidebarState, tabId: string, patch: {
+    title?: string;
+    path?: string;
+    meta?: unknown;
+}): SidebarState;
+/**
+ * Set or clear the pin marker on one open tab (v0.17.0+). A pin marker is
+ * structural metadata (NOT display fields like title/path), so it walks
+ * the split tree AND the free windows exactly like {@link patchTab} —
+ * the tab may live in a pane or float. Passing `null` clears the pin
+ * (the tab stays open in its home session); passing a `{ scope, homeCwd }`
+ * object sets it. An unknown tab id is a strict no-op (same reference
+ * returned) so a stale pin request never churns the state or rewrites
+ * localStorage.
+ * @param state - the current per-session sidebar state.
+ * @param tabId - the tab to pin/unpin.
+ * @param pin - the pin marker to set, or null to clear.
+ * @returns the next state (or the same reference when the tab is missing
+ *          or the pin marker is already the requested value).
+ */
+export declare function setTabPin(state: SidebarState, tabId: string, pin: {
+    scope: 'workspace' | 'global';
+    homeCwd?: string;
+} | null): SidebarState;
+/**
+ * Land a tab in the active pane (or focus its existing instance by id).
+ * Dedup strategies (single-instance, per-path, per-change) are owned by the
+ * tab descriptor through {@link BetterSidebarService.openTab} / `dedupeKey`;
+ * this reducer only handles the id-based safety net (reconcile and
+ * openDiffTab already check existence before calling) and the landing
+ * itself — the service's dedupe path delegates here after its dedupeKey
+ * check misses.
+ *
+ * A stale activePane id (its pane was closed since) falls back to the
+ * right tree's first pane instead of swallowing the open.
+ */
+export declare function openTabInActivePane(state: SidebarState, tab: SidebarTab): SidebarState;
+/** Move a tab from one pane to another (insert at index; -1 appends). */
+export declare function moveTab(state: SidebarState, fromPane: string, tabId: string, toPane: string, index?: number): SidebarState;
+/** Split the active pane (or the pane containing the active tab). */
+export declare function splitPane(state: SidebarState, dir: 'row' | 'col'): SidebarState;
+/**
+ * Open a diff tab the VSCode way: an existing instance of the same change is
+ * focused wherever it lives; otherwise the tab joins the first pane that
+ * already holds diff tabs (diff panes are sticky — repeated clicks stack
+ * there); on the FIRST diff of a layout the source pane splits vertically so
+ * the diff lands in a fresh pane below it ("默认在下半栏新增一个").
+ *
+ * This is split-tree placement surgery, not registry dispatch: the diff tab
+ * descriptor's `dedupeKey` is `(tab) => tab.id`, and the existing-instance
+ * check below is exactly that rule — the two agree by construction (asserted
+ * in tests). Diff tabs minted by the Git view carry change-derived ids, so
+ * the id check is the per-change dedupe.
+ * @returns the new state, with the diff pane active.
+ */
+export declare function openDiffTab(state: SidebarState, sourcePaneId: string, tab: SidebarTab): SidebarState;
+/** Toggle the panel open/closed (opening restores the previous layout). */
+export declare function togglePanel(state: SidebarState): SidebarState;
+/** Set the panel width (clamped to the contract range; the upper bound is
+ * the viewport so the fullscreen expansion can fill the window). */
+export declare function setWidth(state: SidebarState, width: number): SidebarState;
+/** Toggle a directory in the explorer expansion set. */
+export declare function toggleExpanded(state: SidebarState, path: string): SidebarState;
+/**
+ * Reveal files in the explorer: expand every ancestor directory between the
+ * explorer root and each file (so the lazy tree actually shows the row) and
+ * record the paths for highlighting. The reveal set is transient —
+ * sanitizeState never restores it, so a reload starts unhighlighted.
+ * @param state - current sidebar state.
+ * @param cwd - the explorer's root (session working directory).
+ * @param files - absolute paths to highlight (parent dirs are expanded).
+ * @returns the next state, or the same reference when nothing is revealed.
+ */
+export declare function revealPaths(state: SidebarState, cwd: string | undefined, files: readonly string[]): SidebarState;
+/** Adjust one split divider: `i` is the left/top child index, delta in fractions. */
+export declare function resizeSplit(node: SplitNode, splitId: string, index: number, delta: number): SplitNode;
+/** State-level {@link resizeSplit} route: the divider may live in either
+ *  tree (split ids are globally unique). */
+export declare function resizeSplitIn(state: SidebarState, splitId: string, index: number, delta: number): SidebarState;
+/** Clamp free-window geometry: sizes respect the floor and the viewport, and
+ *  the position keeps the whole window inside the viewport. Without a window
+ *  (unit tests) only the floor applies — the caller's values pass through. */
+export declare function clampFloatGeometry(x: number, y: number, w: number, h: number): Pick<FloatWindow, 'x' | 'y' | 'w' | 'h'>;
+/**
+ * Float a docked tab: remove it from its pane (an emptied pane collapses
+ * like any move) and append a free window centered on the drop
+ * point, with the default size clamped to the viewport. The stacking order
+ * is the array order, so a fresh window is born topmost. An unknown tab id
+ * (or one already floating) is a strict no-op.
+ */
+export declare function floatTab(state: SidebarState, tabId: string, x: number, y: number): SidebarState;
+/** Move a free window (clamped to the viewport); unknown ids are a no-op. */
+export declare function moveFloat(state: SidebarState, floatId: string, x: number, y: number): SidebarState;
+/** Resize a free window from its SE corner: the top-left corner stays
+ *  anchored, sizes clamp to the floor and to the viewport's remaining room. */
+export declare function resizeFloat(state: SidebarState, floatId: string, w: number, h: number): SidebarState;
+/** Bring a free window to the top (the array's end). Already topmost (or the
+ *  only window) returns the same reference — no persist churn on every click. */
+export declare function raiseFloat(state: SidebarState, floatId: string): SidebarState;
+/** Dock a free window back into a pane (center merge): the tab joins the
+ *  target pane and activates. `toPane` defaults to the active pane with the
+ *  right tree's first leaf as the stale-id fallback (mirrors
+ *  {@link openTabInActivePane}). Unknown window ids are a no-op. */
+export declare function dockFloat(state: SidebarState, floatId: string, toPane?: string): SidebarState;
+/** Close the free window holding a tab (the tab closes WITH the window —
+ *  the caller fires the descriptor's onClose lifecycle). */
+export declare function closeFloatByTab(state: SidebarState, tabId: string): SidebarState;
+/** Prefix marking a tab id as an agent-owned terminal (suffix is the uuid). */
+export declare const AGENT_TAB_PREFIX = "agent:";
+/** Whether a tab id refers to an agent-owned terminal. */
+export declare function isAgentTabId(tabId: string): boolean;
+/** Extract the agent terminal uuid from an `agent:<uuid>` tab id. */
+export declare function agentUuidOf(tabId: string): string;
+/** Build the sidebar tab id for one agent terminal uuid. */
+export declare function agentTabId(uuid: string): string;
+/**
+ * Reconcile the sidebar's agent-terminal tabs with the host's live list.
+ * The host pushes the current list of agent terminals (created by the model
+ * through the `terminal_create` tool) over a dedicated WebSocket; this
+ * reducer mirrors that list into tabs: new uuids get a tab, vanished uuids
+ * lose theirs. The agent owns the lifetime — the user closing a tab sends a
+ * WS close frame that kills the pty, which fires a change, which converges
+ * the view. Idempotent: a no-op when the lists already match.
+ * @param state - the current per-session sidebar state.
+ * @param agentTerminals - the live agent terminal snapshots from the host.
+ * @returns the next state (or the same reference if no change was needed).
+ */
+export declare function reconcileAgentTerminals(state: SidebarState, agentTerminals: ReadonlyArray<{
+    uuid: string;
+    title: string;
+}>): SidebarState;
+/** Immutable snapshot handed to React (replaced only on real changes). */
+export interface SidebarSnapshot {
+    sessionId: string | undefined;
+    state: SidebarState | undefined;
+    /**
+     * The current side card prefs. Carried IN the snapshot (not a separate
+     * subscription) so prefs changes re-render the consumers that gate on
+     * them — the + menu hides a tab type the moment its switch flips.
+     */
+    prefs: SidebarPrefs;
+}
+/** Default panel width for one viewport: the prefs percent of the window,
+ * clamped to the panel floor (a tiny percent must stay usable) and to the
+ * viewport (a large one must never cover the whole window). */
+export declare function defaultWidthFor(viewport: number, percent: number): number;
+/**
+ * Structural validation of one persisted state. A malformed or stale shape
+ * (older layouts, hand-edited storage) must fall back to the default instead
+ * of crashing the panel on every reload; the restored width is also clamped
+ * to the current viewport so a stale fullscreen width can never crush the
+ * app shell (margin-right larger than the window) or cover the whole screen.
+ * @returns a clean state, or undefined to fall back to the default.
+ */
+export declare function sanitizeState(parsed: unknown): SidebarState | undefined;
+/** The session-scoped store: one state per conversation, localStorage-backed. */
+export declare class SidebarStore {
+    private readonly bySession;
+    private snapshot;
+    private readonly listeners;
+    /** Per-session persist debounce timers (v0.12.0+: one per session, so a
+     *  targeted open never cancels another session's pending write). */
+    private readonly persistTimers;
+    /** User-facing side card prefs seeding brand-new session states (defaults until the settings RPC resolves). */
+    private prefs;
+    /**
+     * External disable (the dsh-web-ui family's aionui-panel provider choice):
+     * while true the sidebar must not mount at all. Not part of the snapshot —
+     * nothing renders on it; the mount gate and the intercept predicates read
+     * it directly.
+     */
+    private suspended;
+    /**
+     * Set the external-disable flag (from the settings route) and remember it
+     * for the mount gate and the intercept predicates.
+     */
+    setSuspended(suspended: boolean): void;
+    /** Whether the sidebar is externally disabled (aionui-panel chosen). */
+    getSuspended(): boolean;
+    /**
+     * Replace the side card prefs (the settings RPC result / settings page
+     * write). Notifies like any store change: the snapshot carries the prefs,
+     * so consumers that gate on enable switches (the + menu, derived flows)
+     * re-render with the new values immediately.
+     */
+    setPrefs(prefs: SidebarPrefs): void;
+    /** The current side card prefs (seeds new sessions; persisted states win). */
+    getPrefs(): SidebarPrefs;
+    /** Select a session (or none); loads its persisted state. */
+    setSession(sessionId: string | undefined): void;
+    subscribe(listener: () => void): () => void;
+    getSnapshot(): SidebarSnapshot;
+    /** Mutate the current session's state (no-op without a session). */
+    update(mutator: (draft: SidebarState) => void): void;
+    /**
+     * Whether a tab still exists in its session's state. Views use this on
+     * unmount to tell "the tab was closed" (release the terminal now) from
+     * "the tree re-rendered / the conversation switched" (the tab is still
+     * open — keep the terminal alive through the host's reconnect grace).
+     * Checks the session's own map entry (the current snapshot may already
+     * point at another session when a conversation switch unmounts the old
+     * one's tabs).
+     */
+    tabOpen(sessionId: string, tabId: string): boolean;
+    /**
+     * Read-only view of EVERY cached session's state (v0.17.0+). The
+     * PinnedRail uses this to collect pinned terminals across sessions
+     * without each render reading private fields. The map is the live
+     * `bySession` reference — callers MUST treat it as read-only (mutations
+     * go through {@link reduce} / {@link reduceFor}). A session that has
+     * never been visited in this run is absent (its pinned tabs are not
+     * visible until first load — accepted as YAGNI by the design).
+     */
+    getSessionStates(): ReadonlyMap<string, SidebarState>;
+    /** Apply a pure reducer (returns the next state). */
+    reduce(reducer: (state: SidebarState) => SidebarState): void;
+    /**
+     * Apply a pure reducer to a TARGET session's state (not the active one),
+     * loading it on demand and persisting the result — WITHOUT switching the
+     * active snapshot or notifying (the UI must not follow along). Used by the
+     * service's targeted `openTab(seed, scope)`: the open lands in the target
+     * session's layout and is visible whenever the user switches to it.
+     */
+    reduceFor(sessionId: string, reducer: (state: SidebarState) => SidebarState): void;
+    private schedulePersist;
+    private notify;
+}
+/**
+ * Create one sidebar store instance. Production code calls this only from
+ * the client plugin's `apply` (the instance is handed to components as a
+ * prop); tests call it directly. No module-level singleton: the store's
+ * lifetime belongs to the plugin activation, exactly like the official
+ * `createXXXStore()` factory rule.
+ */
+export declare function createSidebarStore(): SidebarStore;
