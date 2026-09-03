@@ -302,6 +302,8 @@ export declare const zh: {
     subagentDiagUnsupported: string;
     subagentDiagUnavailable: string;
     subagentThinking: string;
+    subagentShowHistory: string;
+    subagentHideHistory: string;
     sideChat: string;
     sideChatNew: string;
     sideChatUntitled: string;
@@ -329,6 +331,8 @@ export declare const zh: {
     jobs: string;
     jobsCount: string;
     jobsCountRunning: string;
+    jobsShowHistory: string;
+    jobsHideHistory: string;
     jobStatusRunning: string;
     jobStatusStopping: string;
     jobStatusCompleted: string;

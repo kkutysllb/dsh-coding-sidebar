@@ -274,6 +274,47 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* ── History collapse toggle (shared: topology levels + jobs list) ─────── */
+
+/* The "show earlier rows" disclosure between the header and the collapsed
+   rows; full-width like a row, but visually quieter (tertiary, small). */
+.historyToggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 26px;
+  padding: 3px 8px 3px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.historyToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.historyToggle:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.historyToggle svg {
+  flex: none;
+}
+
+/* The jobs section's toggle sits right under its list. */
+.jobs .historyToggle {
+  margin-top: 2px;
+}
+
 /* ── Background-job section (below the topology tree) ────────────────── */
 
 .jobs {

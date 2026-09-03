@@ -12,6 +12,12 @@
  * highlighted in place. Every branch is expanded automatically (lazy
  * catalogs hydrate on demand and consume live membership while visible).
  *
+ * To keep long histories browsable, each catalog level shows only its
+ * LATEST {@link SUBAGENT_VISIBLE} children by default — earlier rows fold
+ * behind a history toggle — and the jobs section shows its latest
+ * {@link JOBS_VISIBLE} rows the same way. Collapsing is view-only: the
+ * header counts, the output dock and live observation still see every row.
+ *
  * Each node card carries live status (state dot, durable label, mode and
  * activity); while a child RUNS, its card additionally shows the LAST text
  * output and LAST tool call pulled from its history tail, auto-refreshing
@@ -23,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
+  IconChevronDownOutline14, IconChevronRightOutline14,
   IconRefreshOutline14, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -65,6 +72,15 @@ const ARGS_PREVIEW = 60
 const JOB_POLL_MS = 2000
 /** How long the kill button stays armed before it needs re-confirming. */
 const JOB_KILL_ARM_MS = 3000
+/**
+ * How many of the LATEST rows stay visible by default before the earlier
+ * (history) rows collapse behind a toggle: {@link SUBAGENT_VISIBLE} for the
+ * topology's child rows, {@link JOBS_VISIBLE} for the background-job list.
+ * Collapsing is view-only — counts, the output dock and live observation
+ * keep seeing every entry.
+ */
+const SUBAGENT_VISIBLE = 5
+const JOBS_VISIBLE = 3
 
 /** The direct subagent children of one parent (durable `origin` rows;
  *  Side Chat threads ride the same origin but are tab-strip conversations,
@@ -244,7 +260,12 @@ interface RowsProps {
   refresh: (parentSessionId: string) => void
 }
 
-/** Render one topology level; branches are always expanded (lazy catalogs). */
+/**
+ * Render one topology level; branches are always expanded (lazy catalogs).
+ * When a level lists more than {@link SUBAGENT_VISIBLE} children, only the
+ * LATEST ones render by default — the earlier rows collapse behind a
+ * history toggle (per-level state; a fresh catalog page collapses again).
+ */
 function CatalogRows({
   parentSessionId, catalog, catalogs, byId, level, currentSessionId, live,
   openChild, refresh,
@@ -258,6 +279,10 @@ function CatalogRows({
     if (entry.kind === 'child') return !(entry.label?.startsWith(SIDE_LABEL_PREFIX) ?? false)
     return !(byId[entry.id]?.displayTitle.startsWith(SIDE_LABEL_PREFIX) ?? false)
   })
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyCount = visibleEntries.length - SUBAGENT_VISIBLE
+  const collapsed = historyCount > 0 && !historyOpen
+  const renderEntries = collapsed ? visibleEntries.slice(-SUBAGENT_VISIBLE) : visibleEntries
   return (
     <>
       {emptyLoading && (
@@ -276,7 +301,18 @@ function CatalogRows({
           </button>
         </div>
       )}
-      {visibleEntries.map((entry) => {
+      {historyCount > 0 && (
+        <button
+          type="button"
+          className={css.historyToggle}
+          aria-expanded={historyOpen}
+          onClick={() => { setHistoryOpen(open => !open) }}
+        >
+          {historyOpen ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+          {historyOpen ? t('subagentHideHistory') : t('subagentShowHistory', { count: historyCount })}
+        </button>
+      )}
+      {renderEntries.map((entry) => {
         if (entry.kind === 'diagnostic') {
           return (
             <div key={entry.id} className={css.subagentNode}>
@@ -467,10 +503,12 @@ function JobOutputPane(props: {
 /**
  * The background-job section of the Subagent page: every job of the whole
  * current tree (main agent + subagents, owner-labeled), fed by the harness
- * `session/jobs` push mirror. Clicking a row feeds its model-read output to
- * the shared bottom dock (event replay — never the model's cursor); live
- * rows carry a two-click-confirm kill button. Renders nothing while the
- * tree has no jobs.
+ * `session/jobs` push mirror. When more than {@link JOBS_VISIBLE} jobs
+ * exist, only the head of the standard order (live rows, then newest
+ * settled) stays visible — earlier rows collapse behind a history toggle.
+ * Clicking a row feeds its model-read output to the shared bottom dock
+ * (event replay — never the model's cursor); live rows carry a
+ * two-click-confirm kill button. Renders nothing while the tree has no jobs.
  */
 function JobsSection(props: {
   byId: SidebarSessionList['byId']
@@ -485,6 +523,7 @@ function JobsSection(props: {
     [byId, jobsBySession, rootId],
   )
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [armedId, setArmedId] = useState<string | undefined>(undefined)
   const [killingId, setKillingId] = useState<string | undefined>(undefined)
   const [killErrorId, setKillErrorId] = useState<string | undefined>(undefined)
@@ -547,6 +586,12 @@ function JobsSection(props: {
     ? t('jobsCountRunning', { count: rows.length, running: liveCount })
     : t('jobsCount', { count: rows.length })
 
+  // Collapsed view: the head of the standard order stays visible (all live
+  // rows up to the cap, then newest settled); the header count still
+  // reports the full totals, and a hidden job's dock keeps working.
+  const historyCount = rows.length - JOBS_VISIBLE
+  const visibleRows = historyCount > 0 && !historyOpen ? rows.slice(0, JOBS_VISIBLE) : rows
+
   return (
     <>
       <section className={css.jobs} aria-label={t('jobs')}>
@@ -555,7 +600,7 @@ function JobsSection(props: {
           <span className={css.jobsCount}>{countLabel}</span>
         </div>
         <ul className={css.jobsList} aria-label={t('jobs')}>
-          {rows.map((row) => {
+          {visibleRows.map((row) => {
             const { job } = row
             const live = isJobLive(job)
             const selected = selectedId === job.id
@@ -617,6 +662,17 @@ function JobsSection(props: {
             )
           })}
         </ul>
+        {historyCount > 0 && (
+          <button
+            type="button"
+            className={css.historyToggle}
+            aria-expanded={historyOpen}
+            onClick={() => { setHistoryOpen(open => !open) }}
+          >
+            {historyOpen ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+            {historyOpen ? t('jobsHideHistory') : t('jobsShowHistory', { count: historyCount })}
+          </button>
+        )}
       </section>
       {selectedRow !== undefined && (
         <JobOutputPane
