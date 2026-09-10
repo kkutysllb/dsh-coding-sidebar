@@ -78,11 +78,11 @@ export interface SidebarSessionStore {
     get(id: string): {
         header: SidebarSessionHeader;
         /**
-         * The live session's append-only event log (immutable snapshot; absent
+         * The live session's immutable event snapshot (0.1.5 Session API; absent
          * on sessions the runtime has not hydrated). Read-only access — the
          * jobs.output route replays `job_output` tool/result rows from it.
          */
-        events?: readonly SidebarSessionEvent[];
+        snapshotEvents?(fromSeq?: number, toSeqExclusive?: number): readonly SidebarSessionEvent[];
     } | undefined;
 }
 /**
@@ -276,16 +276,25 @@ export interface SidebarSessionTitleService {
     };
 }
 /** The host session-persistence face (mirror of the sessionPersistence
- *  service): detached inspection of a persisted session, used to compose the
- *  recorded preset when a Side Chat thread cold-resumes. */
-export interface SidebarSessionPersistenceService {
-    inspect(sessionId: string): Promise<{
-        meta: {
-            cwd?: string;
-            agentPreset?: string;
-        };
+ *  service, 0.1.5 handle-seam form): a short-lived read handle over one
+ *  persisted session, used to compose the recorded preset when a Side Chat
+ *  thread cold-resumes. */
+export interface SidebarSessionPersistenceHandle {
+    readonly header: {
+        cwd?: string;
+        agentPreset?: string;
+    };
+    read(fromSeq?: number, toSeqExclusive?: number, options?: {
+        signal?: AbortSignal;
+    }): Promise<{
         events: readonly SidebarSessionEvent[];
     }>;
+    close(): Promise<void>;
+}
+export interface SidebarSessionPersistenceService {
+    open(sessionId: string, access: 'read', options?: {
+        signal?: AbortSignal;
+    }): Promise<SidebarSessionPersistenceHandle>;
 }
 /** RPC result slot mirror (`RpcResult<T>` on the wire). */
 export type SidebarRpcResult<T> = {

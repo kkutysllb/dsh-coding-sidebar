@@ -23,7 +23,7 @@
   gap: 4px;
   min-height: 36px;
   padding: 4px 8px 4px 12px;
-  border-bottom: 1px solid var(--dsw-alias-hairline);
+  border-bottom: 1px solid var(--dsw-alias-border-l);
 }
 
 .sidechatHeaderDot {
@@ -39,7 +39,7 @@
   flex: none;
   max-width: 55%;
   padding: 1px 8px;
-  border: 1px solid var(--dsw-alias-hairline);
+  border: 1px solid var(--dsw-alias-border-l);
   border-radius: 999px;
   font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-tertiary);
@@ -108,9 +108,9 @@
   padding: 6px 14px;
   border: none;
   border-radius: 999px;
-  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-accent));
-  color: var(--dsw-alias-button-info-label, var(--dsw-alias-accent-ink, #fff));
-  font: var(--dsw-font-s-13);
+  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-interactive-bg-hover-solid));
+  color: #fff;
+  font: var(--dsw-font-s-14);
   cursor: pointer;
   transition: opacity 100ms ease-out;
 }
@@ -135,7 +135,7 @@
   flex: none;
   padding: 4px 12px;
   font: var(--dsw-font-xxs-12);
-  color: var(--dsw-alias-danger);
+  color: #d5304d;
 }
 
 /* ── transcript ─────────────────────────────────────────────────────── */
@@ -246,13 +246,13 @@
 
 .sidechatRowFailed .sidechatRowLabel,
 .sidechatRowFailed .sidechatRowMeta {
-  color: var(--dsw-alias-danger);
+  color: #d5304d;
 }
 
 .sidechatRowBody {
   margin: 2px 0 4px 7px;
   padding: 2px 0 2px 10px;
-  border-left: 1px solid var(--dsw-alias-hairline);
+  border-left: 1px solid var(--dsw-alias-border-l);
 }
 
 .sidechatRowProse {
@@ -277,7 +277,7 @@
 }
 
 .sidechatRowCode + .sidechatRowCode {
-  border-top: 1px solid var(--dsw-alias-hairline);
+  border-top: 1px solid var(--dsw-alias-border-l);
 }
 
 /* Shimmer sweep text: generating (streaming row labels, creating hero). */
@@ -328,7 +328,7 @@
   gap: 4px;
   margin: 0 8px 8px;
   padding: 8px 8px 6px 14px;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, var(--dsw-alias-hairline));
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, var(--dsw-alias-border-l));
   border-radius: 16px;
   background: var(--dsw-specific-input-major, var(--dsw-alias-bg-base));
   box-shadow: var(--dsw-shadow-lv2, none);
@@ -380,8 +380,8 @@
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-accent));
-  color: var(--dsw-alias-button-info-label, var(--dsw-alias-accent-ink, #fff));
+  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-interactive-bg-hover-solid));
+  color: #fff;
   cursor: pointer;
   /* send ⇄ stop swap: keyed remount plays this, hover only fades. */
   animation: sidechatBtnIn 120ms ease-out;

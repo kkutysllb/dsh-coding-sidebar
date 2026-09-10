@@ -18,7 +18,7 @@ import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
-import type { Context, SidebarHttpRequest } from './context-types.ts'
+import type { Context, SidebarHttpRequest, SidebarSessionPersistenceService } from './context-types.ts'
 import {
   Config,
   PrefsSchema,
@@ -126,10 +126,11 @@ async function sessionCwdOf(ctx: Context, sessionId: string, clientCwd?: string)
       throw new SidebarError('bad-request', `invalid working directory "${clientCwd}"`)
     }
   }
-  const persistence = ctx.get('sessionPersistence')
+  const persistence = ctx.get('sessionPersistence') as SidebarSessionPersistenceService | undefined
   if (persistence !== undefined) {
-    const inspected = await persistence.inspect(sessionId)
-    const metaCwd = inspected.meta.cwd
+    const handle = await persistence.open(sessionId, 'read')
+    const metaCwd = handle.header.cwd
+    await handle.close()
     if (metaCwd !== undefined && metaCwd !== '') {
       try {
         return requireAbsolute(metaCwd)

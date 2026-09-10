@@ -76,8 +76,9 @@ export function buildSubagentLiveApi(ctx: Context): SidebarSubagentLiveRoutes {
         // never topology — keep them out of the live map too.
         if (entry.label?.startsWith(SIDE_LABEL_PREFIX) ?? false) continue
         try {
+          const stored = ctx.sessions.get(entry.id)
           const activity = lastActivity(
-            ctx.sessions.get(entry.id)?.events ?? [],
+            stored?.snapshotEvents !== undefined ? stored.snapshotEvents() : [],
             LIVE_WINDOW_MESSAGES,
           )
           if (activity.text !== undefined || activity.tool !== undefined) {

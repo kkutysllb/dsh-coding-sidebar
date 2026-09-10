@@ -76,7 +76,7 @@
 .count {
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--dsw-alias-accent-soft, var(--dsw-alias-bg-layer-2));
+  background: var(--dsw-alias-bg-layer-2);
   font-size: 11px;
   line-height: 16px;
   font-weight: 500;
@@ -836,7 +836,7 @@
 .versionBadgeTag {
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--dsw-alias-accent-soft, var(--dsw-alias-border-l2));
+  background: var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }

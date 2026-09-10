@@ -26,6 +26,7 @@ import type { Agent, AgentSetup, CreateAgentOptions, ResumeAgentOptions } from '
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import type { Context as CordisContext } from '@deepseek-ai/cordis'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SidebarSessionEvent } from './context-types.ts'
 import type {
   Context,
   SidebarAgentPresetsService,
@@ -104,8 +105,10 @@ async function composePersistedSetup(
   if (persistence === undefined) {
     return () => Promise.resolve()
   }
-  const inspected = await persistence.inspect(childId)
-  const presetId = resolvePresetId(inspected.meta, inspected.events)
+  const handle = await persistence.open(childId, 'read')
+  const { events } = await handle.read()
+  const presetId = resolvePresetId(handle.header as never, events as unknown as readonly SidebarSessionEvent[])
+  await handle.close()
   const presets = ctx.get('agentPresets') as SidebarAgentPresetsService | undefined
   if (presets === undefined || presetId === undefined) {
     return () => Promise.resolve()
@@ -166,11 +169,11 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       }
       const parentSession = parent.session
       const inheritance = buildSidechatInheritance(
-        parentSession.events as unknown as readonly SidechatLogEvent[],
+        parentSession.snapshotEvents() as unknown as readonly SidechatLogEvent[],
       )
       const { agentPreset, setup } = await composeChildSetup(
         ctx,
-        resolvePresetId(parentSession.header, parentSession.events),
+        resolvePresetId(parentSession.header, parentSession.snapshotEvents()),
       )
       const childId = `session-${randomUUID()}` as SessionId
       const label = question === '' ? SIDE_NEW_THREAD_TITLE : sideLabel(question)
@@ -198,7 +201,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
         meta: {
           ...(parentSession.header.cwd === undefined ? {} : { cwd: parentSession.header.cwd }),
           parentSession: parentSession.id,
-          seedLength: seed.length,
+          isSeeded: seed.length > 0,
           origin: 'subagent',
           delegationDepth: (parentSession.header.delegationDepth ?? 0) + 1,
           ...(agentPreset === undefined ? {} : { agentPreset }),
@@ -267,7 +270,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
           throw new SidebarError('sidechat-error', `thread resume failed: ${error instanceof Error ? error.message : String(error)}`, 500)
         }
       }
-      if (boundaryDelivered(agent.session.events as unknown as readonly SidechatLogEvent[])) {
+      if (boundaryDelivered(agent.session.snapshotEvents() as unknown as readonly SidechatLogEvent[])) {
         admitFollowup(agent, textPrompt(text))
       } else {
         // First message of an immediately-created thread: it carries the
@@ -331,8 +334,10 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       const persistence = ctx.get('sessionPersistence') as SidebarSessionPersistenceService | undefined
       if (persistence !== undefined) {
         try {
-          const inspected = await persistence.inspect(childId)
-          const preset = resolvePresetId(inspected.meta, inspected.events)
+          const handle = await persistence.open(childId, 'read')
+          const { events } = await handle.read()
+          const preset = resolvePresetId(handle.header as never, events as unknown as readonly SidebarSessionEvent[])
+          await handle.close()
           return { live: false, ...(preset === undefined ? {} : { preset }) }
         } catch {
           // Unknown/gone session: report a bare cold info.

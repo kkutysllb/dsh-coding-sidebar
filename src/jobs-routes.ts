@@ -135,7 +135,7 @@ const MIRROR_MAX_ENTRIES = 200
  * The live job_output mirror: subscribes to the session append feed and
  * caches the job_output traces the session store's own log can lag behind
  * (after a host restart the store session stays frozen at its rehydration
- * boundary, so `session.events` misses everything appended since — the very
+ * boundary, so a stale snapshot misses everything appended since — the very
  * reads the pane exists to show). Zero DSH writes: the api-proxy pushes the
  * same feed to browsers.
  */
@@ -211,7 +211,8 @@ export function buildJobsApi(ctx: Context, outputLimit: number): SidebarJobsRout
       // Merge the store's event log (durable seed + whatever it received)
       // with the live mirror, deduped by seq — a trace never double-counts.
       const bySeq = new Map<number, JobOutputTrace>()
-      for (const event of ctx.sessions.get(sessionId)?.events ?? []) {
+      const store = ctx.sessions.get(sessionId)
+      for (const event of (store?.snapshotEvents !== undefined ? store.snapshotEvents() : []) ?? []) {
         const trace = traceOf(event)
         if (trace !== undefined) bySeq.set(trace.seq, trace)
       }
