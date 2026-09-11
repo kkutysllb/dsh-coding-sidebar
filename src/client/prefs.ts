@@ -101,12 +101,6 @@ export function parsePrefs(value: unknown): SidebarPrefs {
     titleBarStripPx: typeof record.titleBarStripPx === 'number' && Number.isFinite(record.titleBarStripPx)
       ? clampTitleBarStrip(record.titleBarStripPx)
       : SIDEBAR_PREFS_DEFAULTS.titleBarStripPx,
-    htmlViewerNoSandbox: typeof record.htmlViewerNoSandbox === 'boolean'
-      ? record.htmlViewerNoSandbox
-      : SIDEBAR_PREFS_DEFAULTS.htmlViewerNoSandbox,
-    htmlViewerDefaultUnsafe: typeof record.htmlViewerDefaultUnsafe === 'boolean'
-      ? record.htmlViewerDefaultUnsafe
-      : SIDEBAR_PREFS_DEFAULTS.htmlViewerDefaultUnsafe,
     browserNoSandbox: typeof record.browserNoSandbox === 'boolean'
       ? record.browserNoSandbox
       : SIDEBAR_PREFS_DEFAULTS.browserNoSandbox,
@@ -123,7 +117,6 @@ export function parsePrefs(value: unknown): SidebarPrefs {
       ? record.browserAllowedLoopback
       : SIDEBAR_PREFS_DEFAULTS.browserAllowedLoopback,
     tabsEnabled: booleanMapOf(record.tabsEnabled),
-    viewersEnabled: booleanMapOf(record.viewersEnabled),
     pluginSettings: pluginSettingsMapOf(record.pluginSettings),
   }
 }

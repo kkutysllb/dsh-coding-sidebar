@@ -1,3 +1,11 @@
+/**
+ * Typed fetch wrapper over the /sidebar JSON API. Every call posts to
+ * `/sidebar/api/<method>` with the sessionId and — when known — the session's
+ * cwd from the client's own list summary. The host prefers its attached
+ * session header and uses the summary cwd only while the session is still
+ * hydrating at page load (a detached session would otherwise fail the
+ * request). Failures surface as {@link SidebarApiError} with the wire code.
+ */
 import type { LastActivity } from '../subagent-activity.ts';
 import type { SidechatThreadInfo } from '../sidechat-core.ts';
 import type { BrowserProbeResult } from './browser.ts';
@@ -259,17 +267,6 @@ export declare const api: {
         started: boolean;
     }>;
 };
-/** Absolute URL of the media route for one path (images only). */
-export declare function mediaUrl(scope: SessionScope, path: string): string;
 /** Absolute URL of the download route: serves raw bytes (binary-safe) with
  *  `Content-Disposition: attachment`, so the browser saves the file. */
 export declare function downloadUrl(scope: SessionScope, path: string): string;
-/**
- * Absolute URL of the HTML preview route (see html-route.ts): the path is
- * fully encoded so the previewed page's relative assets resolve back into
- * the same route with the session scope intact. The UNC marker is
- * platform-neutral — the host's requireAbsolute resolves the decoded
- * forward-slash `//server/share/...` form on both win32 and POSIX — so no
- * client-side platform signal is needed.
- */
-export declare function htmlUrl(scope: SessionScope, path: string): string;

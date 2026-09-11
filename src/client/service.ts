@@ -1,10 +1,13 @@
 /**
  * The BetterSidebar client service: a registry that external plugins use
- * to contribute sidebar tab types and file previewers. The service is
- * published to the cordis context as `ctx.betterSidebar` (see
- * {@link ../context-types.ts}); consumers declare it in `inject` and call
- * `registerTab` / `registerFileViewer`, both returning a disposer that
- * cordis auto-invokes on fiber disposal (HMR-safe).
+ * to contribute sidebar tab types. The service is published to the cordis
+ * context as `ctx.betterSidebar` (see {@link ../context-types.ts});
+ * consumers declare it in `inject` and call `registerTab`, which returns a
+ * disposer that cordis auto-invokes on fiber disposal (HMR-safe).
+ *
+ * (v1.0.4: the file-viewer registry — `registerFileViewer` /
+ * `matchFileViewer` — was retired; file preview is the host's job now and
+ * the sidebar edits text only.)
  *
  * Design notes:
  * - The registry is synchronous-snapshot (Map + listener set) so React
@@ -15,9 +18,6 @@
  *   `single: true` is sugar for `dedupeKey: () => id`.
  * - `createTab` lets a descriptor own tab instantiation (the terminal
  *   builtin uses it to mint `terminal:<n>` ids and bump `nextTerminal`).
- * - `matchFileViewer` walks descriptors in priority order (desc, stable):
- *   per descriptor it tries `detect` first (when `head` bytes are given),
- *   then `exts`; `exts: []` is a catch-all that matches any path.
  */
 import type { ReactNode } from 'react'
 import type { Context } from '../context-types.ts'
@@ -65,7 +65,7 @@ export interface SidebarSettingSelectOption {
   icon?: ReactNode | ((size: number) => ReactNode)
 }
 
-/** One declarative setting of a tab/viewer, rendered as a nested row in the
+/** One declarative setting of a registered tab, rendered as a nested row in the
  *  Side card settings page (e.g. the Subagent page's "auto-open when a
  *  subagent appears" switch, or the terminal's custom font rows). `type`
  *  selects the control: 'switch' (default) renders the custom switch,
@@ -110,7 +110,7 @@ export interface SidebarSettingsRenderProps {
   close(): void
 }
 
-/** Declarative settings of one registered tab or file viewer. */
+/** Declarative settings of one registered tab. */
 export interface SidebarSettingsDeclaration {
   /**
    * Extra settings rows rendered under the feature's own row in the
@@ -240,86 +240,17 @@ export interface TabDescriptor {
   component: (props: TabComponentProps) => ReactNode
 }
 
-/** How the host loads a file's bytes for one viewer. */
-export type FileFetchStrategy =
-  | 'none'               // no bytes needed (image/pdf/office fetch through mediaUrl themselves)
-  | 'fsRead'             // text read through /sidebar/api fs.read
-  | 'mediaUrl'           // the viewer gets a media URL string
-  | 'custom'             // the viewer's load() fetches its own bytes
-  | 'binary-download'    // show a download button (no client-side renderer)
-
-/** Props every file viewer component receives. */
-export interface FileViewerProps {
-  ctx: Context
-  store: SidebarStore
-  scope: SessionScope
-  path: string
-  title: string
-  /** The matching descriptor's id (`'code'`, `'my-plugin:csv'`). */
-  viewerId: string
-  /** fsRead text content (fetchStrategy='fsRead'). */
-  content?: string
-  truncated?: boolean
-  /** mediaUrl for the path (fetchStrategy='mediaUrl'). */
-  mediaUrl?: string
-  /** custom load() return value (fetchStrategy='custom'). */
-  customData?: unknown
-  /** Internal (built-in text editor): 'host' asks the viewer to skip its own
-   *  toolbar row — the editor host's merged-mode header renders it instead,
-   *  fed through the two callbacks below. Viewers that ignore these fields
-   *  render exactly as before. */
-  toolbar?: 'self' | 'host'
-  /** Internal: the viewer reports its toolbar state (mode/dirty/save). */
-  onToolbarState?: (state: EditorToolbarState) => void
-  /** Internal: the viewer registers its toolbar commands on mount (null on
-   *  unmount). */
-  onToolbarControls?: (controls: EditorToolbarControls | null) => void
-}
-
-/** The toolbar state a text editor reports to the host's merged-mode header. */
+/** The toolbar state the text editor reports to the host's merged-mode header. */
 export interface EditorToolbarState {
-  /** Whether the preview/edit mode toggle applies (markdown/html). */
-  modes: boolean
-  mode: 'preview' | 'edit'
   dirty: boolean
   /** Whether saving applies (text content loaded). */
   editable: boolean
   saveState: 'idle' | 'saving' | 'saved' | 'failed'
 }
 
-/** The commands the host's merged-mode header sends back to the viewer. */
+/** The commands the host's merged-mode header sends back to the editor. */
 export interface EditorToolbarControls {
-  setMode(mode: 'preview' | 'edit'): void
   save(): void
-}
-
-/** Describes one file previewer (builtins register themselves too). */
-export interface FileViewerDescriptor {
-  /** Unique id (`'image'`, `'pdf'`, `'my-plugin:csv'`). */
-  id: string
-  /** Display name for the settings inventory (falls back to `id` when absent). */
-  title?: string | (() => string)
-  /** Icon shown in the settings inventory. */
-  icon?: ReactNode | ((size: number) => ReactNode)
-  /** Lowercase extensions without leading dot (`['png','jpg']`). `[]` = match any (catch-all). */
-  exts: readonly string[]
-  /** Higher wins; default 0. Builtins use 0; the catch-all `code` viewer uses -100. */
-  priority?: number
-  fetchStrategy: FileFetchStrategy
-  /**
-   * Content sniff: when `head` bytes are available the descriptor's `detect`
-   * is consulted before its `exts` (per-descriptor, in priority order).
-   */
-  detect?: (path: string, head: Uint8Array) => boolean
-  /** fetchStrategy='custom' loader. `signal` (v0.12.0+) aborts on viewer
-   *  teardown / re-match; loaders that ignore it keep working. */
-  load?: (path: string, scope: SessionScope, signal?: AbortSignal) => Promise<unknown>
-  /**
-   * Declarative settings shown in the Side card settings page: every
-   * registered viewer gets an enable/disable switch (icon + title + exts).
-   */
-  settings?: SidebarSettingsDeclaration
-  component: (props: FileViewerProps) => ReactNode
 }
 
 /** One `openTab` request. */
@@ -344,9 +275,7 @@ export interface OpenTabSeed {
  */
 export interface BetterSidebarService {
   registerTab(descriptor: TabDescriptor): () => void
-  registerFileViewer(descriptor: FileViewerDescriptor): () => void
   getTabs(): readonly TabDescriptor[]
-  getFileViewers(): readonly FileViewerDescriptor[]
   /** Find a tab descriptor by id (undefined if not registered). */
   getTab(id: string): TabDescriptor | undefined
   /**
@@ -356,13 +285,6 @@ export interface BetterSidebarService {
    * derived flows gate on it).
    */
   isTabEnabled(id: string): boolean
-  /** Whether a file viewer is enabled (absent `viewersEnabled[id]` = enabled). */
-  isViewerEnabled(id: string): boolean
-  /**
-   * Find a file viewer for a path (priority desc; detect first, then exts).
-   * Disabled viewers are skipped, so files fall through to the next match.
-   */
-  matchFileViewer(path: string, head?: Uint8Array): FileViewerDescriptor | undefined
   /**
    * Open a tab (used by external tabs and the + menu). `title` overrides
    * the descriptor's title when given (the editor tab shows the file name);
@@ -422,14 +344,6 @@ export interface BetterSidebarService {
   activateTab(tabId: string, scope?: SessionScope): void
   /** Open a file in the sidebar editor of `scope`'s session (title defaults to the file name). */
   openFile(scope: SessionScope, path: string, title?: string): void
-}
-
-/** Extract the lowercase extension without leading dot from a path. */
-function extOfPath(path: string): string {
-  const at = path.lastIndexOf('.')
-  if (at === -1) return ''
-  const base = path.slice(at + 1).toLowerCase()
-  return base.includes('/') || base.includes('\\') ? '' : base
 }
 
 /** The file name of a path (both separators). */
@@ -517,12 +431,11 @@ function safeCall(fn: () => void): void {
 
 /**
  * Create one BetterSidebar service bound to a store. The service owns the
- * tab/viewer registries (Map + listener set) and proxies openTab/closeTab
+ * tab registry (Map + listener set) and proxies openTab/closeTab
  * to the store's reducer. One instance per client plugin activation.
  */
 export function createBetterSidebarService(store: SidebarStore): BetterSidebarService {
   const tabs = new Map<string, TabDescriptor>()
-  const viewers = new Map<string, FileViewerDescriptor>()
   const listeners = new Set<() => void>()
 
   const notify = (): void => {
@@ -548,58 +461,12 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
     }
   }
 
-  const registerFileViewer = (descriptor: FileViewerDescriptor): (() => void) => {
-    if (viewers.has(descriptor.id)) {
-      throw new Error(`[dsh-coding-sidebar] file viewer "${descriptor.id}" already registered`)
-    }
-    viewers.set(descriptor.id, descriptor)
-    notify()
-    return () => {
-      if (viewers.get(descriptor.id) === descriptor) {
-        viewers.delete(descriptor.id)
-        notify()
-      }
-    }
-  }
-
   const getTabs = (): readonly TabDescriptor[] => Array.from(tabs.values())
-  const getFileViewers = (): readonly FileViewerDescriptor[] => Array.from(viewers.values())
   const getTab = (id: string): TabDescriptor | undefined => tabs.get(id)
 
   // The enable switches come from the user's side card prefs (the shared
   // store the service is bound to): an absent key means enabled.
   const isTabEnabled = (id: string): boolean => store.getPrefs().tabsEnabled[id] !== false
-  const isViewerEnabled = (id: string): boolean => store.getPrefs().viewersEnabled[id] !== false
-
-  const matchFileViewer = (path: string, head?: Uint8Array): FileViewerDescriptor | undefined => {
-    const ext = extOfPath(path)
-    // Single pass in priority order (descending; stable for equal
-    // priorities — insertion order). Each descriptor gets first refusal in
-    // its own turn: `detect` (when head bytes are available) beats its own
-    // `exts`, and `exts: []` is a catch-all matching any path — so the
-    // catch-all `code` viewer (-100) only sees paths no higher-priority
-    // descriptor claimed. Disabled viewers are skipped entirely.
-    for (const v of Array.from(viewers.values()).sort(
-      (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
-    )) {
-      if (!isViewerEnabled(v.id)) continue
-      // Content sniff first (only when head bytes are available).
-      if (head !== undefined && v.detect !== undefined) {
-        if (v.detect(path, head)) return v
-        // A catch-all with detect is SNIFF-ONLY: it must not blind-claim
-        // paths it never sniffed (a magic-number viewer must not swallow
-        // every file before the real viewers get their turn).
-        if (v.exts.length === 0) continue
-      } else if (v.exts.length === 0) {
-        // Blind catch-all (no detect) claims anything; a sniff-only
-        // catch-all (detect defined, no head yet) yields this round.
-        if (v.detect === undefined) return v
-        continue
-      }
-      if (v.exts.includes(ext)) return v
-    }
-    return undefined
-  }
 
   const openTab = (seed: OpenTabSeed, scope?: SessionScope): void => {
     // A type the user disabled in settings never opens — neither from the
@@ -807,13 +674,9 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
 
   return {
     registerTab,
-    registerFileViewer,
     getTabs,
-    getFileViewers,
     getTab,
     isTabEnabled,
-    isViewerEnabled,
-    matchFileViewer,
     openTab,
     closeTab,
     subscribe,

@@ -12,6 +12,7 @@ import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Context } from '../context-types.ts'
 import { allLeaves, createSidebarStore, isAgentTabId } from './state.ts'
+import { installNativeSidebarAvoidance } from './native-avoid.ts'
 import { createBetterSidebarService, matchUrlTarget } from './service.ts'
 import { revalidateChunksOnReactivate, setChunkModuleSystem } from './chunk-loader.ts'
 import { registerBuiltins } from './builtins/index.ts'
@@ -123,11 +124,19 @@ export function apply(ctx: Context): void {
   // module-level singleton).
   const sidebarStore = createSidebarStore()
   // The sidebar registry service: external plugins register tab types and
-  // file previewers through `ctx.betterSidebar.registerTab/registerFileViewer`.
+  // tab pages through `ctx.betterSidebar.registerTab`.
   // Published before the panel mounts so consumers injecting 'betterSidebar'
   // are ready by the time the sidebar renders.
   const service = createBetterSidebarService(sidebarStore)
   ctx.provide('betterSidebar', service)
+  // Native-sidebar avoidance: when the DSH shell's own sidebar expands, an
+  // open panel would crowd the page into several columns — yield (collapse,
+  // remembered) and restore when the native sidebar returns to its rail.
+  // The disposer unregisters the DOM observers on fiber disposal (HMR-safe).
+  ctx.effect(
+    () => installNativeSidebarAvoidance(sidebarStore),
+    'dsh-coding-sidebar: native-sidebar avoidance',
+  )
   // Terminal tab titles use the host's effective shell name (e.g. bash/zsh)
   // instead of "Terminal 1". Start with a safe fallback and replace it as
   // soon as the host shell info resolves. Tabs created before the response
@@ -146,12 +155,12 @@ export function apply(ctx: Context): void {
       }
     }
   }).catch(() => { /* keep fallback */ })
-  // Register the plugin's own built-in tabs and viewers through the same
+  // Register the plugin's own built-in tabs through the same
   // service (eating our own dogfood). The disposer unregisters them on
   // fiber disposal (HMR-safe).
   ctx.effect(
     () => registerBuiltins(ctx, service, { terminalTitle: () => terminalTitle }),
-    'dsh-coding-sidebar: register built-in tabs and viewers',
+    'dsh-coding-sidebar: register built-in tabs',
   )
   // A failure anywhere in the client lifecycle must never take the app down
   // silently: log with the plugin prefix and pin a visible diagnostic strip

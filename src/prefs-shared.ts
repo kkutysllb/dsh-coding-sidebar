@@ -127,22 +127,6 @@ export interface SidebarPrefs {
    */
   titleBarStripPx: number
   /**
-   * Whether the HTML previewer drops its sandboxed iframe. Sandbox ON (the
-   * default) renders previewed HTML in an opaque-origin iframe that cannot
-   * touch the GUI; turning it OFF runs the previewed page with the GUI's
-   * own origin — full read/write access to session files and internal
-   * APIs. Only for trusted local content; the setting copy warns.
-   */
-  htmlViewerNoSandbox: boolean
-  /**
-   * Whether a newly opened HTML preview starts UNSANDBOXED (the per-surface
-   * temporary unlock pre-applied). Off by default: previews open sandboxed
-   * and the status row offers the one-tap unlock; when on, previews open
-   * in the red unsandboxed state and the status row offers a one-tap
-   * restore for the current file.
-   */
-  htmlViewerDefaultUnsafe: boolean
-  /**
    * Whether the browser tab drops its sandboxed iframe. Sandbox ON (the
    * default) keeps browsed sites in an opaque origin with no GUI access;
    * turning it OFF runs any visited site with the GUI's own origin — it
@@ -197,15 +181,8 @@ export interface SidebarPrefs {
    */
   tabsEnabled: Record<string, boolean>
   /**
-   * Per-viewer enable switches, keyed by file viewer descriptor id
-   * (`'image'`, `'my-plugin:csv'`). An ABSENT key means enabled; a disabled
-   * viewer is skipped by `matchFileViewer` so files fall through to the
-   * next matching viewer (or the download button when none match).
-   */
-  viewersEnabled: Record<string, boolean>
-  /**
    * Plugin-owned settings blobs (v0.12.0+), keyed by descriptor id: each
-   * registered tab/viewer that declares `settings.pluginToggles` (or writes
+   * registered tab that declares `settings.pluginToggles` (or writes
    * through `settings.render`'s `updatePluginSetting`) persists its values
    * here — an open map, so third-party keys need no host PrefsSchema field.
    * Values are JSON-serializable (the row controls produce strings /
@@ -252,15 +229,12 @@ export const SIDEBAR_PREFS_DEFAULTS: SidebarPrefs = {
   customCss: '',
   titleBarCompat: false,
   titleBarStripPx: TITLE_BAR_STRIP_DEFAULT,
-  htmlViewerNoSandbox: false,
-  htmlViewerDefaultUnsafe: false,
   browserNoSandbox: false,
   browserInterceptLinks: true,
   browserInterceptHttp: true,
   browserInterceptHttps: false,
   browserAllowedLoopback: '',
   tabsEnabled: {},
-  viewersEnabled: {},
   pluginSettings: {},
 }
 

@@ -12,8 +12,9 @@
  *    external plugins alike), laid out in a responsive grid that wraps
  *    several cards per row — icon chip + title + type id, clicked to toggle
  *    the switch persisted in `prefs.tabsEnabled[id]`.
- *  - 文件预览: one SMALL CARD per REGISTERED file viewer — icon chip + title
- *    + the extensions it covers, clicked to toggle `prefs.viewersEnabled[id]`.
+ *
+ * (v1.0.4: the 文件预览 viewer inventory was retired with the file-viewer
+ * registry — file preview is the host's job now.)
  *
  * Every group lives in a container card (the DSH PluginCard recipe: l2
  * hairline, 16px radius, layer-3 fill) with a heading and an inventory count
@@ -64,14 +65,13 @@ import {
 } from '../prefs-shared.ts'
 import { api } from './api.ts'
 import { parsePrefs } from './prefs.ts'
-import { AddPluginModal, type PluginKind } from './add-plugin-modal.tsx'
+import { AddPluginModal } from './add-plugin-modal.tsx'
 import { t } from './locales.ts'
 import { parseDesktopEnv } from './desktop-env.ts'
 import { getShellPreset, getShellPresets } from './shell-presets.ts'
 import type { SidebarStore } from './state.ts'
 import type {
   BetterSidebarService,
-  FileViewerDescriptor,
   SidebarSettingsRenderProps,
   SidebarSettingToggle,
   TabDescriptor,
@@ -124,13 +124,8 @@ function titleBarSchemeValue(prefs: SidebarPrefs): string {
   return preset !== undefined ? `preset:${preset.id}` : 'auto'
 }
 
-/** Viewer inventory order: priority desc (the catch-all `code` comes last). */
-function viewerOrder(a: FileViewerDescriptor, b: FileViewerDescriptor): number {
-  return (b.priority ?? 0) - (a.priority ?? 0)
-}
-
 /** Whether a feature declares any secondary settings (gear button shows). */
-function hasSettings(feature: TabDescriptor | FileViewerDescriptor): boolean {
+function hasSettings(feature: TabDescriptor): boolean {
   const settings = feature.settings
   return settings !== undefined && (
     (settings.toggles?.length ?? 0) > 0
@@ -139,9 +134,9 @@ function hasSettings(feature: TabDescriptor | FileViewerDescriptor): boolean {
   )
 }
 
-/** A feature's display name (viewers fall back to their id). */
-function featureNameOf(feature: TabDescriptor | FileViewerDescriptor): string {
-  return textOf('title' in feature ? feature.title : undefined) || feature.id
+/** A feature's display name. */
+function featureNameOf(feature: TabDescriptor): string {
+  return textOf(feature.title) || feature.id
 }
 
 /**
@@ -491,7 +486,7 @@ function SelectRow(props: {
 }
 
 /**
- * The secondary settings popup body of one feature (tab or viewer):
+ * The secondary settings popup body of one registered tab:
  * - the host-prefs `toggles` rows, then the plugin-owned `pluginToggles`
  *   rows (their values live in `pluginSettings[feature.id]`, projected onto
  *   the prefs face so the shared row renderer reads them);
@@ -501,7 +496,7 @@ function SelectRow(props: {
  *   open-behavior picker) and still ship a custom configuration area.
  */
 export function SettingsBody(props: {
-  feature: TabDescriptor | FileViewerDescriptor
+  feature: TabDescriptor
   prefs: SidebarPrefs
   store: SidebarStore
   service: BetterSidebarService
@@ -576,19 +571,18 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
   const [widthDraft, setWidthDraft] = useState<string>(String(store.getPrefs().defaultWidthPercent))
   const [error, setError] = useState<string | null>(null)
   // Which feature's secondary settings popup is open (null = closed).
-  const [settingsFor, setSettingsFor] = useState<TabDescriptor | FileViewerDescriptor | null>(null)
+  const [settingsFor, setSettingsFor] = useState<TabDescriptor | null>(null)
   // Whether the position-compat strip popup (the gear on the 常规 row) is open.
   const [stripSettingsOpen, setStripSettingsOpen] = useState(false)
   // The parsed desktop environment (URL stamps — see desktop-env.ts). Used
   // ONLY to badge matching presets in the scheme dropdown ("已检测");
   // nothing is auto-applied.
   const detectedEnv = useMemo(() => parseDesktopEnv(), [])
-  // Whether the "add plugin" modal (a dashed card at the end of the
-  // 侧边栏内容 / 文件预览 grids) is open, and for which extension point
-  // (null = closed).
-  const [addPluginsOpen, setAddPluginsOpen] = useState<PluginKind | null>(null)
+  // Whether the "add plugin" modal (the dashed card at the end of the
+  // 侧边栏内容 grid) is open.
+  const [addPluginsOpen, setAddPluginsOpen] = useState(false)
   // The LATEST optimistic prefs, kept in sync with the state. Nested-map
-  // merges (tabsEnabled / viewersEnabled / pluginSettings) MUST build from
+  // merges (tabsEnabled / pluginSettings) MUST build from
   // this ref, not from the render-time `prefs`: two same-tick writes (e.g.
   // a settings panel updating several plugin keys at once) would otherwise
   // both spread the stale map and the later patch would drop the earlier
@@ -596,14 +590,12 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
   const optimisticRef = useRef(prefs)
   useEffect(() => { optimisticRef.current = prefs }, [prefs])
 
-  // The declarative inventory: the registered tab types and file viewers.
-  // Local state + service.subscribe (registry changes are rare — plugin
-  // load/unload — so a plain effect is enough; no external-store ceremony).
+  // The declarative inventory: the registered tab types. Local state +
+  // service.subscribe (registry changes are rare — plugin load/unload — so
+  // a plain effect is enough; no external-store ceremony).
   const [tabs, setTabs] = useState<TabDescriptor[]>(() => [...service.getTabs()].sort(tabOrder))
-  const [viewers, setViewers] = useState<FileViewerDescriptor[]>(() => [...service.getFileViewers()].sort(viewerOrder))
   useEffect(() => service.subscribe(() => {
     setTabs([...service.getTabs()].sort(tabOrder))
-    setViewers([...service.getFileViewers()].sort(viewerOrder))
   }), [service])
 
   // The settings document revision (guards concurrent writes). A ref: commits
@@ -680,11 +672,6 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
   /** Flip one per-tab enable switch (merge into the tabsEnabled map). */
   const onToggleTab = (id: string, next: boolean): void => {
     applyPref({ tabsEnabled: { ...optimisticRef.current.tabsEnabled, [id]: next } })
-  }
-
-  /** Flip one per-viewer enable switch (merge into the viewersEnabled map). */
-  const onToggleViewer = (id: string, next: boolean): void => {
-    applyPref({ viewersEnabled: { ...optimisticRef.current.viewersEnabled, [id]: next } })
   }
 
   /** Flip one declaratively-declared toggle (a SidebarPrefs boolean field). */
@@ -1001,7 +988,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
           <button
             type="button"
             className={clsx(css.card, css.addCard)}
-            onClick={() => { setAddPluginsOpen('tab') }}
+            onClick={() => { setAddPluginsOpen(true) }}
           >
             <span className={css.cardTop}>
               <span className={css.cardIconChip}>
@@ -1010,45 +997,6 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
               <span className={css.cardTitle}>{t('addPluginsTabCard')}</span>
             </span>
             <span className={css.cardDesc}>{t('addPluginsTabCardDesc')}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 文件预览: one small card per registered file viewer. */}
-      <div className={css.group}>
-        <div className={css.groupHeading}>
-          <span>{t('settingsViewersTitle')}</span>
-          <span className={css.count}>{viewers.length}</span>
-        </div>
-        <div className={css.grid}>
-          {viewers.map(viewer => (
-            <Fragment key={viewer.id}>
-              {renderCard({
-                title: textOf(viewer.title) || viewer.id,
-                desc: viewer.exts.length === 0 ? t('settingsViewerCatchAll') : viewer.exts.join(' · '),
-                icon: iconOf(viewer.icon, 16),
-                enabled: prefs.viewersEnabled[viewer.id] !== false,
-                onToggle: (next) => { onToggleViewer(viewer.id, next) },
-                onOpenSettings: prefs.viewersEnabled[viewer.id] !== false && hasSettings(viewer)
-                  ? () => { setSettingsFor(viewer) }
-                  : undefined,
-              })}
-            </Fragment>
-          ))}
-          {/* The "add preview plugin" entry: dashed card opening the
-              FILE-PREVIEWER registration modal. */}
-          <button
-            type="button"
-            className={clsx(css.card, css.addCard)}
-            onClick={() => { setAddPluginsOpen('viewer') }}
-          >
-            <span className={css.cardTop}>
-              <span className={css.cardIconChip}>
-                <IconPlusOutline16 size={16} />
-              </span>
-              <span className={css.cardTitle}>{t('addPluginsViewerCard')}</span>
-            </span>
-            <span className={css.cardDesc}>{t('addPluginsViewerCardDesc')}</span>
           </button>
         </div>
       </div>
@@ -1138,18 +1086,17 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
         </Modal>
       )}
 
-      {/* The "add plugin" modal (opened by the dashed cards above): declares
-          the extension point of the clicked kind, opens the GitHub topic,
-          and lists the matching recommended plugin catalog with per-entry
-          install buttons (the install flow opens a ~/.dsh terminal with
-          the command pre-typed; failures render inline here, in settings
-          only). Mounted only while open (Modal runs hooks unconditionally
-          — same SSR rule as the settings popup above). */}
-      {addPluginsOpen !== null && (
+      {/* The "add plugin" modal (opened by the dashed card above): declares
+          the tab extension point, opens the GitHub topic, and lists the
+          recommended plugin catalog with per-entry install buttons (the
+          install flow opens a ~/.dsh terminal with the command pre-typed;
+          failures render inline here, in settings only). Mounted only while
+          open (Modal runs hooks unconditionally — same SSR rule as the
+          settings popup above). */}
+      {addPluginsOpen && (
         <AddPluginModal
           service={service}
-          onClose={() => { setAddPluginsOpen(null) }}
-          kind={addPluginsOpen}
+          onClose={() => { setAddPluginsOpen(false) }}
         />
       )}
 

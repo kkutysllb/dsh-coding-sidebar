@@ -1,10 +1,10 @@
 /**
- * Shared vocabulary of the recommended plugin catalogs: the entry shape and
- * the GitHub topic URL. The two catalogs live in sibling modules —
- * `plugins-tabs.ts` (tab registrations) and `plugins-viewers.ts` (file
- * previewer registrations) — and are shown in the two "add plugin" modals
- * (Side card settings → the dashed cards at the end of the 侧边栏内容 /
- * 文件预览 grids).
+ * Shared vocabulary of the recommended plugin catalog: the entry shape and
+ * the GitHub topic URL. The catalog lives in the sibling module
+ * `plugins-tabs.ts` (tab registrations) and is shown in the "add plugin"
+ * modal (Side card settings → the dashed card at the end of the 侧边栏内容
+ * grid). (v1.0.4: the file-previewer catalog was retired with the
+ * file-viewer registry.)
  */
 /** The GitHub topic page listing every repo tagged `dsh-coding-sidebar`. */
 export declare const PLUGIN_TOPIC_URL = "https://github.com/topics/dsh-coding-sidebar";

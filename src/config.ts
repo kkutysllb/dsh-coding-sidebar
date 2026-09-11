@@ -134,18 +134,15 @@ export const PrefsSchema: z<SidebarPrefs> = z.object({
   customCss: z.string(),
   titleBarCompat: z.boolean().default(false),
   titleBarStripPx: z.number().step(1).min(TITLE_BAR_STRIP_MIN).max(TITLE_BAR_STRIP_MAX).default(TITLE_BAR_STRIP_DEFAULT),
-  htmlViewerNoSandbox: z.boolean().default(false),
-  htmlViewerDefaultUnsafe: z.boolean().default(false),
   browserNoSandbox: z.boolean().default(false),
   browserInterceptLinks: z.boolean().default(true),
   browserInterceptHttp: z.boolean().default(true),
   browserInterceptHttps: z.boolean().default(false),
   browserAllowedLoopback: z.string().default(''),
-  // Per-feature enable switches are OPEN maps (any tab/viewer id, built-in or
+  // Per-feature enable switches are OPEN maps (any tab id, built-in or
   // external): an absent key means enabled, so old documents resolve to {}
   // (everything on) with no migration. Non-boolean values fail validation.
   tabsEnabled: z.dict(z.boolean()).default({}),
-  viewersEnabled: z.dict(z.boolean()).default({}),
   // Plugin-owned settings blobs (v0.12.0+) are an OPEN nested map: any
   // descriptor id may carry any JSON-serializable values. This is the
   // "settings seam" opening — without it the seam would drop third-party

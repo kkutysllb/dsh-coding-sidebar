@@ -1,7 +1,7 @@
 /**
  * dsh-coding-sidebar host half: the /sidebar JSON API (explorer listing, file
- * read/write, git), the /sidebar/file media route (images), the /sidebar/html
- * preview route, the /sidebar/bundle lazy-chunk route (client code splits),
+ * read/write, git), the /sidebar/file media route (file bytes / downloads),
+ * the /sidebar/bundle lazy-chunk route (client code splits),
  * and the terminal WebSocket upgrade. Every route passes the same
  * browser-trust fence as the /api gateway — Host-header loopback or the
  * web runtime's `trustedHosts` (LAN IP literals sampled at boot plus
@@ -33,7 +33,6 @@ import { parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.t
 import { writeWorkspaceUpload } from './fs-operations.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
 import { searchFiles } from './fs-search.ts'
-import { decodeHtmlUrl } from './html-route.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
 import { isTrustedApiRequest, isLoopbackHostname } from './trust-fence.ts'
 import { registerBundleRoute } from './bundle-route.ts'
@@ -62,15 +61,14 @@ export type { SidebarConfig, ResolvedSidebarConfig }
 // `ctx.betterSidebar`; the Context re-export below is the vendored cordis
 // Context intersected with the structural service faces.
 // Also re-export the service descriptor types so consumers can type their
-// registerTab / registerFileViewer arguments without reaching into /client.
+// registerTab arguments without reaching into /client. (v1.0.4: the file
+// viewer types were retired with the file-viewer registry — file preview is
+// the host's job now.)
 export type { Context } from './context-types.ts'
 export type {
   BetterSidebarService,
   TabDescriptor,
   TabComponentProps,
-  FileViewerDescriptor,
-  FileViewerProps,
-  FileFetchStrategy,
 } from './client/service.ts'
 
 /** Plugin identity for cordis.yml rows. */
@@ -90,9 +88,6 @@ const MEDIA_TYPES: Record<string, string> = {
   '.bmp': 'image/bmp',
   '.ico': 'image/x-icon',
   '.avif': 'image/avif',
-  '.pdf': 'application/pdf',
-  '.html': 'text/html',
-  '.htm': 'text/html',
 }
 
 /** Content type served by /sidebar/file (binary-safe fallback for unknowns). */
@@ -849,11 +844,11 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
 
   // ── Lazy chunk route (client bundle splits) ─────────────────────────────
   // Serves the client half's split bundles (lib/client-<name>.js) so the
-  // heavy preview/terminal libraries load on first use, not at page start
+  // heavy editor/terminal libraries load on first use, not at page start
   // (see bundle-route.ts / src/client/chunk-loader.ts).
   ctx.effect(() => registerBundleRoute(ctx, fence), 'dsh-coding-sidebar: /sidebar/bundle chunk route')
 
-  // ── Media route (images for the editor) ─────────────────────────────────
+  // ── Media route (file bytes; the binary pane's download link) ───────────
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/sidebar/file',
@@ -894,68 +889,6 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
       }
     },
   }), 'dsh-coding-sidebar: /sidebar/file media route')
-
-  // ── HTML preview route (sandboxed HTML + its relative assets) ───────────
-  // Serves files under the session cwd for the built-in HTML previewer. The
-  // URL is path-encoded (see html-route.ts) so the previewed page's relative
-  // assets (./style.css, img/x.png) resolve back into this route with the
-  // session scope intact — a query-encoded URL would drop the scope when the
-  // browser resolves relatives. Every response carries the CSP `sandbox`
-  // directive: inside the editor's iframe the sandbox ATTRIBUTE is the
-  // boundary, this header is defense-in-depth so even a top-level load of
-  // the URL (e.g. a popup opened by a previewed page) stays in an opaque
-  // origin with no same-origin access to the GUI.
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'prefix',
-    path: '/sidebar/html',
-    handler: async (req, res) => {
-      if (!fence(req)) {
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      if (req.method !== 'GET') {
-        res.writeHead(405)
-        res.end()
-        return
-      }
-      try {
-        const url = new URL(req.url ?? '/', 'http://dsh.internal')
-        const decoded = decodeHtmlUrl(url.pathname)
-        if (!decoded.ok) {
-          writeError(res, new SidebarError('bad-request', decoded.message, decoded.status))
-          return
-        }
-        const { sessionId, path } = decoded.ref
-        // The session's authoritative cwd (client cwd cannot ride in the URL
-        // — the path encoding has no query; a detached first request falls
-        // back to the process cwd and is normally refused by the workspace
-        // real-path guard, with the same semantics as the media route's
-        // fallback.
-        const cwd = await sessionCwdOf(ctx, sessionId)
-        const absolute = await ensureWorkspacePath(cwd, path)
-        const info = await stat(absolute)
-        if (!info.isFile() || info.size > resolved.mediaLimit) {
-          throw new SidebarError('fs-error', 'not a file or too large', 400)
-        }
-        const type = mediaTypeForPath(absolute)
-        const body = await readFile(absolute)
-        res.writeHead(200, {
-          'content-type': type === 'text/html' ? 'text/html; charset=utf-8' : type,
-          'cache-control': 'no-cache',
-          'x-content-type-options': 'nosniff',
-          'referrer-policy': 'no-referrer',
-          // The sandbox directive (no allow-same-origin → opaque origin) is
-          // the previewer's security boundary even for top-level loads;
-          // object-src 'none' blocks plugin embeds.
-          'content-security-policy': "sandbox allow-scripts allow-popups allow-downloads allow-modals; object-src 'none'",
-        })
-        res.end(body)
-      } catch (error) {
-        writeError(res, error)
-      }
-    },
-  }), 'dsh-coding-sidebar: /sidebar/html preview route')
 
   // ── Terminal WebSocket ──────────────────────────────────────────────────
   // One upgrade endpoint serves both UI-tab terminals (?tab=...) and

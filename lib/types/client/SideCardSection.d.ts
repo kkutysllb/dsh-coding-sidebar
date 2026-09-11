@@ -1,7 +1,7 @@
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import { type SidebarPrefs } from '../prefs-shared.ts';
 import type { SidebarStore } from './state.ts';
-import type { BetterSidebarService, FileViewerDescriptor, SidebarSettingToggle, TabDescriptor } from './service.ts';
+import type { BetterSidebarService, SidebarSettingToggle, TabDescriptor } from './service.ts';
 /** Injected business face: the shared store (prefs cache) + the sidebar service (registries). */
 export interface SideCardSectionInjected {
     store: SidebarStore;
@@ -43,7 +43,7 @@ export declare function FeatureSettingsRows(props: {
     valueSource?: (key: string) => unknown;
 }): import("react").JSX.Element;
 /**
- * The secondary settings popup body of one feature (tab or viewer):
+ * The secondary settings popup body of one registered tab:
  * - the host-prefs `toggles` rows, then the plugin-owned `pluginToggles`
  *   rows (their values live in `pluginSettings[feature.id]`, projected onto
  *   the prefs face so the shared row renderer reads them);
@@ -53,7 +53,7 @@ export declare function FeatureSettingsRows(props: {
  *   open-behavior picker) and still ship a custom configuration area.
  */
 export declare function SettingsBody(props: {
-    feature: TabDescriptor | FileViewerDescriptor;
+    feature: TabDescriptor;
     prefs: SidebarPrefs;
     store: SidebarStore;
     service: BetterSidebarService;

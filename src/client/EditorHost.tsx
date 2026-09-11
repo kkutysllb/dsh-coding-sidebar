@@ -1,10 +1,11 @@
 /**
- * The editor tab host: the single FILES WINDOW. It resolves a file's
- * previewer through the sidebar registry (`matchFileViewer`), fetches bytes
- * per the matched viewer's fetch strategy, and renders its component — or
- * the shared download pane when nothing can render the file. A tab without
- * a path (the seeded "Files" home) renders an empty-state hint instead of
- * the viewer loading flow; that path-less window IS the file explorer.
+ * The editor tab host: the single FILES WINDOW. It fetches a file's text
+ * through the host fs.read — text renders in the (chunk-lazy) sidebar text
+ * editor, a binary file renders the shared download pane. (v1.0.4: the
+ * file-viewer registry/matching was retired — file preview is the host's
+ * job now, the sidebar edits text only.) A tab without a path (the seeded
+ * "Files" home) renders an empty-state hint instead of the loading flow;
+ * that path-less window IS the file explorer.
  *
  * The chrome depends on the `editorExplorer` mode (read reactively so
  * toggling it re-renders without a reload):
@@ -18,18 +19,14 @@
  * The tree's context menu offers the explicit escapes in both modes: open
  * in a new tab (per-path dedupe) or to the side (a fresh tab in a fresh
  * rightward split of the current pane).
- *
- * The strategy dispatch is pure (planFirstMatch / planFsReadOutcome in
- * editor-load.ts); this component only wires it to the host APIs.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { createElement } from 'react'
+import type { ComponentType } from 'react'
 import clsx from 'clsx'
 import { IconCheckOutline16, IconFolderOpen16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
-import { api, mediaUrl, type SessionScope } from './api.ts'
+import { api, type SessionScope } from './api.ts'
 import { BinaryDownload } from './binary-download.tsx'
-import { planFirstMatch, planFsReadOutcome, type EditorLoadAction } from './editor-load.ts'
 import { baseName } from './FileTree.tsx'
 import { createFrameBatcher } from './frame-batcher.ts'
 import { openSidebarFile } from './intercept.tsx'
@@ -39,15 +36,26 @@ import { TreePanel } from './TreePanel.tsx'
 import { t } from './locales.ts'
 import { relativeTo } from './paths.ts'
 import { resolveSidebarPath } from './produced-files.ts'
-import type { EditorToolbarControls, EditorToolbarState, FileViewerDescriptor } from './service.ts'
+import type { EditorToolbarControls, EditorToolbarState } from './service.ts'
+import { lazyChunkComponent } from './lazy-chunk.tsx'
+import type { TextEditorProps } from './TextEditor.tsx'
 import { firstLeaf, insertLeafAt, leafWithTab, mintTabId, treeOf, type SidebarStore, type SidebarTab } from './state.ts'
 import css from './sidebar.module.css'
 
 type EditorLoad =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; viewer: FileViewerDescriptor; content?: string; truncated?: boolean; mediaUrl?: string; customData?: unknown }
+  | { status: 'ready'; content: string; truncated: boolean }
   | { status: 'binary' }
+
+/**
+ * Lazy wrapper over the chunk-resident text editor: CodeMirror and the
+ * language packs are fetched only when a file tab first renders (see
+ * chunk-loader.ts). The `pick` function is module-level (stable identity —
+ * the wrapper effect depends on it); the cast bridges the chunk exports
+ * record to the prop shape.
+ */
+const LazyTextEditor = lazyChunkComponent<TextEditorProps>('editor', (mod) => mod.TextEditor as ComponentType<TextEditorProps> | undefined)
 
 /** The docked tree panel's width bounds (drag-resize clamps into them). */
 const TREE_WIDTH_DEFAULT = 240
@@ -103,11 +111,10 @@ export function EditorHost(props: {
 }) {
   const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile } = props
   const path = tab.path ?? ''
-  const title = tab.title
   // A folder window: the model's `sidebar_open` (or any caller) opens a
   // directory as an editor tab carrying `meta.dir: true` with the directory
   // as its path. It renders the file tree rooted at that folder instead of
-  // the viewer loading flow (a directory is not a file).
+  // the file loading flow (a directory is not a file).
   const isDir = metaOf(tab).dir === true
   const [load, setLoad] = useState<EditorLoad>({ status: 'loading' })
   // Manual refresh (issue #167): bumping the sequence re-runs the load effect
@@ -223,9 +230,8 @@ export function EditorHost(props: {
     })
   }
 
-  // The viewer's toolbar, hoisted into THIS header: the text editor reports
-  // its state and registers its commands (both null/absent for viewers
-  // without a toolbar — image, pdf, binary download).
+  // The editor's toolbar, hoisted into THIS header: the text editor reports
+  // its state and registers its commands (null while nothing is loaded).
   const [toolbar, setToolbar] = useState<EditorToolbarState | null>(null)
   const controlsRef = useRef<EditorToolbarControls | null>(null)
   const onToolbarState = useCallback((next: EditorToolbarState) => {
@@ -279,77 +285,27 @@ export function EditorHost(props: {
 
   useEffect(() => {
     // A (re)load or a path-less tab clears any hoisted toolbar state — the
-    // fresh viewer re-registers its own.
+    // fresh editor re-registers its own.
     setToolbar(null)
-    // The seeded home tab (no path) never loads a viewer — the empty-state
+    // The seeded home tab (no path) never loads a file — the empty-state
     // hint renders until the user picks a file. A folder tab never loads a
-    // viewer either — its tree is rooted at the folder.
+    // file either — its tree is rooted at the folder.
     if (showEmpty || isDir) return
     let cancelled = false
-    // Aborts the matched viewer's `load` when the editor tears down (tab
-    // closed, path changed, session switched) or re-matches the viewer.
-    const controller = new AbortController()
     setLoad({ status: 'loading' })
-    const mediaUrlOf = (): string => mediaUrl(scope, path)
-    const apply = (action: EditorLoadAction): void => {
+    api.fsRead(scope, path).then((result) => {
       if (cancelled) return
-      switch (action.kind) {
-        case 'binary':
-          setLoad({ status: 'binary' })
-          return
-        case 'render':
-          setLoad({
-            status: 'ready',
-            viewer: action.viewer,
-            content: action.content,
-            truncated: action.truncated,
-            mediaUrl: action.mediaUrl,
-            customData: action.customData,
-          })
-          return
-        case 'customLoad':
-          void action.viewer.load?.(path, scope, controller.signal).then((data) => {
-            if (cancelled) return
-            setLoad({ status: 'ready', viewer: action.viewer, customData: data })
-          }).catch((error: unknown) => {
-            if (cancelled) return
-            setLoad({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-          })
-          return
-        case 'fetchFsRead':
-          api.fsRead(scope, path).then((result) => {
-            if (cancelled) return
-            // Binary reads carry the head bytes for the detect re-match.
-            const outcome = planFsReadOutcome(action.viewer, {
-              binary: result.kind === 'binary',
-              content: result.kind === 'text' ? result.content : '',
-              truncated: result.truncated,
-              head: result.kind === 'binary' ? result.head : undefined,
-            }, (head) => ctx.get('betterSidebar')?.matchFileViewer(path, head), mediaUrlOf)
-            apply(outcome)
-          }).catch((error: unknown) => {
-            if (cancelled) return
-            setLoad({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-          })
-          return
+      if (result.kind === 'binary') {
+        setLoad({ status: 'binary' })
+        return
       }
-    }
-    apply(planFirstMatch(ctx.get('betterSidebar')?.matchFileViewer(path), mediaUrlOf))
-    return () => { cancelled = true; controller.abort() }
-  }, [scope.sessionId, scope.cwd, path, ctx, showEmpty, isDir, reloadSeq])
-
-  // Save-then-refresh in preview mode (issue #167 part C): the edge into
-  // 'saved' (never a lingering 'saved' state) triggers exactly one reload, so
-  // a preview-mode Ctrl+S shows the fresh content immediately. Edit mode is
-  // left alone — reloading would remount the editor and drop the caret.
-  const prevSaveState = useRef<EditorToolbarState['saveState'] | undefined>(undefined)
-  useEffect(() => {
-    const current = toolbar?.saveState
-    if (prevSaveState.current !== 'saved' && current === 'saved' && toolbar?.mode === 'preview') {
-      setReloadSeq(sequence => sequence + 1)
-    }
-    prevSaveState.current = current
-  }, [toolbar?.saveState, toolbar?.mode])
+      setLoad({ status: 'ready', content: result.content, truncated: result.truncated })
+    }).catch((error: unknown) => {
+      if (cancelled) return
+      setLoad({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+    })
+    return () => { cancelled = true }
+  }, [scope.sessionId, scope.cwd, path, showEmpty, isDir, reloadSeq])
 
   const treeOpen = treeOpenOf(tab)
   /** Persist the panel flag on the tab (survives reloads with the layout). */
@@ -392,33 +348,6 @@ export function EditorHost(props: {
     <div className={css.editor}>
       <div className={css.editorHeader}>
         <EditorPathInput key={path} path={path} cwd={scope.cwd} onOpen={openFile} />
-        {toolbar?.modes === true && (
-          <div className={css.editorModeToggle}>
-            <button
-              type="button"
-              className={clsx(css.editorModeButton, toolbar.mode === 'preview' && css.editorModeActive)}
-              onClick={() => {
-                // Issue #167 part B: returning from edit to preview reloads so
-                // the preview renders the just-saved content. A dirty draft
-                // (or a failed save) suppresses the reload — the draft only
-                // lives in the editor instance and a remount would drop it.
-                if (toolbar.mode === 'edit' && toolbar.dirty !== true && toolbar.saveState !== 'failed') {
-                  setReloadSeq(sequence => sequence + 1)
-                }
-                controlsRef.current?.setMode('preview')
-              }}
-            >
-              {t('preview')}
-            </button>
-            <button
-              type="button"
-              className={clsx(css.editorModeButton, toolbar.mode === 'edit' && css.editorModeActive)}
-              onClick={() => { controlsRef.current?.setMode('edit') }}
-            >
-              {t('edit')}
-            </button>
-          </div>
-        )}
         {toolbar?.dirty === true && <span className={css.dirtyDot} title={t('unsaved')} />}
         {toolbar?.editable === true && (
           <button
@@ -462,18 +391,19 @@ export function EditorHost(props: {
           {!showEmpty && load.status === 'loading' && <div className={css.editorPlaceholder}>{t('loading')}</div>}
           {!showEmpty && load.status === 'error' && <div className={css.editorError}>{load.message}</div>}
           {!showEmpty && load.status === 'binary' && <BinaryDownload scope={scope} path={path} />}
-          {!showEmpty && load.status === 'ready' && createElement(load.viewer.component, {
-            ctx, store, scope, path, title,
-            viewerId: load.viewer.id,
-            content: load.content,
-            truncated: load.truncated,
-            mediaUrl: load.mediaUrl,
-            customData: load.customData,
-            // The viewer's toolbar always hoists into this host's header.
-            toolbar: 'host',
-            onToolbarState,
-            onToolbarControls,
-          })}
+          {!showEmpty && load.status === 'ready' && (
+            <LazyTextEditor
+              ctx={ctx}
+              store={store}
+              scope={scope}
+              path={path}
+              content={load.content}
+              truncated={load.truncated}
+              toolbar="host"
+              onToolbarState={onToolbarState}
+              onToolbarControls={onToolbarControls}
+            />
+          )}
         </div>
         {treeOpen && (
           <div className={css.editorTreeDock} style={{ width: treeWidth }}>

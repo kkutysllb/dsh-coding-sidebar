@@ -1,10 +1,20 @@
-import type { FileViewerProps } from './service.ts';
-/**
- * The sandbox tokens of the HTML preview iframe. NO allow-same-origin (the
- * preview must stay in an opaque origin — with the route's own origin it
- * could read session data) and NO allow-top-navigation (a previewed page
- * must not hijack the GUI). The user can disable the sandbox per-feature
- * in the side card settings (warned); the toggle below reflects it.
- */
-export declare const HTML_IFRAME_SANDBOX = "allow-scripts allow-popups allow-downloads allow-modals";
-export declare function TextEditor(props: FileViewerProps): import("react").JSX.Element;
+import type { EditorToolbarControls, EditorToolbarState } from './service.ts';
+import type { Context } from '../context-types.ts';
+import type { SessionScope } from './api.ts';
+import type { SidebarStore } from './state.ts';
+/** Props of the sidebar text editor (the editor tab's content). */
+export interface TextEditorProps {
+    ctx: Context;
+    store?: SidebarStore;
+    scope: SessionScope;
+    path: string;
+    /** fs.read text content (undefined while loading / for non-editable reads). */
+    content?: string;
+    truncated?: boolean;
+    /** 'host' skips the own toolbar row — the editor host's merged-mode header
+     *  renders it instead, fed through the two callbacks below. */
+    toolbar?: 'self' | 'host';
+    onToolbarState?: (state: EditorToolbarState) => void;
+    onToolbarControls?: (controls: EditorToolbarControls | null) => void;
+}
+export declare function TextEditor(props: TextEditorProps): import("react").JSX.Element;

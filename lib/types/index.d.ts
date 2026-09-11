@@ -3,7 +3,7 @@ import { Config, type ResolvedSidebarConfig, type SidebarConfig } from './config
 export { Config };
 export type { SidebarConfig, ResolvedSidebarConfig };
 export type { Context } from './context-types.ts';
-export type { BetterSidebarService, TabDescriptor, TabComponentProps, FileViewerDescriptor, FileViewerProps, FileFetchStrategy, } from './client/service.ts';
+export type { BetterSidebarService, TabDescriptor, TabComponentProps, } from './client/service.ts';
 /** Plugin identity for cordis.yml rows. */
 export declare const name = "dsh-coding-sidebar";
 /** Services required before mounting: the webserver routes, the session store, the web runtime's trusted hosts, and the tool registry. */

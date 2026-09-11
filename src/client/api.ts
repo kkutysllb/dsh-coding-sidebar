@@ -6,7 +6,6 @@
  * hydrating at page load (a detached session would otherwise fail the
  * request). Failures surface as {@link SidebarApiError} with the wire code.
  */
-import { encodeHtmlUrl } from '../html-route.ts'
 import type { LastActivity } from '../subagent-activity.ts'
 import type { SidechatThreadInfo } from '../sidechat-core.ts'
 import type { BrowserProbeResult } from './browser.ts'
@@ -325,33 +324,10 @@ export const api = {
     call<{ started: boolean }>('open.external', payload),
 }
 
-/** Absolute URL of the media route for one path (images only). */
-export function mediaUrl(scope: SessionScope, path: string): string {
-  return fileUrl(scope, path, false)
-}
-
 /** Absolute URL of the download route: serves raw bytes (binary-safe) with
  *  `Content-Disposition: attachment`, so the browser saves the file. */
 export function downloadUrl(scope: SessionScope, path: string): string {
-  return fileUrl(scope, path, true)
-}
-
-/** Shared URL builder for the /sidebar/file route (media vs download). */
-function fileUrl(scope: SessionScope, path: string, download: boolean): string {
-  const params = new URLSearchParams({ sessionId: scope.sessionId, path })
+  const params = new URLSearchParams({ sessionId: scope.sessionId, path, download: '1' })
   if (scope.cwd !== undefined && scope.cwd !== '') params.set('cwd', scope.cwd)
-  if (download) params.set('download', '1')
   return `/sidebar/file?${params.toString()}`
-}
-
-/**
- * Absolute URL of the HTML preview route (see html-route.ts): the path is
- * fully encoded so the previewed page's relative assets resolve back into
- * the same route with the session scope intact. The UNC marker is
- * platform-neutral — the host's requireAbsolute resolves the decoded
- * forward-slash `//server/share/...` form on both win32 and POSIX — so no
- * client-side platform signal is needed.
- */
-export function htmlUrl(scope: SessionScope, path: string): string {
-  return encodeHtmlUrl(scope.sessionId, path)
 }

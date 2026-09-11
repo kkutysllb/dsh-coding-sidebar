@@ -1,45 +1,54 @@
 /**
- * The code/markdown file viewer: a CodeMirror 6 editor with line wrapping,
+ * The sidebar text editor: a CodeMirror 6 editor with line wrapping,
  * syntax highlighting (extension-keyed language), a dirty dot and Ctrl/Cmd+S
- * save, and a preview/edit toggle for markdown files. Registered as the
- * `code` (catch-all) and `markdown` built-in viewers; the editor tab host
- * fetches the content through the fsRead strategy and passes it in props,
- * so this component never fetches or dispatches — it only edits.
+ * save. The editor tab host fetches the content through fs.read and passes
+ * it in props, so this component never fetches — it only edits.
  *
- * The toolbar (mode toggle / dirty dot / save / status) renders as its own
- * row below the host's title bar, VSCode-style — unless the host passes
- * `toolbar: 'host'` (the merged editor-explorer mode), in which case this
- * component skips the row and reports state + registers commands through
- * the FileViewerProps toolbar callbacks so the host's path-input header
- * renders the controls instead.
+ * (v1.0.4: the preview/edit mode toggle, markdown/mermaid/HTML preview
+ * surfaces and the HTML sandbox machinery were retired with the file-viewer
+ * line — file preview is the host's job now; this component edits.)
+ *
+ * The toolbar (dirty dot / save / status) renders as its own row below the
+ * host's title bar — unless the host passes `toolbar: 'host'` (the merged
+ * editor-explorer mode), in which case this component skips the row and
+ * reports state + registers commands through the toolbar callbacks so the
+ * host's path-input header renders the controls instead.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { EditorState } from '@codemirror/state'
 import { EditorView as CodeMirrorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { IconCheckOutline16, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { markdownTextProps } from './markdown-labels.tsx'
-import { api, htmlUrl } from './api.ts'
-import { rewriteLocalImageUrls } from './markdown-images.ts'
+import { IconCheckOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { api } from './api.ts'
 import { languageForPath } from './lang.ts'
 import { cmSurfaceTheme, CmThemeCompartment } from './cm-themes.ts'
 import { isDarkScheme, subscribeColorScheme } from './theme.ts'
-import { SandboxStatusBar } from './SandboxStatusBar.tsx'
 import { appendToDraft } from './conversation-draft.ts'
-import { buildSelectionInsert, linesOfSelection } from './selection-payload.ts'
-import { lazyChunkComponent } from './lazy-chunk.tsx'
-import { analyzeMarkdownHtml } from './markdown-html.ts'
-import { LazyMermaidMarkdown, MarkdownDocument, type MarkdownHtmlMedia } from './MarkdownHtml.tsx'
-import { MdToc } from './md-toc.tsx'
-import { splitMermaidBlocks } from './mermaid-blocks.ts'
+import { buildSelectionInsert } from './selection-payload.ts'
 import { t } from './locales.ts'
-import type { EditorToolbarState, FileViewerProps } from './service.ts'
+import type { EditorToolbarControls, EditorToolbarState } from './service.ts'
+import type { Context } from '../context-types.ts'
+import type { SessionScope } from './api.ts'
+import type { SidebarStore } from './state.ts'
 import css from './sidebar.module.css'
 
-/** Previewable files (rendered output vs source editing). */
-type ViewMode = 'preview' | 'edit'
+/** Props of the sidebar text editor (the editor tab's content). */
+export interface TextEditorProps {
+  ctx: Context
+  store?: SidebarStore
+  scope: SessionScope
+  path: string
+  /** fs.read text content (undefined while loading / for non-editable reads). */
+  content?: string
+  truncated?: boolean
+  /** 'host' skips the own toolbar row — the editor host's merged-mode header
+   *  renders it instead, fed through the two callbacks below. */
+  toolbar?: 'self' | 'host'
+  onToolbarState?: (state: EditorToolbarState) => void
+  onToolbarControls?: (controls: EditorToolbarControls | null) => void
+}
 
 /** The floating "add to conversation" action: payload + viewport anchor. */
 interface SelectionPopup {
@@ -48,20 +57,8 @@ interface SelectionPopup {
   top: number
 }
 
-/**
- * The sandbox tokens of the HTML preview iframe. NO allow-same-origin (the
- * preview must stay in an opaque origin — with the route's own origin it
- * could read session data) and NO allow-top-navigation (a previewed page
- * must not hijack the GUI). The user can disable the sandbox per-feature
- * in the side card settings (warned); the toggle below reflects it.
- */
-export const HTML_IFRAME_SANDBOX = 'allow-scripts allow-popups allow-downloads allow-modals'
-
-export function TextEditor(props: FileViewerProps) {
-  const { ctx, scope, path, viewerId, content, truncated } = props
-  const [mode, setMode] = useState<ViewMode>('preview')
-  /** The editor's current text (null while clean); preview renders this. */
-  const [draft, setDraft] = useState<string | null>(null)
+export function TextEditor(props: TextEditorProps) {
+  const { ctx, scope, path, content, truncated } = props
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const hostRef = useRef<HTMLDivElement>(null)
@@ -75,8 +72,6 @@ export function TextEditor(props: FileViewerProps) {
   const [popup, setPopup] = useState<SelectionPopup | null>(null)
   /** Live mirror of the popup state for click-time reads (no re-render race). */
   const popupRef = useRef<SelectionPopup | null>(null)
-  /** The markdown preview container (selection-containment + line lookup). */
-  const mdRef = useRef<HTMLDivElement>(null)
 
   const hidePopup = (): void => {
     popupRef.current = null
@@ -104,21 +99,18 @@ export function TextEditor(props: FileViewerProps) {
 
   useEffect(() => subscribeColorScheme(() => { setDark(isDarkScheme()) }), [])
 
-  // A new file (tab switch) starts clean: fresh preview mode, no draft.
+  // A new file (tab switch) starts clean: no draft.
   useEffect(() => {
-    setMode('preview')
-    setDraft(null)
     setDirty(false)
     setSaveState('idle')
     hidePopup()
   }, [content])
 
   // Create the CodeMirror editor once the content is loaded. The view owns
-  // the document; React only tracks dirty/draft state through the update
-  // listener. For markdown the view stays mounted while previewing (hidden),
-  // so unsaved edits survive the preview/edit toggle. The theme + syntax
-  // colors live in a compartment so a scheme flip reconfigures only that
-  // part — the document, undo history and scroll position survive.
+  // the document; React only tracks dirty state through the update listener.
+  // The theme + syntax colors live in a compartment so a scheme flip
+  // reconfigures only that part — the document, undo history and scroll
+  // position survive.
   useEffect(() => {
     if (content === undefined) return
     const host = hostRef.current
@@ -139,7 +131,6 @@ export function TextEditor(props: FileViewerProps) {
         ...(language !== null ? [language] : []),
         CodeMirrorView.updateListener.of((update) => {
           if (update.docChanged) {
-            setDraft(update.state.doc.toString())
             setDirty(true)
           }
         }),
@@ -152,49 +143,47 @@ export function TextEditor(props: FileViewerProps) {
           ...defaultKeymap,
           ...historyKeymap,
         ]),
-        // Selection popup (the code and markdown editors): a non-empty
-        // selection anchors the floating "add to conversation" button above
-        // its head. Scrolling (geometry/viewport change) or losing focus
-        // hides it; typing collapses the selection and hides it too.
-        ...(viewerId === 'code' || viewerId === 'markdown' ? [
-          CodeMirrorView.updateListener.of((update) => {
-            if (update.geometryChanged || update.viewportChanged) {
-              hidePopup()
-              return
-            }
-            if (!update.view.hasFocus) {
-              hidePopup()
-              return
-            }
-            if (!(update.selectionSet || update.docChanged || update.focusChanged)) return
-            const sel = update.state.selection.main
-            if (sel.empty) {
-              hidePopup()
-              return
-            }
-            const text = update.state.sliceDoc(sel.from, sel.to)
-            if (text.trim() === '') {
-              hidePopup()
-              return
-            }
-            // Page coordinates (the document root may scroll); the popup is
-            // position:fixed, so convert to viewport coordinates.
-            const rect = update.view.coordsAtPos(sel.head)
-            if (rect === null) {
-              hidePopup()
-              return
-            }
-            const doc = update.state.doc
-            showPopup(
-              buildSelectionInsert(path, scope.cwd, {
-                start: doc.lineAt(sel.from).number,
-                end: doc.lineAt(sel.to).number,
-              }, text),
-              rect.left - window.scrollX + (rect.right - rect.left) / 2,
-              rect.top - window.scrollY,
-            )
-          }),
-        ] : []),
+        // Selection popup: a non-empty selection anchors the floating
+        // "add to conversation" button above its head. Scrolling (geometry/
+        // viewport change) or losing focus hides it; typing collapses the
+        // selection and hides it too.
+        CodeMirrorView.updateListener.of((update) => {
+          if (update.geometryChanged || update.viewportChanged) {
+            hidePopup()
+            return
+          }
+          if (!update.view.hasFocus) {
+            hidePopup()
+            return
+          }
+          if (!(update.selectionSet || update.docChanged || update.focusChanged)) return
+          const sel = update.state.selection.main
+          if (sel.empty) {
+            hidePopup()
+            return
+          }
+          const text = update.state.sliceDoc(sel.from, sel.to)
+          if (text.trim() === '') {
+            hidePopup()
+            return
+          }
+          // Page coordinates (the document root may scroll); the popup is
+          // position:fixed, so convert to viewport coordinates.
+          const rect = update.view.coordsAtPos(sel.head)
+          if (rect === null) {
+            hidePopup()
+            return
+          }
+          const doc = update.state.doc
+          showPopup(
+            buildSelectionInsert(path, scope.cwd, {
+              start: doc.lineAt(sel.from).number,
+              end: doc.lineAt(sel.to).number,
+            }, text),
+            rect.left - window.scrollX + (rect.right - rect.left) / 2,
+            rect.top - window.scrollY,
+          )
+        }),
       ],
     })
     const view = new CodeMirrorView({ state, parent: host })
@@ -218,14 +207,6 @@ export function TextEditor(props: FileViewerProps) {
     view.dispatch({ effects: themeComp.reconfigure(dark) })
   }, [dark])
 
-  // The editor may have been display:none while previewing; re-measure when
-  // it becomes visible again (CodeMirror sizes itself on reveal). A mode
-  // flip also invalidates any anchored selection popup.
-  useEffect(() => {
-    hidePopup()
-    if (mode === 'edit') viewRef.current?.requestMeasure()
-  }, [mode])
-
   const save = (): void => {
     const view = viewRef.current
     if (view === null || savingRef.current) return
@@ -233,7 +214,6 @@ export function TextEditor(props: FileViewerProps) {
     setSaveState('saving')
     api.fsWrite(scope, path, view.state.doc.toString()).then(() => {
       savingRef.current = false
-      setDraft(null)
       setDirty(false)
       setSaveState('saved')
     }).catch(() => {
@@ -242,91 +222,8 @@ export function TextEditor(props: FileViewerProps) {
     })
   }
 
-  const markdown = viewerId === 'markdown'
-  const html = viewerId === 'html'
-  /** The markdown source the preview renders (draft wins over saved content). */
-  const mdText = draft ?? content ?? ''
-  /** The preview source: `mdText` with local image destinations rewritten to
-   *  absolute media URLs (see {@link rewriteLocalImageUrls}); the raw
-   *  `mdText` stays untouched for selection/line lookup and for mermaid-block
-   *  detection, which are unaffected by image syntax. */
-  const previewText = markdown
-    ? rewriteLocalImageUrls(mdText, scope, path, window.location.origin)
-    : mdText
-  /** md/mermaid block split for the preview (mermaid fences lift out). Split
-   *  only in preview mode: edit-mode keystrokes must not re-scan the source. */
-  const mdBlocks = useMemo(
-    () => (markdown && mode === 'preview' ? splitMermaidBlocks(mdText) : []),
-    [markdown, mode, mdText],
-  )
-  /** Raw-HTML analysis (block runs lifted out + inline gate). Non-null only
-   *  for documents that actually contain HTML — plain markdown keeps the
-   *  legacy single-pass render path below, byte-for-byte. */
-  const htmlInfo = useMemo(
-    () => (markdown && mode === 'preview' ? analyzeMarkdownHtml(mdText) : null),
-    [markdown, mode, mdText],
-  )
-  const hasMermaid = useMemo(
-    () => htmlInfo !== null
-      ? htmlInfo.segments.some((segment) => segment.kind === 'markdown'
-        && splitMermaidBlocks(segment.text).some((block) => block.kind === 'mermaid'))
-      : mdBlocks.some((block) => block.kind === 'mermaid'),
-    [htmlInfo, mdBlocks],
-  )
-  /** The media context for the split renderer (local-src rewriting inside
-   *  sanitized HTML). Memoized on primitives: MarkdownDocument sanitizes per
-   *  `media` identity, so a fresh object per render would re-sanitize every
-   *  keystroke. */
-  const htmlMedia = useMemo<MarkdownHtmlMedia>(
-    () => ({ scope, path, origin: window.location.origin }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scope.sessionId, scope.cwd, path],
-  )
-  const codeLabels = { copyLabel: t('copy'), copiedLabel: t('copied') }
-
-  /**
-   * Selection popup for the markdown preview: a mouse-up inside the preview
-   * container anchors the floating "add to conversation" button above the
-   * selection. Line numbers come from a best-effort reverse-search of the
-   * selected text in the source ({@link linesOfSelection} — an ambiguous or
-   * missing hit omits them). The button's own mousedown preventDefaults so
-   * the selection survives until the click commits.
-   */
-  const handlePreviewMouseUp = (): void => {
-    const sel = window.getSelection()
-    if (sel === null || sel.isCollapsed || sel.anchorNode === null || sel.focusNode === null) {
-      hidePopup()
-      return
-    }
-    const host = mdRef.current
-    if (host === null || !host.contains(sel.anchorNode) || !host.contains(sel.focusNode)) {
-      hidePopup()
-      return
-    }
-    const text = sel.toString()
-    if (text.trim() === '') {
-      hidePopup()
-      return
-    }
-    const rect = sel.getRangeAt(0).getBoundingClientRect()
-    const lines = linesOfSelection(mdText, text)
-    showPopup(
-      buildSelectionInsert(path, scope.cwd, lines ?? undefined, text),
-      rect.left + rect.width / 2,
-      rect.top,
-    )
-  }
   const editable = content !== undefined
   const saveLabel = saveState === 'saving' ? t('loading') : saveState === 'saved' ? t('saved') : saveState === 'failed' ? t('saveFailed') : ''
-  // Per-feature sandbox escape hatch: the global side card setting (warned)
-  // plus a per-surface temporary unlock. The unlock state starts at the
-  // "default unsafe" pref so a preview can open straight into the red
-  // unsandboxed state (still restorable from the status row). With the
-  // sandbox OFF the preview iframe drops its sandbox attribute entirely —
-  // the previewed page then runs on the GUI's own origin with full session
-  // access.
-  const [localUnlock, setLocalUnlock] = useState(() => props.store?.getPrefs().htmlViewerDefaultUnsafe === true)
-  const htmlNoSandbox = props.store?.getPrefs().htmlViewerNoSandbox === true || localUnlock
 
   // Host-toolbar mode (the merged editor header renders the controls): skip
   // the own toolbar row, report the state after every relevant render (the
@@ -335,7 +232,7 @@ export function TextEditor(props: FileViewerProps) {
   const lastToolbarRef = useRef('')
   useEffect(() => {
     if (!hostToolbar) return
-    const state: EditorToolbarState = { modes: markdown || html, mode, dirty, editable, saveState }
+    const state: EditorToolbarState = { dirty, editable, saveState }
     const key = JSON.stringify(state)
     if (lastToolbarRef.current === key) return
     lastToolbarRef.current = key
@@ -343,9 +240,9 @@ export function TextEditor(props: FileViewerProps) {
   })
   useEffect(() => {
     if (!hostToolbar) return
-    // `save` reads live refs only, and `setMode` is the stable state setter —
-    // registering this render's closures is safe for the mount's lifetime.
-    props.onToolbarControls?.({ setMode, save })
+    // `save` reads live refs only — registering this render's closure is
+    // safe for the mount's lifetime.
+    props.onToolbarControls?.({ save })
     return () => { props.onToolbarControls?.(null) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostToolbar])
@@ -354,24 +251,6 @@ export function TextEditor(props: FileViewerProps) {
     <>
       {!hostToolbar && (
       <div className={css.editorHeader}>
-        {(markdown || html) && (
-          <div className={css.editorModeToggle}>
-            <button
-              type="button"
-              className={clsx(css.editorModeButton, mode === 'preview' && css.editorModeActive)}
-              onClick={() => { setMode('preview') }}
-            >
-              {t('preview')}
-            </button>
-            <button
-              type="button"
-              className={clsx(css.editorModeButton, mode === 'edit' && css.editorModeActive)}
-              onClick={() => { setMode('edit') }}
-            >
-              {t('edit')}
-            </button>
-          </div>
-        )}
         {dirty && <span className={css.dirtyDot} title={t('unsaved')} />}
         {editable && (
           <button
@@ -389,64 +268,8 @@ export function TextEditor(props: FileViewerProps) {
       )}
       {editable && (
         <>
-          {truncated === true && mode === 'edit' && <div className={css.editorBanner}>{t('truncation')}</div>}
-          <div
-            className={clsx(css.editorCm, (markdown || html) && mode === 'preview' && css.editorCmHidden)}
-            ref={hostRef}
-          />
-        </>
-      )}
-      {markdown && mode === 'preview' && (
-        <div
-          className={css.editorMd}
-          ref={mdRef}
-          onMouseUp={handlePreviewMouseUp}
-          onScroll={hidePopup}
-        >
-          {/* The fence copy-button labels must come from this plugin's own
-              dictionary: the DSH MarkdownText/CodeBlock are cordis-free and
-              fall back to hardcoded Chinese otherwise (same pattern as the
-              chat's AssistantMarkdown). Render-time t() keeps them following
-              the active locale on live switches. Plain markdown (no HTML)
-              renders exactly as before — one MarkdownText pass for the whole
-              document, or the mermaid lazy chunk (single markdown parse;
-              cross-fence references/footnotes stay intact) when a mermaid
-              fence exists. Documents containing HTML (block runs or inline
-              tags) render through the split document renderer: markdown runs
-              keep the MarkdownText/mermaid path while raw-HTML runs render
-              as sanitized DOM (see markdown-html.tsx). */}
-          {/* The outline button rides on top of the preview scroll container
-              (sticky, zero-height — first child so it pins from the very
-              top) once the document has enough headings. */}
-          <MdToc />
-          {htmlInfo !== null
-            ? <MarkdownDocument info={htmlInfo} media={htmlMedia} codeLabels={codeLabels} />
-            : hasMermaid
-              ? <LazyMermaidMarkdown text={previewText} codeLabels={codeLabels} />
-              : <MarkdownText {...markdownTextProps(previewText, codeLabels)} />}
-        </div>
-      )}
-      {html && mode === 'preview' && (
-        <>
-          <SandboxStatusBar
-            sandboxed={!htmlNoSandbox}
-            local={localUnlock}
-            dangerCopy={t('htmlNoSandboxWarning')}
-            onUnlock={() => { setLocalUnlock(true) }}
-            onRestore={() => { setLocalUnlock(false) }}
-          />
-          {/* Route-src (never srcdoc — a srcdoc frame inherits the parent
-              origin when unsandboxed; the route URL keeps the frame
-              cross-origin by construction). The preview shows the SAVED
-              file; the draft is only visible in edit mode. */}
-          <iframe
-            className={css.editorHtml}
-            src={htmlUrl(scope, path)}
-            sandbox={htmlNoSandbox ? undefined : HTML_IFRAME_SANDBOX}
-            referrerPolicy="no-referrer"
-            allow=""
-            title={path}
-          />
+          {truncated === true && <div className={css.editorBanner}>{t('truncation')}</div>}
+          <div className={css.editorCm} ref={hostRef} />
         </>
       )}
       {popup !== null && createPortal(
