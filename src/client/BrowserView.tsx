@@ -121,11 +121,18 @@ export function BrowserView(props: TabComponentProps) {
     return () => { cancelled = true }
   }, [url])
 
-  // Agent 实况自动切换(2026-09-12):非实况态轮询浏览器宿主的 page
-  // target——出现 agent 页面(非 about: 空页)即自动开实况并把浏览器 tab
-  // 顶到前台。一次性:首次自动切换后不再抢控制权(用户手动关掉实况
-  // 也不会被再次强制打开)。
+  // Agent 实况自动切换(2026-09-12 边沿触发重构):非实况态轮询浏览器宿主
+  // 的 page target——agent 页面(非 about: 空页)从「无」到「有」的那一拍
+  // 才自动开实况并把本 tab 顶到前台。两条风暴防线(1.0.7):
+  // - 边沿判定:上一拍必须明确观测过「无 agent 页」(null=尚无历史,首拍
+  //   永不触发)——重挂载/页面重载后 agent 页面虽在,也不构成「新出现」;
+  //   配合一次性闩,用户手动关掉实况后不会被再次强制打开。
+  // - 顶前台走 activateTab(本 tab)而非 openTab:browser 类型每次 openTab
+  //   都经 createTab 铸唯一 id 新开 tab(无 dedupe),旧写法在新挂载的组件
+  //   里每拍都 mint 新 tab,几何级繁殖直至渲染进程被打爆(引擎表现为
+  //   反复重连、tab 关不掉,只能重启应用)。
   const autoRaised = useRef(false)
+  const hadAgentPage = useRef<boolean | null>(null)
   useEffect(() => {
     if (live || autoRaised.current) return
     const timer = setInterval(async () => {
@@ -133,19 +140,20 @@ export function BrowserView(props: TabComponentProps) {
       try {
         const { targets: list } = await api.cdpTargets()
         const agentPages = list.filter((t) => t.url !== '' && !t.url.startsWith('about:'))
-        const had = autoRaised.current
-        if (agentPages.length > 0 && !had) {
+        const had = hadAgentPage.current
+        hadAgentPage.current = agentPages.length > 0
+        if (agentPages.length > 0 && had === false) {
           autoRaised.current = true
           setLive(true)
           try {
-            const better = (ctx as unknown as { betterSidebar?: { openTab?: (r: { type: string }) => unknown } }).betterSidebar
-            better?.openTab?.({ type: 'browser' })
+            const better = (ctx as unknown as { betterSidebar?: { activateTab?: (id: string) => unknown } }).betterSidebar
+            better?.activateTab?.(tab.id)
           } catch { /* 顶起失败:实况仍已在 tab 内容里生效 */ }
         }
       } catch { /* 宿主未起:静默等下次轮询 */ }
     }, 3000)
     return () => { clearInterval(timer) }
-  }, [live, ctx])
+  }, [live, ctx, tab.id])
 
   const persist = (nextUrl: string): void => {
     let host = nextUrl
