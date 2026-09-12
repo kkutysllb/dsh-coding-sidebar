@@ -24,12 +24,13 @@ import {
   IconRefreshOutline14,
   IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { VscLinkExternal } from 'react-icons/vsc'
+import { VscLinkExternal, VscRemoteExplorer } from 'react-icons/vsc'
 import { api } from './api.ts'
 import { embeddabilityOf, isAllowedLoopbackUrl, normalizeBrowserUrl } from './browser.ts'
 import { patchTab } from './state.ts'
 import { SandboxStatusBar } from './SandboxStatusBar.tsx'
 import { t } from './locales.ts'
+import { LiveView } from './LiveView.tsx'
 import type { TabComponentProps } from './service.ts'
 import css from './sidebar.module.css'
 
@@ -101,6 +102,9 @@ export function BrowserView(props: TabComponentProps) {
   const [embedBlocked, setEmbedBlocked] = useState<string | null>(null)
   /** The user asked to load the refused site anyway (keeps the plain iframe). */
   const [forceEmbed, setForceEmbed] = useState(false)
+  /** Agent 实况模式（CDP screencast）：开启后本 tab 只显示 agent 无头
+   *  浏览器的实况画面，地址栏/iframe 暂停。会话态开关，不持久化。 */
+  const [live, setLive] = useState(false)
 
   // Probe every navigation (address bar, history, restored path): when the
   // target forbids embedding, show the reason + open-in-browser instead of
@@ -215,6 +219,16 @@ export function BrowserView(props: TabComponentProps) {
         <button
           type="button"
           className={css.iconButton}
+          aria-label={t('browserLive')}
+          title={t('browserLive')}
+          aria-pressed={live}
+          onClick={() => { setLive(value => !value) }}
+        >
+          <VscRemoteExplorer size={15} />
+        </button>
+        <button
+          type="button"
+          className={css.iconButton}
           aria-label={t('browserOpenExternal')}
           title={t('browserOpenExternal')}
           disabled={url === undefined}
@@ -233,7 +247,9 @@ export function BrowserView(props: TabComponentProps) {
         onUnlock={() => { setLocalUnlock(true) }}
         onRestore={() => { setLocalUnlock(false) }}
       />
-      {url === undefined ? (
+      {live ? (
+        <LiveView />
+      ) : url === undefined ? (
         <div className={css.browserStart}>{t('browserStart')}</div>
       ) : embedBlocked !== null && !forceEmbed ? (
         <BrowserEmbedBlocked

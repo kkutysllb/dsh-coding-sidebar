@@ -517,6 +517,16 @@ function buildApi(
     // probe is display-only (headers back to the caller), restricted to
     // http(s) non-loopback URLs with a hard timeout, and gated by the same
     // trust fence as every other route — a cross-site page cannot reach it.
+    'cdp.targets': async () => {
+      // Agent 浏览器宿主（KCoder 桌面端维护，固定 127.0.0.1:9223）的
+      // page target 列表。host 侧代理：CDP 端点无 CORS 头，renderer 直连
+      // /json/list 会被拦，WS（screencast/输入）则由 renderer 直连。
+      // 端口/地址是编译期常量，无用户输入，无 SSRF 面。
+      const res = await fetch('http://127.0.0.1:9223/json/list', { signal: AbortSignal.timeout(3000) })
+      if (!res.ok) throw new SidebarError('cdp-down', `browser host unreachable (${res.status})`, 502)
+      const list = (await res.json()) as Array<{ id: string; type: string; title: string; url: string }>
+      return { targets: list.filter((t) => t.type === 'page').map((t) => ({ id: t.id, url: t.url, title: t.title })) }
+    },
     'browser.probe': async (payload) => {
       const raw = requireString(payload, 'url')
       let parsed: URL

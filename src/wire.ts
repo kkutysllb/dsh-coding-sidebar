@@ -18,6 +18,7 @@ export type SidebarErrorCode =
   | 'pty-error'
   | 'pty-deps-missing'
   | 'job-error'
+  | 'cdp-down'
   | 'sidechat-error'
   | 'subagents-unavailable'
   | 'settings-rejected'

@@ -244,6 +244,12 @@ export declare const zh: {
     browserBack: string;
     browserForward: string;
     browserStart: string;
+    browserLive: string;
+    browserLiveFree: string;
+    browserLiveConnecting: string;
+    browserLiveDown: string;
+    browserLiveTargetNone: string;
+    browserLiveFollowLatest: string;
     browserBlockedScheme: string;
     browserBlockedLoopback: string;
     browserInvalid: string;

@@ -2362,3 +2362,35 @@ body[data-dsh-sidebar-dragging] .panel {
   0%, 60% { background: var(--dsw-alias-interactive-bg-hover); }
   100% { background: transparent; }
 }
+
+/* ═══ Agent 浏览器实况（CDP screencast，2026-09-12 方案 2）═══ */
+.browserLive {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  overflow: hidden;
+}
+.browserLiveStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.browserLiveCanvas {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border: 1px solid var(--dsw-alias-border-l, rgba(128, 128, 128, 0.25));
+  border-radius: 8px;
+  background: #fff;
+  cursor: crosshair;
+}
+.browserLiveTarget {
+  max-width: 260px;
+  font-size: 12px;
+}

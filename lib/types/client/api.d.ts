@@ -253,6 +253,14 @@ export declare const api: {
     /** Probe a URL's response headers (the sidebar browser's embeddability
      *  check; see the host's browser.probe route). */
     browserProbe: (url: string, signal?: AbortSignal) => Promise<BrowserProbeResult>;
+    /** Agent 浏览器宿主的 page target 列表（host 代理 CDP /json/list）。 */
+    cdpTargets: (signal?: AbortSignal) => Promise<{
+        targets: Array<{
+            id: string;
+            url: string;
+            title: string;
+        }>;
+    }>;
     /** External open for the file tree's "open with" menu: reveal a path in
      *  the OS file manager, or hand a custom-scheme URL (vscode://, cursor://,
      *  zed://, custom editors) to its registered handler. The host launches
