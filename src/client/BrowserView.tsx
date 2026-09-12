@@ -16,7 +16,7 @@
  * address-bar navigations (in-frame link clicks are cross-origin and
  * invisible — a documented limitation).
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   IconChevronLeftOutline14,
   IconChevronRightOutline14,
@@ -81,7 +81,7 @@ export function iframeSandboxFor(url: string | undefined, allowedLoopback: strin
 }
 
 export function BrowserView(props: TabComponentProps) {
-  const { store, tab } = props
+  const { store, tab, ctx } = props
   // The current address (initialized from the persisted tab.path so a
   // reload restores the visited page).
   const [url, setUrl] = useState<string | undefined>(tab.path)
@@ -120,6 +120,32 @@ export function BrowserView(props: TabComponentProps) {
     }).catch(() => { /* unreachable: keep the plain iframe */ })
     return () => { cancelled = true }
   }, [url])
+
+  // Agent 实况自动切换(2026-09-12):非实况态轮询浏览器宿主的 page
+  // target——出现 agent 页面(非 about: 空页)即自动开实况并把浏览器 tab
+  // 顶到前台。一次性:首次自动切换后不再抢控制权(用户手动关掉实况
+  // 也不会被再次强制打开)。
+  const autoRaised = useRef(false)
+  useEffect(() => {
+    if (live || autoRaised.current) return
+    const timer = setInterval(async () => {
+      if (autoRaised.current) return
+      try {
+        const { targets: list } = await api.cdpTargets()
+        const agentPages = list.filter((t) => t.url !== '' && !t.url.startsWith('about:'))
+        const had = autoRaised.current
+        if (agentPages.length > 0 && !had) {
+          autoRaised.current = true
+          setLive(true)
+          try {
+            const better = (ctx as unknown as { betterSidebar?: { openTab?: (r: { type: string }) => unknown } }).betterSidebar
+            better?.openTab?.({ type: 'browser' })
+          } catch { /* 顶起失败:实况仍已在 tab 内容里生效 */ }
+        }
+      } catch { /* 宿主未起:静默等下次轮询 */ }
+    }, 3000)
+    return () => { clearInterval(timer) }
+  }, [live, ctx])
 
   const persist = (nextUrl: string): void => {
     let host = nextUrl
