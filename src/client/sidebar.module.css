@@ -1651,6 +1651,36 @@ body[data-dsh-sidebar-dragging] .panel {
   color: var(--dsw-alias-label-primary);
 }
 
+/* A hunk-gap fold in a diff: the "expand hidden context" chip between two
+   hunks (loading is inert, failure degrades to a static marker). */
+.gitFoldRow {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 12px;
+  border: none;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  text-align: center;
+  cursor: pointer;
+  outline: none;
+}
+
+.gitFoldRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.gitFoldRow:disabled {
+  cursor: default;
+}
+
+.gitFoldRowFailed {
+  color: var(--dsw-alias-state-error-primary);
+  opacity: 0.7;
+}
+
 /* The "Agent 正在等待 {needle}" wait banner: a warn-toned strip above the
    terminal surface while the model blocks in terminal_wait_for; the needle
    ellipsizes inline and the full text rides the title tooltip. */

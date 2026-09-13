@@ -1,3 +1,5 @@
+import { type SessionScope } from './api.ts';
+import type { SidebarDiffRef } from './state.ts';
 /** One rendered diff line. */
 export interface DiffLine {
     kind: 'ctx' | 'del' | 'add' | 'meta';
@@ -41,11 +43,41 @@ export interface ParsedDiff {
  * can still draw its path.
  */
 export declare function parseUnifiedDiff(text: string): ParsedDiff;
+/** The old/new line range one hidden gap spans (both sides derive from the
+ *  surrounding hunk headers and their counted rows). */
+interface DiffFoldRange {
+    oldStart: number;
+    oldEnd: number;
+    newStart: number;
+    newEnd: number;
+}
+/**
+ * Materialize a git gap fold's hidden rows from the two sides' full file
+ * contents, by the fold's known line ranges: the old side drives context
+ * rows (each mapped onto the new side through the fold's offset — a gap is
+ * an unchanged run, so the sides align), and new-side lines the old range
+ * never reaches become pure additions. Line numbers clip to the actual
+ * content (a no-newline file's ranges can overrun by one); `\r` endings
+ * survive verbatim, like git's own context lines.
+ */
+export declare function foldRowsFromContents(fold: DiffFoldRange, oldContent: string, newContent: string): DiffLine[];
 export interface DiffViewProps {
     /** Unified diff text (`git.diff` or `git.commit-diff` payloads). */
     diff: string;
     /** Untracked-file content: when present, renders as a full-file addition instead of parsing. */
     untrackedPath?: string;
     untrackedContent?: string;
+    /**
+     * When present (a worktree/commit diff ref plus its scope), hunk gaps
+     * render an expandable fold: clicking resolves both sides' full contents
+     * (`git.fold-contents`) and materializes the hidden context rows. Absent
+     * (or an untracked full-addition render) — no fold rows at all.
+     */
+    foldSource?: {
+        scope: SessionScope;
+        ref: SidebarDiffRef;
+        cwd: string | undefined;
+    };
 }
-export declare function DiffView({ diff, untrackedPath, untrackedContent }: DiffViewProps): import("react").JSX.Element | null;
+export declare function DiffView({ diff, untrackedPath, untrackedContent, foldSource }: DiffViewProps): import("react").JSX.Element | null;
+export {};

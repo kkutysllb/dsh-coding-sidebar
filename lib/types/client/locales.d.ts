@@ -161,6 +161,9 @@ export declare const zh: {
     disconnected: string;
     terminalWaitBanner: string;
     terminalSkipWait: string;
+    gitFoldExpand: string;
+    gitFoldLoading: string;
+    gitFoldFailed: string;
     exited: string;
     noSession: string;
     pluginNotLoaded: string;

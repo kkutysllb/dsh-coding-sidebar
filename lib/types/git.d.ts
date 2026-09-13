@@ -112,6 +112,21 @@ export declare function log(cwd: string, count?: number, skip?: number, selected
  * revision has no such path (a new/untracked file has no HEAD side).
  */
 export declare function show(cwd: string, rev: string, path: string, selected?: string): Promise<string | null>;
+/**
+ * Both sides' full file contents for a diff-fold expansion. `path` is
+ * repo-relative. The sides resolve per diff kind: a commit reads
+ * `<hash>^` vs `<hash>`; a staged change reads HEAD vs the index (`:`);
+ * an unstaged change reads HEAD vs the working tree file on disk (a side
+ * that does not exist — untracked, deleted, binary-refused — comes back
+ * null and the client degrades the fold to a static marker).
+ */
+export declare function foldContents(cwd: string, path: string, opts?: {
+    staged?: boolean;
+    hash?: string;
+}, selected?: string): Promise<{
+    old: string | null;
+    new: string | null;
+}>;
 /** Full patch text of one commit (`git show` with the commit header suppressed).
  *  Merge commits show their diff against the first parent (`-m --first-parent`
  *  is a no-op for regular commits), so a history click always has content. */

@@ -438,6 +438,19 @@ function buildApi(
       const rev = requireString(payload, 'rev')
       return { content: await git.show(cwd, rev, path, repoRoot) }
     },
+    // Diff-fold expansion data: both sides' full file contents so the client
+    // can materialize the hidden context rows a -U3 hunk gap omitted. The
+    // sides resolve per diff kind (commit hash / staged / unstaged) inside
+    // git.foldContents; a missing side is null and the client degrades.
+    'git.fold-contents': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const repoRoot = selectedRepoOf(payload)
+      const record = payload as { path?: unknown; staged?: unknown; hash?: unknown }
+      const path = await resolveGitPath(cwd, requireString(record, 'path'), repoRoot)
+      const staged = record.staged === true
+      const hash = typeof record.hash === 'string' ? record.hash : undefined
+      return await git.foldContents(cwd, path, { staged, hash }, repoRoot)
+    },
     // Release a terminal immediately. The WebSocket close frame already does
     // this while the socket is open; this route covers the tab-close that
     // happens while the socket is down (reconnect loop), so a closed tab can

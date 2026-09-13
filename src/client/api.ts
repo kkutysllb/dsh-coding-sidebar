@@ -241,6 +241,14 @@ export const api = {
   /** Full patch text of one commit (diff display for the history rows). */
   gitCommitDiff: (scope: SessionScope, hash: string, worktree?: string, signal?: AbortSignal) =>
     call<{ diff: string }>('git.commit-diff', gitPayload(scope, worktree, { hash }), signal),
+  /** Both sides' full file contents for a diff-fold expansion; a missing
+   *  side is null (untracked / deleted) and the view degrades the fold. */
+  gitFoldContents: (scope: SessionScope, opts: { path: string; staged?: boolean; hash?: string }, worktree?: string, signal?: AbortSignal) =>
+    call<{ old: string | null; new: string | null }>('git.fold-contents', gitPayload(scope, worktree, {
+      path: opts.path,
+      ...(opts.staged !== undefined ? { staged: opts.staged } : {}),
+      ...(opts.hash !== undefined ? { hash: opts.hash } : {}),
+    }), signal),
   /** Discard the worktree changes of one file (the index is untouched). */
   gitDiscard: (scope: SessionScope, path: string, worktree?: string) =>
     call<{ ok: true }>('git.discard', gitPayload(scope, worktree, { path })),

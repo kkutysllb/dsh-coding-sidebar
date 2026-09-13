@@ -103,7 +103,16 @@ export function DiffTab(props: { sessionId: string; cwd: string | undefined; dif
         <>
           {data.untracked !== undefined
             ? <DiffView diff="" untrackedPath={diff.kind === 'worktree' ? diff.path : ''} untrackedContent={data.untracked} />
-            : <DiffView diff={data.diff} />}
+            : (
+              <DiffView
+                diff={data.diff}
+                foldSource={{
+                  scope: { sessionId, cwd, ...(diff.repoRoot !== undefined ? { repoRoot: diff.repoRoot } : {}) },
+                  ref: diff,
+                  cwd,
+                }}
+              />
+            )}
           {data.diff === '' && data.untracked === undefined && (
             <div className={css.gitEmpty}>{t('diffEmpty')}</div>
           )}

@@ -171,6 +171,16 @@ export declare const api: {
     gitCommitDiff: (scope: SessionScope, hash: string, worktree?: string, signal?: AbortSignal) => Promise<{
         diff: string;
     }>;
+    /** Both sides' full file contents for a diff-fold expansion; a missing
+     *  side is null (untracked / deleted) and the view degrades the fold. */
+    gitFoldContents: (scope: SessionScope, opts: {
+        path: string;
+        staged?: boolean;
+        hash?: string;
+    }, worktree?: string, signal?: AbortSignal) => Promise<{
+        old: string | null;
+        new: string | null;
+    }>;
     /** Discard the worktree changes of one file (the index is untouched). */
     gitDiscard: (scope: SessionScope, path: string, worktree?: string) => Promise<{
         ok: true;

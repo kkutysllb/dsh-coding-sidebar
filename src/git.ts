@@ -9,8 +9,8 @@
  * Commits use the user's git global identity untouched (never sets
  * user.name/user.email).
  */
-import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdir, readFile } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 
@@ -437,6 +437,43 @@ export async function show(cwd: string, rev: string, path: string, selected?: st
   } catch {
     return null
   }
+}
+
+/**
+ * Both sides' full file contents for a diff-fold expansion. `path` is
+ * repo-relative. The sides resolve per diff kind: a commit reads
+ * `<hash>^` vs `<hash>`; a staged change reads HEAD vs the index (`:`);
+ * an unstaged change reads HEAD vs the working tree file on disk (a side
+ * that does not exist — untracked, deleted, binary-refused — comes back
+ * null and the client degrades the fold to a static marker).
+ */
+export async function foldContents(
+  cwd: string,
+  path: string,
+  opts: { staged?: boolean; hash?: string } = {},
+  selected?: string,
+): Promise<{ old: string | null; new: string | null }> {
+  const root = await repoRoot(cwd, selected)
+  if (opts.hash !== undefined) {
+    const [old, neu] = await Promise.all([
+      show(root, `${opts.hash}^`, path, selected),
+      show(root, opts.hash, path, selected),
+    ])
+    return { old, new: neu }
+  }
+  if (opts.staged === true) {
+    // `git show :<path>` reads the index (stage 0) — the staged side.
+    const [old, neu] = await Promise.all([
+      show(root, 'HEAD', path, selected),
+      show(root, ':', path, selected),
+    ])
+    return { old, new: neu }
+  }
+  const [old, neu] = await Promise.all([
+    show(root, 'HEAD', path, selected),
+    readFile(isAbsolute(path) ? path : join(root, path), 'utf8').catch(() => null),
+  ])
+  return { old, new: neu }
 }
 
 /** Full patch text of one commit (`git show` with the commit header suppressed).
