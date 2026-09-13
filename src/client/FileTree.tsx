@@ -28,8 +28,10 @@ import {
   IconLinkOutline16, Menu, type MenuEntry, type MenuItem, Modal, Button, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SiCursor, SiZedindustries } from 'react-icons/si'
-import { VscFile, VscFolder, VscFolderOpened, VscLinkExternal, VscPin, VscPinned } from 'react-icons/vsc'
+import { VscFolderOpened, VscLinkExternal, VscPin, VscPinned } from 'react-icons/vsc'
 import { api, downloadUrl, type FsEntry } from './api.ts'
+import { builtinFileIcon, builtinFolderIcon } from './file-icons.tsx'
+import type { BetterSidebarService } from './service.ts'
 import { IconUploadOutline16, IconVscode16 } from './icons.tsx'
 import type { OpenWithTarget } from './open-with.ts'
 import { relativeTo } from './paths.ts'
@@ -139,10 +141,43 @@ export function FileTree(props: {
   onPathRenamed?: (oldPath: string, newPath: string) => void
   /** A tree row was removed (close affected tabs; absent → no delete entry). */
   onPathRemoved?: (path: string) => void
+  /**
+   * The sidebar registry service: when present, externally registered file
+   * icons (`registerFileIcon`) outrank the built-in host artwork on file and
+   * directory rows. Absent → the built-ins alone apply.
+   */
+  service?: BetterSidebarService
 }) {
-  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, refreshTick, onUploadRequest, busy, onPathRenamed, onPathRemoved } = props
+  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, refreshTick, onUploadRequest, busy, onPathRenamed, onPathRemoved, service } = props
   const [data, setData] = useState<Record<string, LevelData>>({})
   const dataRef = useRef(data)
+  /**
+   * Registry revision (feature `fileIcons`): bumps on ANY registry change
+   * (register/dispose of tabs or icons — one listener set) so mounted rows
+   * re-resolve their glyphs. The value itself is unread; the state bump IS
+   * the re-render trigger.
+   */
+  const [, setIconsVersion] = useState(0)
+  useEffect(
+    () => service?.subscribe(() => { setIconsVersion(version => version + 1) }),
+    [service],
+  )
+  /**
+   * One file row's leading glyph. The service resolver owns the whole chain
+   * (registered specific name/extension → registered catch-all → the host's
+   * file-type artwork, with per-factory crash isolation); without a service
+   * the built-in host artwork alone applies.
+   */
+  const fileRowIcon = (path: string): ReactNode =>
+    service !== undefined ? service.fileIcon(path, 14) : builtinFileIcon(path, 14)
+
+  /**
+   * One directory row's leading glyph: the registered `'folder'` /
+   * `'folder-open'` (or `folderNames`) icon when present, else the host's
+   * folder glyph.
+   */
+  const dirRowIcon = (path: string, open: boolean): ReactNode =>
+    service !== undefined ? service.folderIcon(path, open, 14) : builtinFolderIcon(open, 14)
   /** The row whose path was just copied ("copied" label replaces its button). */
   const [copiedPath, setCopiedPath] = useState<string | null>(null)
   /** Open context menu: the row path (and whether it is a directory) plus the cursor position. */
@@ -539,7 +574,7 @@ export function FileTree(props: {
               onDrop={(event) => { handleDirDrop(event, entry.path) }}
               onContextMenu={(event) => { openRowMenu(event, entry.path, true) }}
             >
-              {isOpen ? <VscFolderOpened size={14} /> : <VscFolder size={14} />}
+              {dirRowIcon(entry.path, isOpen)}
               {renaming?.path === entry.path
                 ? renderRenameInput(entry.path)
                 : <span className={css.explorerName}>{entry.name}</span>}
@@ -574,7 +609,7 @@ export function FileTree(props: {
           onDrop={(event) => { handleFileDrop(event, entry.path) }}
           onContextMenu={(event) => { openRowMenu(event, entry.path, false) }}
         >
-          <VscFile size={14} />
+          {fileRowIcon(entry.path)}
           {renaming?.path === entry.path
             ? renderRenameInput(entry.path)
             : <span className={css.explorerName}>{entry.name}</span>}
@@ -605,7 +640,7 @@ export function FileTree(props: {
             onDrop={(event) => { handleDirDrop(event, root) }}
             onContextMenu={(event) => { openRowMenu(event, root, true) }}
           >
-            <VscFolderOpened size={14} />
+            {dirRowIcon(root, true)}
             <span className={css.explorerName}>{baseName(root)}</span>
             {copiedPath === root
               ? <span className={css.explorerCopied}>{t('copied')}</span>

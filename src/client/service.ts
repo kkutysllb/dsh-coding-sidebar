@@ -28,6 +28,17 @@ import {
 } from './state.ts'
 import type { SessionScope } from './api.ts'
 import type { SidebarPrefs } from '../prefs-shared.ts'
+import { createFileIconRegistry } from './file-icon-registry.ts'
+import type { FileIconDescriptor } from './file-icon-registry.ts'
+import { HOST_FILE_ICONS } from './file-icons.tsx'
+
+/**
+ * The file-icon registration vocabulary, re-exported so external plugins can
+ * name it from this entry (`import type { FileIconDescriptor } from
+ * 'dsh-coding-sidebar/client/service'`).
+ */
+export type { FileIconDescriptor } from './file-icon-registry.ts'
+export { FOLDER_EXT, FOLDER_OPEN_EXT } from './file-icon-registry.ts'
 
 /**
  * Public state vocabulary re-exported for consumers (type-only; the values
@@ -344,6 +355,52 @@ export interface BetterSidebarService {
   activateTab(tabId: string, scope?: SessionScope): void
   /** Open a file in the sidebar editor of `scope`'s session (title defaults to the file name). */
   openFile(scope: SessionScope, path: string, title?: string): void
+  /**
+   * Register an icon set for file and directory rows (feature `fileIcons`).
+   * A registration outranks the built-in artwork (DSH's own `FileTypeIcon`),
+   * matched by extension (`exts`), exact file name (`names`) or directory
+   * name (`folderNames`); priority desc, then registration order. The
+   * disposer unregisters (a second call is a no-op) and every change
+   * notifies `subscribe` — mounted rows re-resolve without a reload.
+   * Throws when the id is already registered.
+   * Note the chain's shape: the host classifier covers ANY path, so a
+   * catch-all (`exts: []`) claims every row no specific registration
+   * matched.
+   */
+  registerFileIcon(descriptor: FileIconDescriptor): () => void
+  /** The registered icon sets, in registration order. */
+  getFileIcons(): readonly FileIconDescriptor[]
+  /**
+   * Find a SPECIFIC registered icon for a path (a `names` match first, then
+   * an `exts` match; priority desc, registration order). Catch-alls
+   * (`exts: []`) and folder registrations are not consulted — this answers
+   * "did a registration claim this exact name or extension". Prefer
+   * `fileIcon`/`folderIcon`, which run the whole chain.
+   */
+  matchFileIcon(path: string): FileIconDescriptor | undefined
+  /**
+   * Find the registered icon for DIRECTORY rows (priority desc, registration
+   * order): a `folderNames` match on `name` first (pass the directory's
+   * basename), then the `'folder'`/`'folder-open'` reserved exts by `open`.
+   * Undefined = the built-in folder glyph applies.
+   */
+  matchFolderIcon(open: boolean, name?: string): FileIconDescriptor | undefined
+  /**
+   * The authoritative FILE icon for a path, running the whole chain with
+   * per-factory crash isolation: a specific `names`/`exts` registration →
+   * the best registered catch-all (`exts: []`) → the host's own
+   * `FileTypeIcon` artwork. A throwing factory is logged and skipped, so the
+   * caller always gets a valid ReactNode.
+   */
+  fileIcon(path: string, size: number): ReactNode
+  /**
+   * The authoritative DIRECTORY icon for a tree row: the registered
+   * `folderNames`/`'folder'`/`'folder-open'` icon, else the built-in folder
+   * glyph. `path` is the directory's own path (a theme may vary icons per
+   * directory) and `open` reaches the factory so one descriptor can render
+   * both states. Same crash isolation as `fileIcon`.
+   */
+  folderIcon(path: string, open: boolean, size: number): ReactNode
 }
 
 /** The file name of a path (both separators). */
@@ -402,6 +459,11 @@ export const SIDEBAR_SERVICE_VERSION = __SIDEBAR_VERSION__
  * - 'pluginSettings': SidebarSettingsDeclaration.pluginToggles/render
  * - 'urlTarget' (v0.13.0): TabDescriptor.urlTarget (external-link claims)
  * - 'settingSelect': SidebarSettingToggle type 'select' (options/multi)
+ * - 'fileIcons' (v1.0.12): registerFileIcon/getFileIcons/matchFileIcon —
+ *   external file-tree icons overriding the built-in artwork, matched by
+ *   extension (`exts`), exact file name (`names`), or directory name
+ *   (`folderNames`). Built-in glyphs are the host's own `FileTypeIcon`
+ *   artwork (no plugin-side extension table).
  * - 'floatWindows' (v0.16.0): tabs float as free windows — openTab's dedupe/
  *   id focus targets RAISE the floating window (never duplicate the tab or
  *   expand panels), closeTab on a floating tab closes it with its window.
@@ -417,6 +479,7 @@ export const SIDEBAR_FEATURES = [
   'pluginSettings',
   'urlTarget',
   'settingSelect',
+  'fileIcons',
   'floatWindows',
 ] as const
 
@@ -441,6 +504,11 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
   const notify = (): void => {
     for (const fn of [...listeners]) fn()
   }
+
+  // The file-icon registry (feature `fileIcons`) shares this listener set: an
+  // icon registration re-renders the mounted tree rows the way a tab/viewer
+  // registration does. The chain semantics live in the pure registry module.
+  const icons = createFileIconRegistry(HOST_FILE_ICONS, notify)
 
   const subscribe = (listener: () => void): (() => void) => {
     listeners.add(listener)
@@ -687,6 +755,7 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
     updateTab,
     activateTab,
     openFile,
+    ...icons,
   }
 }
 

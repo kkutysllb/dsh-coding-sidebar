@@ -11,7 +11,7 @@
   <a href="https://github.com/topics/dsh-coding-sidebar"><img alt="插件生态：GitHub topic dsh-coding-sidebar" src="https://img.shields.io/badge/%E6%8F%92%E4%BB%B6%E7%94%9F%E6%80%81-topic%20dsh--coding--sidebar-4d6bfe" /></a><br /><br />
   <img alt="文件管理" src="https://img.shields.io/badge/-文件管理-4d6bfe" /> <img alt="代码编辑" src="https://img.shields.io/badge/-代码编辑-4d6bfe" /> <img alt="内嵌浏览器" src="https://img.shields.io/badge/-内嵌浏览器-4d6bfe" /> <img alt="真实终端" src="https://img.shields.io/badge/-真实终端-4d6bfe" /> <img alt="Git 面板" src="https://img.shields.io/badge/-Git%20面板-4d6bfe" /> <img alt="后台任务" src="https://img.shields.io/badge/-后台任务-4d6bfe" /> <img alt="侧边对话" src="https://img.shields.io/badge/-侧边对话-4d6bfe" /> <img alt="插件接入" src="https://img.shields.io/badge/-插件接入-4d6bfe" /><br /><br />
   <b>右侧栏工作台</b>，并把 <code>ctx.betterSidebar</code> 服务开放给所有插件——<br />
-  通过 <code>registerTab</code> 注册新的侧边栏页面；文件预览由 DSH 内置能力承担。
+  通过 <code>registerTab</code> 注册新的侧边栏页面、<code>registerFileIcon</code> 注册文件/目录图标；文件预览由 DSH 内置能力承担。
 </div>
 
 <div align="center">
@@ -36,7 +36,8 @@
 
 ## ✨ 功能一览
 
-- **🗂️ 文件工作台**：资源管理器（懒加载目录树；软链接按目标类型展示——目录软链接可展开、失效链接标红）+ CodeMirror 编辑器（纯编辑：行号 / 自动换行 / 语法高亮 / Ctrl+S 保存）；文件预览由 DSH 内置能力承担
+- **🗂️ 文件工作台**：资源管理器（懒加载目录树；文件 / 文件夹图标直接用 DSH 官方 `FileTypeIcon` 全彩画稿——48 类代码与配置图形 + markdown / 图片 / PDF / Office / 视频等类目色，分类交给宿主 `classifyFileType`，插件不自带扩展名表、也没有图标懒加载分包；软链接按目标类型展示——目录软链接可展开、失效链接标红）+ CodeMirror 编辑器（纯编辑：行号 / 自动换行 / 语法高亮 / Ctrl+S 保存）；文件预览由 DSH 内置能力承担
+- **🎨 彩色 Tab 图标**：文件 / 源代码管理 / 任务管理 / 侧边对话 / 终端 / 浏览器六个内置类型与 diff 视图的图形换成彩色版本，颜色全部取自 `--dsw-alias-*` 令牌（皮肤可整体接管，无颜色字面量）
 - **🌐 内嵌浏览器**：多开网页 tab，后退 / 前进 / 刷新；内容运行在沙箱 iframe；外链默认按协议分流——HTTP 在侧边栏打开、HTTPS 走系统浏览器（设置页可分别调整）
 - **💻 真实终端**：xterm.js + node-pty 真实 shell，断线重连回放；可选为模型注入 `terminal_*` 工具
 - **📂 模型侧边栏打开（可选）**：全局设置开启后注入 `sidebar_open` 工具——模型可主动在侧边栏打开文件 / 文件夹（树以该目录为根）/ HTTP(S) 网页
@@ -163,7 +164,21 @@ dsh registry enable dsh-external/dsh-coding-sidebar
 
 ## 🌐 插件生态
 
-`ctx.betterSidebar` 服务向所有插件开放扩展点：**`registerTab`（注册侧边栏页面）**。内置 7 tab 与第三方插件走同一套 API，能力完全对等。（v1.0.4 起 `registerFileViewer` 预览器扩展点退役——文件预览由 DSH 内置能力承担。）
+`ctx.betterSidebar` 服务向所有插件开放扩展点：**`registerTab`（注册侧边栏页面）**、**`registerFileIcon`（注册文件 / 目录图标）**。内置 7 tab 与第三方插件走同一套 API，能力完全对等。（v1.0.4 起 `registerFileViewer` 预览器扩展点退役——文件预览由 DSH 内置能力承担。）
+
+`registerFileIcon`（能力 `'fileIcons'`）按扩展名（`exts`）、精确文件名（`names`）、目录名（`folderNames`）注册自己的图形，优先级降序、同级按注册序，注销即回退；内置图形是宿主 ui-primitives 的 `FileTypeIcon`（分类器 `classifyFileType`）。注意语义：宿主分类器覆盖任意路径，因此 `exts: []` 的 catch-all 会接管所有未被具体命中的行。
+
+```ts
+// 例：给自己的文件类型与目录换图标（注销即回退宿主画稿）
+ctx.effect(() => ctx.betterSidebar.registerFileIcon({
+  id: 'my-plugin:icons',
+  exts: ['csv', 'tsv'],
+  names: ['Makefile'],
+  folderNames: ['node_modules'],
+  priority: 10,
+  icon: (path, size, open) => (open === true ? <MyOpenFolder size={size} /> : <MyCsvIcon size={size} />),
+}))
+```
 
 ```ts
 import type {} from 'dsh-coding-sidebar'  // 触发 ctx.betterSidebar 类型合并
@@ -429,7 +444,7 @@ v1.0.4 起侧边栏不再承载文件预览（DSH 0.1.5-rc.2 内置预览已完�
 
 ## 🔌 服务化扩展
 
-从 v0.4.0 起暴露 `ctx.betterSidebar` 服务，其他插件可注册侧边栏页面（内置 7 tab 亦通过同一服务注册；v1.0.4 起文件预览器扩展点退役，预览由 DSH 内置能力承担）。v0.12.1 补齐基座能力（完整类型导出、能力探测、状态订阅、tab 角标、生命周期回调、定向打开、插件自有设置等）。
+从 v0.4.0 起暴露 `ctx.betterSidebar` 服务，其他插件可注册侧边栏页面（内置 7 tab 亦通过同一服务注册；v1.0.4 起文件预览器扩展点退役，预览由 DSH 内置能力承担）。v0.12.1 补齐基座能力（完整类型导出、能力探测、状态订阅、tab 角标、生命周期回调、定向打开、插件自有设置等）；此后新增 `registerFileIcon` 扩展点与 `'fileIcons'` 能力（文件 / 目录图标注册，内置图形为宿主 `FileTypeIcon` 官方画稿）。
 
 完整接入文档：
 - **[`AGENTS.md`](./AGENTS.md)**——仓库内维护的接入文档（全字段、匹配算法、HMR 陷阱、声明式设置、版本探测）；

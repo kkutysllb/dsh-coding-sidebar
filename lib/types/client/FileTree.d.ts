@@ -1,3 +1,4 @@
+import type { BetterSidebarService } from './service.ts';
 import type { OpenWithTarget } from './open-with.ts';
 import { type UploadItem } from './upload.ts';
 /** Root label: the last path segment (mirror of the host rootLabel). */
@@ -39,4 +40,10 @@ export declare function FileTree(props: {
     onPathRenamed?: (oldPath: string, newPath: string) => void;
     /** A tree row was removed (close affected tabs; absent → no delete entry). */
     onPathRemoved?: (path: string) => void;
+    /**
+     * The sidebar registry service: when present, externally registered file
+     * icons (`registerFileIcon`) outrank the built-in host artwork on file and
+     * directory rows. Absent → the built-ins alone apply.
+     */
+    service?: BetterSidebarService;
 }): import("react").JSX.Element;

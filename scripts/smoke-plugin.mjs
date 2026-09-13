@@ -95,6 +95,16 @@ check(
   `产物=${versionMatch?.[1] ?? '缺失'} 包=${pkg.version}`,
 )
 
+// fileIcons 能力已在能力清单中（file-icon-registry 的注册/回退链随之发布）
+check(
+  "SIDEBAR_FEATURES 含 'fileIcons' 能力",
+  clientSrc.includes("'fileIcons'") || clientSrc.includes('"fileIcons"'),
+)
+
+// 图形不由插件自带：宿主 ui-primitives 的 FileTypeIcon 承担内置画稿，
+// 因此没有（也不该有）文件图标懒加载分包。
+check('无文件图标懒加载分包（宿主 FileTypeIcon 承担内置图形）', !existsSync(join(packageRoot, 'lib', 'client-file-icons.js')))
+
 /* ═══ 4a. server 面可加载 ═══ */
 
 {

@@ -1,21 +1,25 @@
 /**
  * wrapOpenPath / wrapRemoteOpenPath / wrapSidebarRight / hasDeclaredDeliveries
- * 行为单测（node 直跑，零依赖）：
- * 对应 src/client/openpath-intercept.ts 的三门接管语义，以及
- * src/client/deliveries.ts 的交付让位判定。
+ * / createFileIconRegistry 行为单测（node 直跑，零依赖）：
+ * 对应 src/client/openpath-intercept.ts 的三门接管语义、
+ * src/client/deliveries.ts 的交付让位判定，以及
+ * src/client/file-icon-registry.ts 的 fileIcons 注册/回退链语义。
  *
  * 运行：node tests/run-openpath-tests.mjs
  *
  * 夹具再生成（src 改动后必须重跑，否则本文件测的是旧副本）：
  *   ./node_modules/.bin/tsc src/client/openpath-intercept.ts src/client/deliveries.ts \
+ *     src/client/file-icon-registry.ts \
  *     --target es2022 --module esnext --skipLibCheck --outDir /tmp/csb-tr
  *   cp /tmp/csb-tr/openpath-intercept.js tests/openpath-intercept.mjs
  *   cp /tmp/csb-tr/deliveries.js tests/deliveries.mjs
+ *   cp /tmp/csb-tr/file-icon-registry.js tests/file-icon-registry.mjs
  * （不用 Node 的类型擦除直读 .ts：package.json 声明 engines.node >= 20，
  *   而 .ts 直读要 22.6+。）
  */
 import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight } from './openpath-intercept.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
+import { createFileIconRegistry } from './file-icon-registry.mjs'
 
 let failed = 0
 const ok = (cond, label) => {
@@ -320,6 +324,165 @@ console.log('[hasDeclaredDeliveries]')
   ok(hasDeclaredDeliveries({ turn: {} }) === false, '无 data.get → false')
   ok(hasDeclaredDeliveries(owner({ presented: [at('a.md', 5), at('b.md', 6)] }, undefined)) === true,
     '无 closing seq 时按 +∞ 处理 → true')
+}
+
+// ── createFileIconRegistry（fileIcons 注册与回退链）──────────────
+console.log('[createFileIconRegistry]')
+{
+  /** 内置图形桩：把「走了内置」记成可断言的标记（真实实现是宿主 FileTypeIcon）。 */
+  const builtins = {
+    file: (path, size) => ({ builtin: 'file', path, size }),
+    folder: (open, size) => ({ builtin: 'folder', open, size }),
+  }
+  const make = (onChange) => createFileIconRegistry(builtins, onChange)
+  /** 注册图形桩：返回可区分的标记字符串。 */
+  const tag = (value) => (() => value)
+
+  // 1) 注册 / 注销生命周期
+  {
+    const r = make()
+    ok(r.getFileIcons().length === 0, '初始注册表为空')
+    const dispose = r.registerFileIcon({ id: 'x', exts: ['csv'], icon: tag('csv') })
+    ok(r.getFileIcons().length === 1, '注册后进入注册表')
+    ok(r.matchFileIcon('/w/a.csv')?.id === 'x', '注册后按扩展名命中')
+    dispose()
+    ok(r.getFileIcons().length === 0 && r.matchFileIcon('/w/a.csv') === undefined, '注销后回退（不再命中）')
+    dispose()
+    ok(r.getFileIcons().length === 0, '重复注销是 no-op')
+    ok((() => { try { r.registerFileIcon({ id: 'x', exts: ['csv'], icon: tag('csv') }); r.registerFileIcon({ id: 'x', exts: ['csv'], icon: tag('csv') }); return false } catch { return true } })(),
+      '重复 id 抛错')
+  }
+
+  // 2) 变更通知（挂载行重解析，无需刷新）
+  {
+    let notified = 0
+    const r = make(() => { notified += 1 })
+    const dispose = r.registerFileIcon({ id: 'x', exts: ['csv'], icon: tag('csv') })
+    ok(notified === 1, '注册通知一次')
+    dispose()
+    ok(notified === 2, '注销通知一次')
+    dispose()
+    ok(notified === 2, '重复注销不通知')
+  }
+
+  // 3) 扩展名匹配：大小写不敏感；catch-all 不参与 matchFileIcon
+  {
+    const r = make()
+    r.registerFileIcon({ id: 'csv', exts: ['csv'], icon: tag('csv') })
+    r.registerFileIcon({ id: 'all', exts: [], icon: tag('all') })
+    ok(r.matchFileIcon('/w/DATA.CSV')?.id === 'csv', '扩展名大小写不敏感')
+    ok(r.matchFileIcon('/w/a.tsv') === undefined, 'catch-all 不出现在 matchFileIcon')
+    ok(r.fileIcon('/w/a.tsv', 14) === 'all', 'catch-all 接管未具体命中的行')
+    ok(r.fileIcon('/w/a.csv', 14) === 'csv', '具体命中优先于 catch-all')
+    ok(r.matchFileIcon('/w/.gitignore') === undefined, '前导点文件名（.gitignore）按 gitignore 归类')
+    r.registerFileIcon({ id: 'dot', exts: ['gitignore'], icon: tag('dot') })
+    ok(r.matchFileIcon('/w/.gitignore')?.id === 'dot', '.gitignore 命中 gitignore 扩展名')
+  }
+
+  // 4) 优先级降序；同级按注册序
+  {
+    const r = make()
+    r.registerFileIcon({ id: 'low', exts: ['csv'], icon: tag('low') })
+    r.registerFileIcon({ id: 'high', exts: ['csv'], priority: 10, icon: tag('high') })
+    r.registerFileIcon({ id: 'tie', exts: ['csv'], icon: tag('tie') })
+    ok(r.matchFileIcon('/w/a.csv')?.id === 'high', '高优先级胜出')
+    const r2 = make()
+    r2.registerFileIcon({ id: 'first', exts: ['csv'], icon: tag('first') })
+    r2.registerFileIcon({ id: 'second', exts: ['csv'], icon: tag('second') })
+    ok(r2.matchFileIcon('/w/a.csv')?.id === 'first', '同级按注册序（先注册者胜）')
+    const r3 = make()
+    r3.registerFileIcon({ id: 'all-a', exts: [], icon: tag('a') })
+    r3.registerFileIcon({ id: 'all-b', exts: [], priority: 5, icon: tag('b') })
+    ok(r3.fileIcon('/w/Makefile', 14) === 'b', '多个 catch-all 取优先级最高者')
+  }
+
+  // 5) names 精确文件名：压过扩展名规则，大小写不敏感，且 names-only 不是 catch-all
+  {
+    const r = make()
+    r.registerFileIcon({ id: 'by-ext', exts: ['json'], icon: tag('ext') })
+    r.registerFileIcon({ id: 'by-name', names: ['package.json'], icon: tag('name') })
+    ok(r.matchFileIcon('/w/package.json')?.id === 'by-name', 'names 压过 exts')
+    ok(r.matchFileIcon('/w/Package.JSON')?.id === 'by-name', 'names 大小写不敏感')
+    ok(r.matchFileIcon('/w/tsconfig.json')?.id === 'by-ext', '其余 .json 仍走 exts 规则')
+    const r2 = make()
+    r2.registerFileIcon({ id: 'named-only', names: ['Makefile'], icon: tag('named') })
+    ok(r2.fileIcon('/w/README.md', 14).builtin === 'file', 'names-only 不接管未命名行（非 catch-all）')
+  }
+
+  // 6) 目录行：folderNames → 保留 folder/folder-open；catch-all 不接管目录
+  {
+    const r = make()
+    r.registerFileIcon({ id: 'dirs', exts: ['folder', 'folder-open'], icon: tag('dir') })
+    r.registerFileIcon({ id: 'named', folderNames: ['node_modules'], icon: tag('named') })
+    ok(r.matchFolderIcon(false, 'node_modules')?.id === 'named', 'folderNames 命中目录名')
+    ok(r.matchFolderIcon(false, 'NODE_MODULES')?.id === 'named', 'folderNames 大小写不敏感')
+    ok(r.matchFolderIcon(false, 'src')?.id === 'dirs', '未命名目录走保留 folder 扩展名')
+    ok(r.matchFolderIcon(true, 'src')?.id === 'dirs', '展开态走保留 folder-open 扩展名')
+    ok(r.fileIcon('/w/x.folder', 14).builtin === 'file', '保留扩展名不接管真实文件 x.folder')
+    ok(r.matchFileIcon('/w/x.folder') === undefined, 'matchFileIcon 跳过保留扩展名')
+    const r2 = make()
+    r2.registerFileIcon({ id: 'named-only', folderNames: ['src'], icon: tag('named') })
+    ok(r2.matchFolderIcon(false, 'lib') === undefined, 'folderNames-only 不接管未命名目录')
+    const r3 = make()
+    r3.registerFileIcon({ id: 'all', exts: [], icon: tag('all') })
+    ok(r3.folderIcon('/w/src', false, 14).builtin === 'folder', 'catch-all 不接管目录')
+    ok(r3.matchFolderIcon(false, 'src') === undefined, 'matchFolderIcon 不返回 catch-all')
+  }
+
+  // 7) 目录工厂拿到展开态；图标按优先级降序
+  {
+    const r = make()
+    const seen = []
+    r.registerFileIcon({
+      id: 'stateful',
+      folderNames: ['src'],
+      icon: (_path, _size, open) => { seen.push(open); return open === true ? 'open' : 'closed' },
+    })
+    ok(r.folderIcon('/w/src', false, 14) === 'closed', '闭合目录传 open=false')
+    ok(r.folderIcon('/w/src', true, 14) === 'open', '展开目录传 open=true')
+    ok(seen.length === 2 && seen[0] === false && seen[1] === true, '工厂收到两态')
+    const r2 = make()
+    r2.registerFileIcon({ id: 'closed', exts: ['folder'], icon: tag('closed') })
+    ok(r2.folderIcon('/w/src', true, 14).builtin === 'folder', '只注册 folder 时展开态仍回退内置')
+    r2.registerFileIcon({ id: 'open', exts: ['folder-open'], icon: tag('opened') })
+    ok(r2.folderIcon('/w/src', true, 14) === 'opened', 'folder-open 注册接管展开态')
+  }
+
+  // 8) 工厂返回 undefined = 让位，抛错 = 记日志并让位（调用方永远拿到合法节点）
+  {
+    const r = make()
+    r.registerFileIcon({ id: 'decline', exts: ['md'], icon: () => undefined })
+    ok(r.fileIcon('/w/README.md', 14).builtin === 'file', '具体工厂让位后落到内置')
+    r.registerFileIcon({ id: 'all-decline', exts: [], priority: 10, icon: () => undefined })
+    r.registerFileIcon({ id: 'all-take', exts: [], icon: tag('all') })
+    ok(r.fileIcon('/w/Makefile', 14) === 'all', '让位的 catch-all 被跳过，下一个接管')
+    const original = console.error
+    let logged = 0
+    console.error = () => { logged += 1 }
+    try {
+      const r2 = make()
+      r2.registerFileIcon({ id: 'boom', exts: ['md'], icon: () => { throw new Error('boom') } })
+      ok(r2.fileIcon('/w/README.md', 14).builtin === 'file', '抛错的具体工厂让位到内置')
+      r2.registerFileIcon({ id: 'boom-all', exts: [], priority: 10, icon: () => { throw new Error('boom') } })
+      ok(r2.fileIcon('/w/Makefile', 14).builtin === 'file', '抛错的 catch-all 让位到内置')
+      r2.registerFileIcon({ id: 'boom-dir', exts: ['folder'], priority: 10, icon: () => { throw new Error('boom') } })
+      ok(r2.folderIcon('/w/src', false, 14).builtin === 'folder', '抛错的目录工厂回退内置')
+      ok(logged === 3, '三次抛错都记了日志')
+    } finally {
+      console.error = original
+    }
+  }
+
+  // 9) 链尾就是内置（宿主画稿）；无注册时按路径与尺寸取图形
+  {
+    const r = make()
+    for (const path of ['/w/README.md', '/w/logo.png', '/w/main.ts', '/w/pkg.json', '/w/data.xyzunknown', '/w/Makefile']) {
+      const icon = r.fileIcon(path, 14)
+      ok(icon.builtin === 'file' && icon.path === path && icon.size === 14, `未注册时走内置：${path}`)
+    }
+    const folder = r.folderIcon('/w/src', true, 14)
+    ok(folder.builtin === 'folder' && folder.open === true && folder.size === 14, '未注册目录走内置（带展开态）')
+  }
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

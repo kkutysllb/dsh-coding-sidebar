@@ -1234,6 +1234,13 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
    */
   /** The tab icon from the tab-type registry (shared by every workbench). */
   const tabIconOf = (tab: SidebarTab): ReactNode => {
+    // An editor tab WITH a file path (the per-path windows of split mode —
+    // `meta.dir` marks folder windows, which keep the folder glyph) shows the
+    // same file icon the tree row shows (feature `fileIcons`); every other
+    // tab uses its tab-type descriptor icon.
+    if (tab.type === 'editor' && tab.path !== undefined && (tab.meta as { dir?: boolean } | undefined)?.dir !== true) {
+      return ctx.get('betterSidebar')?.fileIcon(tab.path, 14) ?? null
+    }
     const descriptor = ctx.get('betterSidebar')?.getTab(tab.type)
     if (descriptor === undefined) return null
     return typeof descriptor.icon === 'function' ? descriptor.icon(14) : descriptor.icon

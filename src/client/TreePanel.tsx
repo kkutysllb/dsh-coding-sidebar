@@ -22,6 +22,7 @@ import { api } from './api.ts'
 import { FileTree } from './FileTree.tsx'
 import { IconUploadOutline16 } from './icons.tsx'
 import type { OpenWithTarget } from './open-with.ts'
+import type { BetterSidebarService } from './service.ts'
 import { t } from './locales.ts'
 import { resolveSidebarPath } from './produced-files.ts'
 import { UploadOverlay } from './UploadOverlay.tsx'
@@ -66,8 +67,11 @@ export function TreePanel(props: {
   /** Full-window presentation: the panel fills its host instead of docking
    *  at a fixed width. */
   full?: boolean
+  /** The sidebar registry service (file-icon registrations; passed through
+   *  to the file tree). */
+  service?: BetterSidebarService
 }) {
-  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, onPathRenamed, onPathRemoved, full } = props
+  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, onPathRenamed, onPathRemoved, full, service } = props
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ matches: string[]; truncated: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -256,6 +260,7 @@ export function TreePanel(props: {
           refreshTick={refreshTick}
           onUploadRequest={startUpload}
           busy={busy}
+          service={service}
         />
       ) : (
         <div className={css.explorerBody}>
