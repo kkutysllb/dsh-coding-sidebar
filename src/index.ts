@@ -40,7 +40,7 @@ import { launchExternal } from './open-external.ts'
 import * as git from './git.ts'
 import { SettingsConflictError, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defaultShell, ensureSpawnHelper, PtyManager, shellDisplayName } from './pty-manager.ts'
-import { AgentPtyRegistry, clampDims, type AgentTerminalHandle } from './agent-pty.ts'
+import { AgentPtyRegistry, armPtyResizeGate, tryResizePty, type AgentTerminalHandle } from './agent-pty.ts'
 import {
   DSH_NODE_PTY_RANGE,
   depsStatus,
@@ -1037,6 +1037,38 @@ async function attachAgentList(
 }
 
 /**
+ * The WS close reason for a failed terminal attach. A missing configured
+ * shell gets a SHORT machine-readable marker (`shell-not-found:<name>`,
+ * capped by BYTES — a WS close reason allows at most 123 bytes, which `ws`
+ * validates with `Buffer.byteLength`) that the client maps to a localized,
+ * actionable banner; every other failure keeps the raw message (the
+ * model-side tool errors read it verbatim).
+ */
+export function wsCloseReasonOf(error: unknown): string {
+  if (error instanceof SidebarError && error.code === 'shell-not-found') {
+    const name = truncateUtf8Bytes(shellDisplayName(String(error.meta?.shell ?? '')), 100)
+    return `shell-not-found:${name}`
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Truncate to at most `maxBytes` UTF-8 bytes without splitting a code point.
+ * A character-count `slice` does not bound the WS close reason: `ws` measures
+ * `Buffer.byteLength` against its 123-byte cap, and the resulting throw would
+ * replace the very error the reason describes.
+ */
+function truncateUtf8Bytes(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value) <= maxBytes) return value
+  let truncated = ''
+  for (const character of value) {
+    if (Buffer.byteLength(truncated + character) > maxBytes) break
+    truncated += character
+  }
+  return truncated
+}
+
+/**
  * Wire one terminal socket to its pty: replay transcript, pump both ways.
  * Two attach modes share the wire protocol:
  * - `?uuid=...` attaches to an agent-owned terminal (created by the
@@ -1097,6 +1129,9 @@ async function attachTerminal(
     // terminals opened from now on (existing pty handles keep their shell).
     const overrides = shellOverridesOf(getSettings)
     const handle = ptyManager.open(sessionId, tabId, cwd, 80, 24, overrides.shell, overrides.shellArgs)
+    // Windows pre-ready gate for the resize frames this socket may deliver
+    // (see armPtyResizeGate; inert on POSIX).
+    armPtyResizeGate(handle.pty)
     // Replay the transcript, then follow live output.
     if (handle.transcript !== '') ws.send(handle.transcript)
     const onData = (data: string): void => {
@@ -1143,8 +1178,7 @@ async function attachTerminal(
         && control.type === 'resize'
         && typeof control.cols === 'number' && typeof control.rows === 'number'
       ) {
-        const dims = clampDims(control.cols, control.rows)
-        handle.pty.resize(dims.cols, dims.rows)
+        tryResizePty(handle.pty, control.cols, control.rows)
       } else {
         handle.pty.write(text)
       }
@@ -1162,7 +1196,7 @@ async function attachTerminal(
       }
     })
   } catch (error) {
-    ws.close(1011, error instanceof Error ? error.message : String(error))
+    ws.close(1011, wsCloseReasonOf(error))
   }
 }
 
@@ -1212,8 +1246,7 @@ function pumpAgentTerminal(
       && control.type === 'resize'
       && typeof control.cols === 'number' && typeof control.rows === 'number'
     ) {
-      const dims = clampDims(control.cols, control.rows)
-      handle.pty.resize(dims.cols, dims.rows)
+      tryResizePty(handle.pty, control.cols, control.rows)
     } else if (control === null) {
       // Raw text input (a JSON-looking string the pty would have received
       // verbatim is reachable in theory but is exotic for an agent terminal;

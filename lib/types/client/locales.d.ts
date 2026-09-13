@@ -94,6 +94,7 @@ export declare const zh: {
     terminalDepsFailed: string;
     terminalDepsHint: string;
     terminalDepsProfile: string;
+    terminalShellNotFound: string;
     refresh: string;
     refreshUnsavedConfirm: string;
     save: string;

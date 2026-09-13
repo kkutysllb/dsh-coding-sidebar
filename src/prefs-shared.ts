@@ -16,14 +16,16 @@ export interface SidebarPrefs {
   /** Default panel width as a percent of the window width (20–60). */
   defaultWidthPercent: number
   /**
-   * Whether the sidebar auto-activates (opens the panel) and expands the
-   * Subagent page when the current conversation spawns a new subagent.
+   * Whether the sidebar auto-activates the Subagent page when the current
+   * conversation spawns a new subagent. Wide viewports also open the panel;
+   * narrow viewports prepare the tab without opening the full-screen drawer.
    */
   autoOpenSubagent: boolean
   /**
-   * Whether the sidebar auto-activates (opens the panel) and expands the
-   * Jobs page when a NEW background job appears for the current
-   * conversation (any new job id, not just the first one).
+   * Whether the sidebar auto-activates the Jobs page when a NEW background
+   * job appears for the current conversation (any new job id, not just the
+   * first one). Wide viewports also open the panel; narrow viewports prepare
+   * the tab without opening the full-screen drawer.
    */
   autoOpenJobs: boolean
   /**

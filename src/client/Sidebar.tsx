@@ -25,7 +25,7 @@ import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarSessionList } from '../context-types.ts'
-import { appendToDraft } from './conversation-draft.ts'
+import { appendToDraft, insertFileReference } from './conversation-draft.ts'
 import {
   PANEL_MIN, activateTab, agentUuidOf, closeFloatByTab, closeTab, dockFloat, firstLeaf, floatTab,
   isAgentTabId, leafWithTab,
@@ -119,7 +119,7 @@ function injectUserCss(attr: string, id: string, cssText: string): HTMLStyleElem
  *  pane; sessionId/cwd cover onReferenceFile). */
 interface TabContentProps extends TabContentMemoKey {
   onToggleDir: (path: string) => void
-  onReferenceFile: (path: string) => void
+  onReferenceFile: (path: string, isDir: boolean) => void
   ctx: Context
   store: SidebarStore
   /** Fired before a topology node jumps to its child session (see Sidebar). */
@@ -498,8 +498,10 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
    * Subagent auto-activation: the moment the current conversation spawns its
    * FIRST direct subagent (a 0 → N transition on the list feed), the "auto
    * open" pref is on, and the Subagent tab type is enabled in settings,
-   * open the panel (if collapsed) and focus the Subagent page
-   * (single-instance: an existing tab is focused, never duplicated).
+   * focus the Subagent page (single-instance: an existing tab is focused,
+   * never duplicated). On wide viewports the right panel also expands; on
+   * narrow viewports background activity never forces the full-screen drawer
+   * open over the chat.
    * Switching to a session that already has subagents never triggers — its
    * baseline starts at the current count — so a deliberate layout is never
    * fought.
@@ -525,9 +527,14 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
       if (!detectNewDirectSubagent(baseline, ctx.sessions.list.getSnapshot(), sessionId)) return
       if (!store.getPrefs().autoOpenSubagent) return
       if (ctx.get('betterSidebar')?.isTabEnabled('subagent') === false) return
-      store.reduce(s => s.panelOpen ? s : togglePanel(s))
-      // Pin the landing to the first pane: the auto-opened Subagent page
-      // must appear in the panel that just expanded, not wherever the user
+      // Read the viewport when the delayed activation fires: a resize while
+      // the debounce is armed must not let background activity force the
+      // narrow full-screen drawer open over the chat.
+      if (!isNarrowWidth(window.innerWidth)) {
+        store.reduce(s => s.panelOpen ? s : togglePanel(s))
+      }
+      // Pin the landing to the first pane: the auto-activated Subagent page
+      // must be ready in the panel that just expanded, not wherever the user
       // last touched.
       store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
       ctx.get('betterSidebar')?.openTab({ type: 'subagent', title: t('subagent') })
@@ -545,11 +552,12 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   /**
    * Job auto-activation: the moment a NEW background job appears for the
    * current conversation (a job id the previous snapshot lacked), the
-   * auto-open pref is on, and the Jobs tab type is enabled, open the panel
-   * (if collapsed) and focus the Jobs page. Unlike the subagent trigger
-   * (0 → N only), ANY new job id triggers: the agent may start several
-   * jobs in one session, and each should surface. A fresh page load never
-   * triggers — its baseline starts at the current snapshot.
+   * auto-open pref is on, and the Jobs tab type is enabled, focus the Jobs
+   * page. The right panel expands only on wide viewports — background
+   * activity never forces the narrow full-screen drawer open. Unlike the
+   * subagent trigger (0 → N only), ANY new job id triggers: the agent may
+   * start several jobs in one session, and each should surface. A fresh page
+   * load never triggers — its baseline starts at the current snapshot.
    */
   const jobBaselineRef = useRef<SidebarSessionList | undefined>(undefined)
   useEffect(() => {
@@ -559,7 +567,9 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     if (!detectNewJob(prev, sessionList, sessionId)) return
     if (!store.getPrefs().autoOpenJobs) return
     if (ctx.get('betterSidebar')?.isTabEnabled('subagent') === false) return
-    store.reduce(s => s.panelOpen ? s : togglePanel(s))
+    if (!isNarrowWidth(window.innerWidth)) {
+      store.reduce(s => s.panelOpen ? s : togglePanel(s))
+    }
     store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
     ctx.get('betterSidebar')?.openTab({ type: 'subagent', title: t('subagent') })
   }, [sessionList, sessionId, store, ctx])
@@ -1128,17 +1138,26 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   }, [actions, pinnedVirtualTabs, activePinnedTabId, store])
 
   /**
-   * The explorer's @-reference button: append `@<relative path>` to the
-   * session's composer draft (space-separated). The conversation service is
-   * resolved lazily through `ctx.get` (the inject-free read — the app's own
-   * plugins read 'conversation' the same way); a missing service or scope
-   * degrades to a logged no-op, never a crash. Defined above the no-session
-   * early return — a hook must never sit behind a conditional return
-   * (React counts hooks per render).
+   * The explorer's @-reference button. Directories append the folder mention
+   * (`@dir/`) as plain text so DSH's folder decoration and completion keep
+   * working; files insert a structured chip like the native `@` picker, so
+   * the whole reference stays one link instead of decorating only the
+   * leading folder. Resolves the session-scope ctx and the conversation
+   * input service at click time; a missing service or scope degrades to a
+   * logged no-op, never a crash. Defined above the no-session early return
+   * — a hook must never sit behind a conditional return (React counts hooks
+   * per render).
    */
-  const referenceInChat = useCallback((path: string): void => {
+  const referenceInChat = useCallback((path: string, isDir: boolean): void => {
     if (sessionId === undefined) return
-    appendToDraft(ctx, sessionId, `@${relativeTo(cwd ?? '', path)}`)
+    const rel = relativeTo(cwd ?? '', path)
+    if (isDir) {
+      appendToDraft(ctx, sessionId, `@${rel === '.' ? './' : `${rel}/`}`)
+      return
+    }
+    if (!insertFileReference(ctx, sessionId, rel)) {
+      appendToDraft(ctx, sessionId, `@${rel}`)
+    }
   }, [ctx, sessionId, cwd])
 
   if (state === undefined || sessionId === undefined) {
