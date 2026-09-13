@@ -28,11 +28,13 @@ import type { Context, SidebarSessionList } from '../context-types.ts'
 import { appendToDraft, insertFileReference } from './conversation-draft.ts'
 import {
   PANEL_MIN, activateTab, agentUuidOf, closeFloatByTab, closeTab, dockFloat, firstLeaf, floatTab,
-  isAgentTabId, leafWithTab,
+  isAgentTabId, leafWithTab, allLeaves,
   moveFloat, moveTab, moveTabToEdge, openDiffTab, raiseFloat, reconcileAgentTerminals,
   resizeFloat, resizeSplitIn, setTabPin, setWidth, toggleExpanded, togglePanel,
   type DropZone, type SidebarState, type SidebarStore, type SidebarTab,
 } from './state.ts'
+import { baseName } from './FileTree.tsx'
+import { isWithinWorkspace } from './paths.ts'
 import { collectPinnedTabs, createPinnedVirtualTab, getPinnedHomeScope, injectPinnedIntoTree, isPinnedVirtualId, isPinnedVirtualTab, parsePinnedVirtualId, type PinnedTabEntry } from './pinned.ts'
 import { IconPinOutline16 } from './icons.tsx'
 import { IconPanelRightOutline16 } from './icons.tsx'
@@ -126,11 +128,14 @@ interface TabContentProps extends TabContentMemoKey {
   onSubagentJump: (childSessionId: string) => void
   /** Open a diff tab from the git panel (placement handled by the store). */
   onOpenDiff: (tab: SidebarTab) => void
+  /** Tree-row mutations (threaded to the file tree; see Sidebar's handlers). */
+  onPathRenamed?: (oldPath: string, newPath: string) => void
+  onPathRemoved?: (path: string) => void
 }
 
 /** Render the content of one tab (dispatched by type). */
 const TabContent = memo(function TabContent(props: TabContentProps) {
-  const { tab, effectiveTabId, sessionId, cwd, expanded, revealed, onToggleDir, onReferenceFile, ctx, store, visible, onSubagentJump, onOpenDiff } = props
+  const { tab, effectiveTabId, sessionId, cwd, expanded, revealed, onToggleDir, onReferenceFile, ctx, store, visible, onSubagentJump, onOpenDiff, onPathRenamed, onPathRemoved } = props
   const scope = { sessionId, cwd }
   const descriptor = ctx.get('betterSidebar')?.getTab(tab.type)
   if (descriptor === undefined) {
@@ -1160,6 +1165,41 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     }
   }, [ctx, sessionId, cwd])
 
+  /** Tree-row rename reconciliation: retarget every open tab whose path was
+   *  the renamed file (the editor content survives and later saves land on
+   *  the new path; the title follows the new base name). */
+  const onPathRenamed = useCallback((oldPath: string, newPath: string): void => {
+    const service = ctx.get('betterSidebar')
+    if (service === undefined) return
+    const snapshot = store.getSnapshot().state
+    if (snapshot === undefined) return
+    for (const leaf of allLeaves(snapshot.splits)) {
+      for (const tab of leaf.tabs) {
+        if (tab.path === oldPath) service.updateTab(tab.id, { path: newPath, title: baseName(newPath) })
+      }
+    }
+    for (const float of snapshot.floats) {
+      if (float.tab.path === oldPath) service.updateTab(float.tab.id, { path: newPath, title: baseName(newPath) })
+    }
+  }, [ctx, store])
+
+  /** Tree-row delete reconciliation: close every open tab at or under the
+   *  removed path (a stale tab's next save would fail against a missing
+   *  path). Floating tabs are as open as docked ones. */
+  const onPathRemoved = useCallback((target: string): void => {
+    const service = ctx.get('betterSidebar')
+    if (service === undefined) return
+    const snapshot = store.getSnapshot().state
+    if (snapshot === undefined) return
+    const tabs: SidebarTab[] = []
+    for (const leaf of allLeaves(snapshot.splits)) tabs.push(...leaf.tabs)
+    for (const float of snapshot.floats) tabs.push(float.tab)
+    for (const tab of tabs) {
+      const path = tab.path
+      if (path !== undefined && (path === target || isWithinWorkspace(target, path))) service.closeTab(tab.id)
+    }
+  }, [ctx, store])
+
   if (state === undefined || sessionId === undefined) {
     // Keep the unavailable controls focusable: touch users have no hover, so
     // focus is the only way the existing Tooltip can explain what is missing.
@@ -1259,6 +1299,8 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
         revealed={state.revealed ?? []}
         onToggleDir={(path) => { store.reduce(s => toggleExpanded(s, path)) }}
         onReferenceFile={referenceInChat}
+        onPathRenamed={onPathRenamed}
+        onPathRemoved={onPathRemoved}
         ctx={ctx}
         store={store}
         visible={placement === 'float' ? true : state.panelOpen && active}

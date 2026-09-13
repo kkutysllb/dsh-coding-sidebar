@@ -138,6 +138,16 @@ export declare const api: {
     fsWrite: (scope: SessionScope, path: string, content: string) => Promise<{
         ok: true;
     }>;
+    /** Rename one tree row within its directory (single-segment name; a
+     *  destination-existence clash is a 409; symlink rows rename the link). */
+    fsRename: (scope: SessionScope, path: string, name: string) => Promise<{
+        path: string;
+    }>;
+    /** Delete one tree row permanently (recursive for directories; a symlink
+     *  row unlinks the link only). */
+    fsRemove: (scope: SessionScope, path: string) => Promise<{
+        path: string;
+    }>;
     /** Upload one file's raw bytes into `dir` (keeps the folder tree via
      *  `relativePath`); the host streams it under the session workspace. */
     uploadFile: (scope: SessionScope, dir: string, relativePath: string, body: Blob, signal?: AbortSignal) => Promise<{

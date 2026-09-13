@@ -60,11 +60,14 @@ export function TreePanel(props: {
   onOpenWith?: (targetId: string, path: string) => void
   onToggleOpenWithPin?: (targetId: string) => void
   onReferenceFile: (path: string, isDir: boolean) => void
+  /** Tree-row mutations (passed through to the file tree; absent → hidden). */
+  onPathRenamed?: (oldPath: string, newPath: string) => void
+  onPathRemoved?: (path: string) => void
   /** Full-window presentation: the panel fills its host instead of docking
    *  at a fixed width. */
   full?: boolean
 }) {
-  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, full } = props
+  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, onPathRenamed, onPathRemoved, full } = props
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ matches: string[]; truncated: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -248,6 +251,8 @@ export function TreePanel(props: {
           onOpenWith={onOpenWith}
           onToggleOpenWithPin={onToggleOpenWithPin}
           onReferenceFile={onReferenceFile}
+          onPathRenamed={onPathRenamed}
+          onPathRemoved={onPathRemoved}
           refreshTick={refreshTick}
           onUploadRequest={startUpload}
           busy={busy}

@@ -1681,6 +1681,21 @@ body[data-dsh-sidebar-dragging] .panel {
   opacity: 0.7;
 }
 
+/* The tree row's inline rename editor: fills the row's name slot, keeps the
+   row's metrics so the tree does not jump when editing starts. */
+.explorerRenameInput {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  outline: none;
+}
+
 /* The "Agent 正在等待 {needle}" wait banner: a warn-toned strip above the
    terminal surface while the model blocks in terminal_wait_for; the needle
    ellipsizes inline and the full text rides the title tooltip. */

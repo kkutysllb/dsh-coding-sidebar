@@ -164,6 +164,13 @@ export declare const zh: {
     gitFoldExpand: string;
     gitFoldLoading: string;
     gitFoldFailed: string;
+    rename: string;
+    renameInvalid: string;
+    delete: string;
+    deleteTitle: string;
+    deleteDescFile: string;
+    deleteDescDir: string;
+    dismiss: string;
     exited: string;
     noSession: string;
     pluginNotLoaded: string;

@@ -35,4 +35,8 @@ export declare function FileTree(props: {
     onUploadRequest: (dir: string, items: UploadItem[]) => void;
     /** True while an upload is in flight (drops are ignored). */
     busy: boolean;
+    /** A tree row was renamed (retarget open tabs; absent → no rename entry). */
+    onPathRenamed?: (oldPath: string, newPath: string) => void;
+    /** A tree row was removed (close affected tabs; absent → no delete entry). */
+    onPathRemoved?: (path: string) => void;
 }): import("react").JSX.Element;

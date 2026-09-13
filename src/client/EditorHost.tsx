@@ -108,8 +108,11 @@ export function EditorHost(props: {
   revealed: string[]
   onToggleDir: (path: string) => void
   onReferenceFile: (path: string, isDir: boolean) => void
+  /** Tree-row mutations (passed through to the file tree; absent → hidden). */
+  onPathRenamed?: (oldPath: string, newPath: string) => void
+  onPathRemoved?: (path: string) => void
 }) {
-  const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile } = props
+  const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile, onPathRenamed, onPathRemoved } = props
   const path = tab.path ?? ''
   // A folder window: the model's `sidebar_open` (or any caller) opens a
   // directory as an editor tab carrying `meta.dir: true` with the directory
@@ -339,6 +342,8 @@ export function EditorHost(props: {
           onOpenWith={openWith}
           onToggleOpenWithPin={toggleOpenWithPin}
           onReferenceFile={onReferenceFile}
+          onPathRenamed={onPathRenamed}
+          onPathRemoved={onPathRemoved}
         />
       </div>
     )
@@ -432,6 +437,8 @@ export function EditorHost(props: {
               onOpenWith={openWith}
               onToggleOpenWithPin={toggleOpenWithPin}
               onReferenceFile={onReferenceFile}
+              onPathRenamed={onPathRenamed}
+              onPathRemoved={onPathRemoved}
             />
           </div>
         )}

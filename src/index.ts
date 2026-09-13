@@ -30,7 +30,7 @@ import {
   type SidebarPrefs,
 } from './config.ts'
 import { parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.ts'
-import { writeWorkspaceUpload } from './fs-operations.ts'
+import { removeWorkspaceEntry, renameWorkspaceEntry, writeWorkspaceUpload } from './fs-operations.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
 import { searchFiles } from './fs-search.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
@@ -350,6 +350,26 @@ function buildApi(
         throw new SidebarError('fs-error', `cannot write "${path}": ${error instanceof Error ? error.message : String(error)}`, 400)
       }
       return { ok: true }
+    },
+    // The tree row's rename: single-segment name, destination-existence and
+    // workspace-root refusals, link-aware (renames the row, not its target).
+    // fs-operations.ts owns the containment and shape rules.
+    'fs.rename': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      return renameWorkspaceEntry({
+        cwd,
+        path: requireString(payload, 'path'),
+        name: requireString(payload, 'name'),
+      })
+    },
+    // The tree row's delete (permanent — the host has no trash): recursive
+    // for directories, unlinks a symlink row without touching its target.
+    'fs.remove': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      return removeWorkspaceEntry({
+        cwd,
+        path: requireString(payload, 'path'),
+      })
     },
     'git.worktrees': async (payload) => {
       const { cwd } = await gitCwdOf(payload)

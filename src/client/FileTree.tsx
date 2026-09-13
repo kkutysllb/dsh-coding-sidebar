@@ -25,7 +25,7 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
   IconChevronRightOutline14, IconCodeOutline16, IconCopyOutline16, IconDownloadOutline16,
-  IconLinkOutline16, Menu, type MenuEntry, type MenuItem, writeClipboard,
+  IconLinkOutline16, Menu, type MenuEntry, type MenuItem, Modal, Button, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SiCursor, SiZedindustries } from 'react-icons/si'
 import { VscFile, VscFolder, VscFolderOpened, VscLinkExternal, VscPin, VscPinned } from 'react-icons/vsc'
@@ -135,14 +135,24 @@ export function FileTree(props: {
   onUploadRequest: (dir: string, items: UploadItem[]) => void
   /** True while an upload is in flight (drops are ignored). */
   busy: boolean
+  /** A tree row was renamed (retarget open tabs; absent → no rename entry). */
+  onPathRenamed?: (oldPath: string, newPath: string) => void
+  /** A tree row was removed (close affected tabs; absent → no delete entry). */
+  onPathRemoved?: (path: string) => void
 }) {
-  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, refreshTick, onUploadRequest, busy } = props
+  const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, refreshTick, onUploadRequest, busy, onPathRenamed, onPathRemoved } = props
   const [data, setData] = useState<Record<string, LevelData>>({})
   const dataRef = useRef(data)
   /** The row whose path was just copied ("copied" label replaces its button). */
   const [copiedPath, setCopiedPath] = useState<string | null>(null)
   /** Open context menu: the row path (and whether it is a directory) plus the cursor position. */
   const [rowMenu, setRowMenu] = useState<{ path: string; isDir: boolean; x: number; y: number } | null>(null)
+  /** The row being renamed inline (pre-filled base name; Enter commits). */
+  const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null)
+  /** The row pending delete confirmation (the Modal owns the final call). */
+  const [deleting, setDeleting] = useState<{ path: string; isDir: boolean } | null>(null)
+  /** The last mutation failure (dismissable strip above the tree). */
+  const [mutationError, setMutationError] = useState<string | null>(null)
   /** Whether a file drag hovers the tree (drives the portaled drop zone). */
   const [dropOver, setDropOver] = useState(false)
   /** The directory a drag is hovering right now (null = body, drop to root). */
@@ -296,6 +306,77 @@ export function FileTree(props: {
       }, COPIED_MS)
     })
   }, [])
+
+  /** Re-fetch one directory level (a mutation changed it on disk). */
+  const reloadDir = useCallback((dir: string) => {
+    dataRef.current = { ...dataRef.current, [dir]: {} }
+    setData(dataRef.current)
+    api.fsTree({ sessionId, cwd }, dir).then((listing) => {
+      storeLevel(dir, { entries: listing.entries })
+    }).catch((error: unknown) => {
+      storeLevel(dir, { error: error instanceof Error ? error.message : String(error) })
+    })
+  }, [sessionId, cwd, storeLevel])
+
+  /** Commit the inline rename: single-segment name; the row reloads from
+   *  its parent and open tabs retarget through the caller. */
+  const commitRename = (target: { path: string; name: string }): void => {
+    const name = target.name.trim()
+    if (name === '' || name.includes('/') || name.includes('\\')) {
+      setMutationError(t('renameInvalid'))
+      return
+    }
+    api.fsRename({ sessionId, cwd }, target.path, name).then(({ path }) => {
+      setRenaming(null)
+      reloadDir(parentOf(target.path) ?? path)
+      onPathRenamed?.(target.path, path)
+    }).catch((error: unknown) => {
+      setMutationError(error instanceof Error ? error.message : String(error))
+    })
+  }
+
+  /** Commit the confirmed delete: the parent reloads and the caller closes
+   *  every open tab at or under the removed path. */
+  const commitDelete = (target: { path: string }): void => {
+    api.fsRemove({ sessionId, cwd }, target.path).then(() => {
+      setDeleting(null)
+      reloadDir(parentOf(target.path) ?? target.path)
+      onPathRemoved?.(target.path)
+    }).catch((error: unknown) => {
+      setMutationError(error instanceof Error ? error.message : String(error))
+    })
+  }
+
+  /** The inline rename input (auto-focused, pre-selected; Enter/blur commits,
+   *  Esc cancels, an IME composition never triggers the key handlers). */
+  const renameCancelled = useRef(false)
+  const renderRenameInput = (path: string): ReactNode => (
+    <input
+      autoFocus
+      className={css.explorerRenameInput}
+      defaultValue={renaming?.name ?? ''}
+      onClick={(event) => { event.stopPropagation() }}
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.nativeEvent.isComposing) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          if (renaming !== null) commitRename(renaming)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          renameCancelled.current = true
+          setRenaming(null)
+        }
+      }}
+      onBlur={() => {
+        if (renameCancelled.current) {
+          renameCancelled.current = false
+          return
+        }
+        if (renaming !== null) commitRename(renaming)
+      }}
+    />
+  )
 
   /** The row's trailing actions: the @-reference button, or the copied label. */
   const rowActions = (entry: FsEntry): ReactNode => {
@@ -459,7 +540,9 @@ export function FileTree(props: {
               onContextMenu={(event) => { openRowMenu(event, entry.path, true) }}
             >
               {isOpen ? <VscFolderOpened size={14} /> : <VscFolder size={14} />}
-              <span className={css.explorerName}>{entry.name}</span>
+              {renaming?.path === entry.path
+                ? renderRenameInput(entry.path)
+                : <span className={css.explorerName}>{entry.name}</span>}
               {entry.isSymlink && <IconLinkOutline16 size={12} className={css.explorerSymlink} />}
               {rowActions(entry)}
             </div>
@@ -492,7 +575,9 @@ export function FileTree(props: {
           onContextMenu={(event) => { openRowMenu(event, entry.path, false) }}
         >
           <VscFile size={14} />
-          <span className={css.explorerName}>{entry.name}</span>
+          {renaming?.path === entry.path
+            ? renderRenameInput(entry.path)
+            : <span className={css.explorerName}>{entry.name}</span>}
           {entry.isSymlink && <IconLinkOutline16 size={12} className={css.explorerSymlink} />}
           {rowActions(entry)}
         </div>
@@ -606,6 +691,20 @@ export function FileTree(props: {
           event.target.value = ''
         }}
       />
+      {mutationError !== null && (
+        <div className={clsx(css.explorerRow, css.explorerError)}>
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{mutationError}</span>
+          <button
+            type="button"
+            className={css.explorerRef}
+            aria-label={t('dismiss')}
+            title={t('dismiss')}
+            onClick={() => { setMutationError(null) }}
+          >
+            {t('dismiss')}
+          </button>
+        </div>
+      )}
       <Menu
         open={rowMenu !== null}
         onClose={() => { setRowMenu(null) }}
@@ -628,6 +727,18 @@ export function FileTree(props: {
             : []),
           { id: 'relative', label: t('copyRelative'), icon: <IconCopyOutline16 size={16} /> },
           { id: 'absolute', label: t('copyAbsolute'), icon: <IconCopyOutline16 size={16} /> },
+          // Tree mutations (the workspace root row never offers them; the
+          // server refuses too). Absent callbacks keep the entries hidden.
+          ...((onPathRenamed !== undefined && rowMenu !== null && rowMenu.path !== root)
+            || (onPathRemoved !== undefined && rowMenu !== null && rowMenu.path !== root)
+            ? [{ id: 'mutation-sep', type: 'separator' } as MenuEntry]
+            : []),
+          ...(onPathRenamed !== undefined && rowMenu !== null && rowMenu.path !== root
+            ? [{ id: 'rename-row', label: t('rename') }]
+            : []),
+          ...(onPathRemoved !== undefined && rowMenu !== null && rowMenu.path !== root
+            ? [{ id: 'delete-row', label: t('delete') }]
+            : []),
         ]}
         onSelect={(id) => {
           const target = rowMenu
@@ -654,6 +765,15 @@ export function FileTree(props: {
             fileInputRef.current?.click()
             return
           }
+          if (id === 'rename-row') {
+            setMutationError(null)
+            setRenaming({ path: target.path, name: baseName(target.path) })
+            return
+          }
+          if (id === 'delete-row') {
+            setDeleting({ path: target.path, isDir: target.isDir })
+            return
+          }
           copyPath(
             id === 'relative' ? relativeTo(cwd ?? '', target.path) : target.path,
             target.path,
@@ -664,6 +784,29 @@ export function FileTree(props: {
         getAnchorRect={() => (rowMenu === null ? null : new DOMRect(rowMenu.x, rowMenu.y, 0, 0))}
         anchor={<span />}
       />
+      <Modal
+        open={deleting !== null}
+        onClose={() => { setDeleting(null) }}
+        title={deleting === null ? '' : t('deleteTitle', { name: baseName(deleting.path) })}
+        closeLabel={t('cancel')}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => { setDeleting(null) }}>{t('cancel')}</Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const target = deleting
+                if (target === null) return
+                commitDelete(target)
+              }}
+            >
+              {t('delete')}
+            </Button>
+          </>
+        )}
+      >
+        <p className={css.explorerError}>{deleting?.isDir === true ? t('deleteDescDir') : t('deleteDescFile')}</p>
+      </Modal>
     </div>
   )
 }

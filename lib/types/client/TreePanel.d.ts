@@ -18,6 +18,9 @@ export declare function TreePanel(props: {
     onOpenWith?: (targetId: string, path: string) => void;
     onToggleOpenWithPin?: (targetId: string) => void;
     onReferenceFile: (path: string, isDir: boolean) => void;
+    /** Tree-row mutations (passed through to the file tree; absent → hidden). */
+    onPathRenamed?: (oldPath: string, newPath: string) => void;
+    onPathRemoved?: (path: string) => void;
     /** Full-window presentation: the panel fills its host instead of docking
      *  at a fixed width. */
     full?: boolean;
