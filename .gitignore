@@ -3,3 +3,4 @@ dist/
 lib/*.map
 .zcode/
 .tmp-upstream/
+.pnpm-store/
