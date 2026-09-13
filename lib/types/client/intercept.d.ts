@@ -32,15 +32,17 @@ export declare function SidebarProducedFiles(props: {
  */
 export declare function registerTurnTailInterception(ctx: Context, store: SidebarStore): () => void;
 /**
- * Register the chat file-open interception: wraps BOTH file-open doors so
- * opens land in the sidebar editor instead of the Host OS — the folder-reveal
- * gesture ("Show in folder" passes `'.'`) is the one exception, routed to the
- * explorer. The doors: `ctx.workspaces.openPath` (the pre-0.1.2 funnel) and
- * `ctx.remote.session.openWorkspacePath` (the 0.1.2-alpha.1 funnel, a direct
- * RPC that left the old door dead); each is wrapped only when present, so one
- * build intercepts baselines on either side of the migration. Gated by BOTH
- * the `interceptOpenPath` pref and the editor tab's enable switch; declined
- * opens fall through to the original method. Returns the disposer restoring
- * both doors (HMR-safe).
+ * Register the chat file-open interception: wraps THREE file-open doors so
+ * opens land in the sidebar editor instead of the Host OS (or DSH's own right
+ * Sidebar) — the folder-reveal gesture ("Show in folder" passes `'.'`, and so
+ * does the workspace-root address) is the one exception, routed to the
+ * explorer. The doors, oldest first: `ctx.workspaces.openPath` (pre-0.1.2),
+ * `ctx.remote.session.openWorkspacePath` (0.1.2-alpha.1), and
+ * `ctx.sidebarRight.openResource` (0.1.5 — the one ui-chat actually calls
+ * today; without it this plugin's chat-side takeover is inert). Each is wrapped
+ * only when present, so one build intercepts baselines on either side of both
+ * migrations. Gated by BOTH the `interceptOpenPath` pref and the editor tab's
+ * enable switch; declined opens fall through to the original method. Returns
+ * the disposer restoring all three doors (HMR-safe).
  */
 export declare function registerOpenPathInterception(ctx: Context, store: SidebarStore): () => void;

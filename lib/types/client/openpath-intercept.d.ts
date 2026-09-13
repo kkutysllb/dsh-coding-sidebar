@@ -1,20 +1,27 @@
 /**
- * Interception of the chat's file-open funnel. Two doors have carried every
- * chat-side file open (tool-row path links, the produced-files row, and prose
- * file mentions alike):
+ * Interception of the chat's file-open funnel. THREE doors have carried
+ * chat-side file opens (tool-row path links, the produced-files row, prose
+ * file mentions, and — since 0.1.5 — the delivery cards' preview gesture):
  *
  * - `ctx.workspaces.openPath` — the pre-0.1.2 funnel; ui-chat's apply.ts was
- *   its only production caller. Wrapped by {@link wrapOpenPath}.
+ *   its only production caller. Wrapped by {@link wrapOpenPath}. On 0.1.5 the
+ *   method is GONE from the runtime `IWorkspaces` face, so this door is now a
+ *   harmless no-op kept for older baselines.
  * - `ctx.remote.session.openWorkspacePath` — the 0.1.2-alpha.1 funnel (the
  *   unary Remote-namespace migration rewired apply.ts to call the RPC
  *   directly and stopped calling `workspaces.openPath` altogether, leaving
- *   that door dead). Wrapped by {@link wrapRemoteOpenPath}.
+ *   that door dead). Wrapped by {@link wrapRemoteOpenPath}. On 0.1.5 the RPC
+ *   survives but the chat no longer calls it — its only remaining caller is
+ *   the Host-side `present` open route, which must reach the OS untouched.
+ * - `ctx.sidebarRight.openResource` — the 0.1.5 funnel: `openFile` now hands a
+ *   `dsh-resource://file/…` ADDRESS to the right Sidebar and lets the
+ *   registered tab types decide what claims it. Wrapped by
+ *   {@link wrapSidebarRight}, the door that matters on 0.1.5.
  *
- * Both wrappers reroute opens into the sidebar editor instead of the Host
- * OS — no DSH modification needed. They are installed together: each door is
- * wrapped only when it exists on the runtime, so one build covers baselines
- * on either side of the migration (and a baseline that still routes through
- * the old door stays intercepted).
+ * Every wrapper reroutes opens into the sidebar editor instead of the Host OS
+ * (or into DSH's own right Sidebar) — no DSH modification needed. They are
+ * installed together and each door is wrapped only when it exists on the
+ * runtime, so one build covers baselines on either side of both migrations.
  *
  * The wrappers are dependency-free by design (no React / ui-primitives), so
  * the takeover logic is unit-testable and the file stays importable from the
@@ -83,3 +90,58 @@ export declare function wrapOpenPath(workspaces: OpenPathService, deps: OpenPath
  *   no-op when the method is absent (pre-carrier baseline).
  */
 export declare function wrapRemoteOpenPath(session: RemoteSessionStub, deps: OpenPathInterceptDeps): () => void;
+/** The right-Sidebar face the 0.1.5 file-open funnel is wrapped through. */
+export interface SidebarRightStub {
+    openResource(address: string, options?: SidebarRightOpenOptions): void;
+}
+/** Placement/typing options a caller may attach to an address. */
+export interface SidebarRightOpenOptions {
+    /** The page type the caller demands; present means "not ours to reroute". */
+    readonly kind?: string;
+    /** That type's navigation parameters (e.g. `{ line }`). */
+    readonly params?: unknown;
+}
+/** One decoded file open: the path plus the Session whose workspace resolves it. */
+export interface FileAddressTarget {
+    /** Workspace-relative or absolute path, `/`-separated; empty for the workspace root. */
+    readonly path: string;
+    /** The Session named by a `session`-scoped address; absent for `absolute`. */
+    readonly sessionId?: string;
+}
+/**
+ * Decode a `dsh-resource://file/…` address into the path it names.
+ *
+ * A dependency-free mirror of the runtime's `parseFileAddress`
+ * (`@deepseek-ai/dsh-util-workspace-path`): this module deliberately imports no
+ * runtime package so the takeover stays unit-testable, and the grammar is
+ * small and frozen by the address format itself. Both scopes are accepted —
+ * `session/<sessionId>/<path>` (what ui-chat's `openFile` builds, and the one
+ * that carries the Session a fork's file belongs to) and
+ * `absolute/<path>` (POSIX, drive-letter, and UNC spellings). Query/fragment
+ * suffixes are ignored and each segment is decoded; a malformed escape or an
+ * unknown scope declines rather than guessing.
+ * @param address - a candidate resource address.
+ * @returns the decoded target, or undefined when this is not a file address.
+ */
+export declare function fileTargetOfAddress(address: string): FileAddressTarget | undefined;
+/**
+ * Wrap `sidebarRight.openResource` — the funnel dsh 0.1.5's chat uses for every
+ * file open it starts (tool-row links, prose mentions, the built-in
+ * produced-files chips, and the `present` delivery cards' preview gesture).
+ * The address is decoded and rerouted into the sidebar editor; the
+ * folder-reveal gesture reaches the explorer, exactly like the older doors.
+ *
+ * Two declines keep the wrapper honest: an address no file scope claims, and a
+ * call whose `options.kind` names the page type the caller demands (that caller
+ * is addressing the right Sidebar on purpose, so rerouting would silently
+ * ignore its request). The Session the address names wins over the current one
+ * — a fork's file belongs to the fork, and `ctx.sessions…current` is whatever
+ * conversation the user is looking at. `openResource` is a prototype method on
+ * the controller, so the raw reference is captured and reassigned; a remount
+ * that swaps the controller replaces the wrapper with the new instance's own.
+ * @param right - the `ctx.sidebarRight` face.
+ * @param deps - per-call takeover decisions (same face as the older doors).
+ * @returns the disposer restoring the original method (HMR-safe); a no-op when
+ *   the face or its method is absent (pre-0.1.5 baseline).
+ */
+export declare function wrapSidebarRight(right: SidebarRightStub, deps: OpenPathInterceptDeps): () => void;

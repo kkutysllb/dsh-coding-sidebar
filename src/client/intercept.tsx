@@ -5,13 +5,23 @@
  * the sidebar instead of the host OS. Priority -1 runs before the default-0
  * deliverables entry; when nothing was produced the selector returns null
  * and the original row renders unchanged.
+ *
+ * The slot is a CHAIN — the first selector that returns non-null renders, and
+ * that entry alone owns the whole row — so this takeover must never claim a
+ * turn it cannot render completely. dsh 0.1.5-alpha.2 added explicit
+ * deliveries to the same row (`present` cards); this code renders only changed
+ * files, so a turn carrying deliveries is DECLINED and left to the built-in
+ * row. See {@link registerTurnTailInterception}.
  */
 import { IconCodeOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarRemoteService } from '../context-types.ts'
 import { firstLeaf, revealPaths, togglePanel, type SidebarStore } from './state.ts'
 import { t } from './locales.ts'
 import { resolveSidebarPath, selectProducedFiles } from './produced-files.ts'
-import { wrapOpenPath, wrapRemoteOpenPath } from './openpath-intercept.ts'
+import { hasDeclaredDeliveries } from './deliveries.ts'
+import {
+  wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, type SidebarRightStub,
+} from './openpath-intercept.ts'
 import css from './sidebar.module.css'
 
 /** Open a file in the sidebar's editor (used by the intercepted row and the explorer). */
@@ -136,6 +146,13 @@ export function registerTurnTailInterception(ctx: Context, store: SidebarStore):
     select: (owner) => {
       if (store.getSuspended()) return null
       if (store.getPrefs().tabsEnabled['editor'] === false) return null
+      // Declared deliveries are the built-in row's business: it renders the
+      // `present` cards, and this takeover renders changed files only. The
+      // chain elects ONE entry for the whole row, so claiming here would hide
+      // the cards entirely (dsh 0.1.5-alpha.2). Declining hands the turn to the
+      // built-in row; its chips and card previews still reach this sidebar
+      // through the openResource interception.
+      if (hasDeclaredDeliveries(owner)) return null
       const matched = selectProducedFiles(owner)
       if (matched !== null) lastProduced = matched
       return matched
@@ -150,16 +167,18 @@ export function registerTurnTailInterception(ctx: Context, store: SidebarStore):
 }
 
 /**
- * Register the chat file-open interception: wraps BOTH file-open doors so
- * opens land in the sidebar editor instead of the Host OS — the folder-reveal
- * gesture ("Show in folder" passes `'.'`) is the one exception, routed to the
- * explorer. The doors: `ctx.workspaces.openPath` (the pre-0.1.2 funnel) and
- * `ctx.remote.session.openWorkspacePath` (the 0.1.2-alpha.1 funnel, a direct
- * RPC that left the old door dead); each is wrapped only when present, so one
- * build intercepts baselines on either side of the migration. Gated by BOTH
- * the `interceptOpenPath` pref and the editor tab's enable switch; declined
- * opens fall through to the original method. Returns the disposer restoring
- * both doors (HMR-safe).
+ * Register the chat file-open interception: wraps THREE file-open doors so
+ * opens land in the sidebar editor instead of the Host OS (or DSH's own right
+ * Sidebar) — the folder-reveal gesture ("Show in folder" passes `'.'`, and so
+ * does the workspace-root address) is the one exception, routed to the
+ * explorer. The doors, oldest first: `ctx.workspaces.openPath` (pre-0.1.2),
+ * `ctx.remote.session.openWorkspacePath` (0.1.2-alpha.1), and
+ * `ctx.sidebarRight.openResource` (0.1.5 — the one ui-chat actually calls
+ * today; without it this plugin's chat-side takeover is inert). Each is wrapped
+ * only when present, so one build intercepts baselines on either side of both
+ * migrations. Gated by BOTH the `interceptOpenPath` pref and the editor tab's
+ * enable switch; declined opens fall through to the original method. Returns
+ * the disposer restoring all three doors (HMR-safe).
  */
 export function registerOpenPathInterception(ctx: Context, store: SidebarStore): () => void {
   const deps = {
@@ -181,8 +200,16 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
   const disposeRemote = remote === undefined
     ? () => {}
     : wrapRemoteOpenPath(remote.session, deps)
+  // The 0.1.5 door. Same optional-probe recipe: the right Sidebar is composed
+  // by the shipped Web patch, not by this plugin, so a carrier without it just
+  // leaves this door unwrapped.
+  const sidebarRight = ctx.get('sidebarRight') as SidebarRightStub | undefined
+  const disposeRight = sidebarRight === undefined
+    ? () => {}
+    : wrapSidebarRight(sidebarRight, deps)
   return () => {
     disposeOld()
     disposeRemote()
+    disposeRight()
   }
 }
