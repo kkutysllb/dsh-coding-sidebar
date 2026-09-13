@@ -73,7 +73,8 @@
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsdown",
-    "prepack": "pnpm build && pnpm smoke",
+    "prepack": "pnpm check:artifacts && pnpm build && pnpm smoke",
+    "check:artifacts": "node scripts/check-artifacts.mjs",
     "smoke": "node scripts/smoke-plugin.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node tests/run-openpath-tests.mjs",

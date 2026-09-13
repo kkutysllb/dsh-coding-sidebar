@@ -132,6 +132,8 @@ dsh plugin --profile web add dsh-coding-sidebar@latest
 
 更新：`git pull && pnpm install && pnpm build` → 硬刷新浏览器即可（client 改动热加载生效，无需重启 DSH；host 半改动才需重启）。切回 npm 通道时，把依赖改回 `"dsh-coding-sidebar": "^0.16.1"` 再 `pnpm install`。
 
+> **产物可复现门禁**：`lib/` 是提交进仓库的构建产物（npm `files` 白名单、profile 部署与镜像都直接读它），所以「重新构建必须字节不变」是硬要求——否则每次提交都会混进成百上千行无意义 diff（历史肇事者：CSS Module class map 按 lightningcss 的哈希表顺序写出，每次构建键序都不同，已在 `tsdown.config.ts` 里改为按 local 名排序）。改动 `src/` 后提交前跑一次 `pnpm check:artifacts`：它全量重建并与构建前逐文件比对，不可复现时列出差异文件并非零退出（`prepack` 已把该门禁放在最前）。
+
 </details>
 
 <details>
