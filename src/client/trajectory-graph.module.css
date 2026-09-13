@@ -84,6 +84,12 @@
   color: var(--dsw-alias-label-primary, inherit);
 }
 
+/* Text glyphs (zoom −/+) share the host icons' optical size. */
+.glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
 .tool:disabled {
   opacity: 0.4;
   cursor: default;
