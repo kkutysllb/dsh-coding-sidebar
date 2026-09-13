@@ -147,6 +147,8 @@ export const ko: Record<string, string> = {
   produced: '이번 산출물',
   producedOpen: '사이드바에서 열기',
   disconnected: '터미널 연결이 끊겨 다시 연결하는 중…',
+  terminalWaitBanner: '에이전트가 {needle} 대기 중',
+  terminalSkipWait: '대기 건너뛰기',
   exited: '터미널 프로세스가 종료되었습니다',
   noSession: '사이드바를 사용하려면 대화를 선택하세요',
   pluginNotLoaded: '플러그인이 로드되지 않아 탭을 지금 사용할 수 없습니다:',

@@ -146,6 +146,8 @@ export const it: Record<string, string> = {
   produced: 'Prodotti',
   producedOpen: 'Apri nella barra laterale',
   disconnected: 'Terminale disconnesso, riconnessione…',
+  terminalWaitBanner: 'L’agente sta attendendo {needle}',
+  terminalSkipWait: 'Salta attesa',
   exited: 'Il processo del terminale è terminato',
   noSession: 'Selezioni una conversazione per usare la barra laterale',
   pluginNotLoaded: 'Plugin non caricato; scheda non disponibile:',

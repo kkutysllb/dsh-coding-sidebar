@@ -156,6 +156,8 @@ export const ar: Record<string, string> = {
   produced: 'النواتج',
   producedOpen: 'فتح في الشريط الجانبي',
   disconnected: 'انقطع اتصال الطرفية، جارٍ إعادة الاتصال…',
+  terminalWaitBanner: 'الوكيل ينتظر {needle}',
+  terminalSkipWait: 'تخطي الانتظار',
   exited: 'خرجت عملية الطرفية',
   noSession: 'اختر محادثة لاستخدام الشريط الجانبي',
   pluginNotLoaded: 'الإضافة غير محمّلة؛ التبويب غير متاح:',

@@ -151,6 +151,8 @@ export const ru: Record<string, string> = {
   produced: 'Результаты',
   producedOpen: 'Открыть в боковой панели',
   disconnected: 'Терминал отключён, переподключение…',
+  terminalWaitBanner: 'Агент ожидает {needle}',
+  terminalSkipWait: 'Пропустить ожидание',
   exited: 'Процесс терминала завершился',
   noSession: 'Выберите сессию, чтобы использовать боковую панель',
   pluginNotLoaded: 'Плагин не загружен — вкладка недоступна:',

@@ -155,6 +155,8 @@ export const vi: Record<string, string> = {
   produced: 'Đã tạo',
   producedOpen: 'Mở trong thanh bên',
   disconnected: 'Terminal mất kết nối, đang kết nối lại…',
+  terminalWaitBanner: 'Agent đang chờ {needle}',
+  terminalSkipWait: 'Bỏ qua chờ',
   exited: 'Tiến trình terminal đã thoát',
   noSession: 'Chọn một phiên để dùng thanh bên',
   pluginNotLoaded: 'Plugin chưa tải, tab tạm không khả dụng:',

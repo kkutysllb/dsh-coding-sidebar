@@ -110,6 +110,17 @@ export interface SidebarState {
     splits: SplitNode;
     /** Free windows (tabs dragged out onto the conversation area). */
     floats: FloatWindow[];
+    /**
+     * Live agent-terminal wait state (uuid → the wait the model currently
+     * blocks on in `terminal_wait_for`), mirrored from the host's
+     * agent-terminals push. Transient by design: sanitizeState never restores
+     * it, so a reload starts clean and the next push (sent immediately on WS
+     * attach) repopulates it.
+     */
+    agentWaits: Record<string, {
+        needle: string;
+        since: number;
+    }>;
 }
 export declare const PANEL_MIN = 280;
 export declare const PANEL_MAX = 640;
@@ -325,6 +336,10 @@ export declare function agentTabId(uuid: string): string;
 export declare function reconcileAgentTerminals(state: SidebarState, agentTerminals: ReadonlyArray<{
     uuid: string;
     title: string;
+    waiting?: {
+        needle: string;
+        since: number;
+    } | null;
 }>): SidebarState;
 /** Immutable snapshot handed to React (replaced only on real changes). */
 export interface SidebarSnapshot {

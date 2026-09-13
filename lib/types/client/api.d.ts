@@ -193,6 +193,12 @@ export declare const api: {
     agentPtyClose: (uuid: string) => Promise<{
         ok: true;
     }>;
+    /** Skip every active terminal_wait_for on one agent terminal (the wait
+     *  banner's skip button). Idempotent: {skipped:0} when none is active. */
+    agentSkipWait: (uuid: string) => Promise<{
+        ok: true;
+        skipped: number;
+    }>;
     /** Terminal dependency status (issue #140): after a WS close 1011 with
      *  reason `pty-deps-missing` the view fetches the full repair details here
      *  (the close reason itself is capped at 123 bytes). */

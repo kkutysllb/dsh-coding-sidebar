@@ -155,6 +155,8 @@ export const th: Record<string, string> = {
   produced: 'ผลลัพธ์ที่สร้าง',
   producedOpen: 'เปิดในแถบด้านข้าง',
   disconnected: 'เทอร์มินัลถูกตัดการเชื่อมต่อ กำลังเชื่อมต่อใหม่…',
+  terminalWaitBanner: 'เอเจนต์กำลังรอ {needle}',
+  terminalSkipWait: 'ข้ามการรอ',
   exited: 'กระบวนการเทอร์มินัลออกแล้ว',
   noSession: 'เลือกแชทเพื่อใช้แถบด้านข้าง',
   pluginNotLoaded: 'ปลั๊กอินไม่ได้โหลด; tab ไม่พร้อมใช้งาน:',

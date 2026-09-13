@@ -141,6 +141,8 @@ export const de: Record<string, string> = {
   produced: 'Erstellt',
   producedOpen: 'In der Seitenleiste öffnen',
   disconnected: 'Terminalverbindung getrennt, Verbindung wird wiederhergestellt…',
+  terminalWaitBanner: 'Agent wartet auf {needle}',
+  terminalSkipWait: 'Warten abbrechen',
   exited: 'Terminalprozess beendet',
   noSession: 'Wählen Sie eine Sitzung, um die Seitenleiste zu verwenden',
   pluginNotLoaded: 'Plugin nicht geladen; Tab vorübergehend nicht verfügbar:',

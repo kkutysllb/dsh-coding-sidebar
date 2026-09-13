@@ -155,6 +155,8 @@ export const hi: Record<string, string> = {
   produced: 'उत्पादित',
   producedOpen: 'साइडबार में खोलें',
   disconnected: 'टर्मिनल डिस्कनेक्ट हो गया, पुनः कनेक्ट हो रहा…',
+  terminalWaitBanner: 'एजेंट {needle} की प्रतीक्षा कर रहा है',
+  terminalSkipWait: 'प्रतीक्षा छोड़ें',
   exited: 'टर्मिनल प्रक्रिया बाहर निकली',
   noSession: 'साइडबार उपयोग करने के लिए एक वार्तालाप चुनें',
   pluginNotLoaded: 'प्लगइन लोड नहीं; टैब अनुपलब्ध:',

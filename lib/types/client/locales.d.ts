@@ -159,6 +159,8 @@ export declare const zh: {
     producedOpen: string;
     showInFolder: string;
     disconnected: string;
+    terminalWaitBanner: string;
+    terminalSkipWait: string;
     exited: string;
     noSession: string;
     pluginNotLoaded: string;

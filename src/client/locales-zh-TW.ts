@@ -170,6 +170,8 @@ export const zhTW: Record<string, string> = {
   produced: '本次產出',
   producedOpen: '在側邊欄中開啟',
   disconnected: '終端連線斷開，重新連線中…',
+  terminalWaitBanner: 'Agent 正在等待 {needle}',
+  terminalSkipWait: '跳過等待',
   exited: '終端程序已退出',
   noSession: '選擇一個工作階段以使用側邊欄',
   pluginNotLoaded: '插件未載入，標籤暫不可用：',

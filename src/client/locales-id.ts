@@ -153,6 +153,8 @@ export const id: Record<string, string> = {
   produced: 'Dihasilkan',
   producedOpen: 'Buka di sidebar',
   disconnected: 'Terminal terputus, menyambung ulang…',
+  terminalWaitBanner: 'Agen menunggu {needle}',
+  terminalSkipWait: 'Lewati penungguan',
   exited: 'Proses terminal keluar',
   noSession: 'Pilih obrolan untuk menggunakan sidebar',
   pluginNotLoaded: 'Plugin tidak dimuat; tab tidak tersedia untuk sementara:',

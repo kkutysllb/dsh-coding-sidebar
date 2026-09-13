@@ -155,6 +155,8 @@ export const ja: Record<string, string> = {
   produced: '今回の産物',
   producedOpen: 'サイドバーで開く',
   disconnected: 'ターミナル接続が切れました、再接続中…',
+  terminalWaitBanner: 'エージェントが {needle} を待機中',
+  terminalSkipWait: '待機をスキップ',
   exited: 'ターミナルプロセスが終了しました',
   noSession: 'サイドバーを使うには会話を選択してください',
   pluginNotLoaded: 'プラグイン未読み込み、タブは一時的に利用不可：',

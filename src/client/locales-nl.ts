@@ -153,6 +153,8 @@ export const nl: Record<string, string> = {
   produced: 'Geproduceerd',
   producedOpen: 'Openen in zijbalk',
   disconnected: 'Terminalverbinding verbroken, opnieuw verbinden…',
+  terminalWaitBanner: 'Agent wacht op {needle}',
+  terminalSkipWait: 'Wachttijd overslaan',
   exited: 'Terminalproces beëindigd',
   noSession: 'Selecteer een conversatie om de zijbalk te gebruiken',
   pluginNotLoaded: 'Plugin niet geladen; tabblad niet beschikbaar:',

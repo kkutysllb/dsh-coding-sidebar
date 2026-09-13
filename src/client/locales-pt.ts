@@ -138,6 +138,8 @@ export const pt: Record<string, string> = {
   produced: 'Produzidos',
   producedOpen: 'Abrir na barra lateral',
   disconnected: 'Terminal desconectado, reconectando…',
+  terminalWaitBanner: 'O agente está aguardando {needle}',
+  terminalSkipWait: 'Pular espera',
   exited: 'O processo do terminal saiu',
   noSession: 'Selecione uma conversa para usar a barra lateral',
   pluginNotLoaded: 'Plugin não carregado; aba indisponível:',

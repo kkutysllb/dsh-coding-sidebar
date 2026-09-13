@@ -138,6 +138,8 @@ export const sv: Record<string, string> = {
   produced: 'Producerat',
   producedOpen: 'Öppna i sidopanelen',
   disconnected: 'Terminalen frånkopplad, ansluter igen…',
+  terminalWaitBanner: 'Agenten väntar på {needle}',
+  terminalSkipWait: 'Hoppa över väntan',
   exited: 'Terminalprocess avslutad',
   noSession: 'Välj en konversation för att använda sidopanelen',
   pluginNotLoaded: 'Plugin inte laddad; flik otillgänglig:',

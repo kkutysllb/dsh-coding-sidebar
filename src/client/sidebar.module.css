@@ -1651,6 +1651,29 @@ body[data-dsh-sidebar-dragging] .panel {
   color: var(--dsw-alias-label-primary);
 }
 
+/* The "Agent 正在等待 {needle}" wait banner: a warn-toned strip above the
+   terminal surface while the model blocks in terminal_wait_for; the needle
+   ellipsizes inline and the full text rides the title tooltip. */
+.terminalWaitBanner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.terminalWaitNeedle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* The node-pty dependency failure banner (issue #140): a taller warn block
    carrying the pasteable repair command (bash / cmd / PowerShell). */
 .terminalDepsBanner {

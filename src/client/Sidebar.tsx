@@ -394,7 +394,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
       socket.onmessage = (event) => {
         if (typeof event.data !== 'string') return
         try {
-          const list = JSON.parse(event.data) as Array<{ uuid: string; title: string; command: string; exited: boolean }>
+          const list = JSON.parse(event.data) as Array<{ uuid: string; title: string; command: string; exited: boolean; waiting?: { needle: string; since: number } | null }>
           if (!Array.isArray(list)) return
           store.reduce(s => ctx.get('betterSidebar')?.isTabEnabled('terminal') === false
             ? s
@@ -1205,6 +1205,15 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
    * strip must never break because a plugin's badge computation failed.
    */
   const tabBadgeOf = (tab: SidebarTab): ReactNode => {
+    // Agent-terminal wait indicator (sidebar-internal, deliberately NOT a
+    // TabDescriptor.badge — that API is type-keyed and shared with external
+    // plugins, and cannot address one tab): the agent-terminals push mirrors
+    // the model's live terminal_wait_for into state.agentWaits; an agent tab
+    // whose uuid is waiting shows the hourglass pill.
+    if (isAgentTabId(tab.id)) {
+      const wait = state.agentWaits?.[agentUuidOf(tab.id)]
+      if (wait !== undefined) return <span className={css.tabBadge}>{'⏳'}</span>
+    }
     const descriptor = ctx.get('betterSidebar')?.getTab(tab.type)
     if (descriptor?.badge === undefined) return null
     let value: string | number | null | undefined

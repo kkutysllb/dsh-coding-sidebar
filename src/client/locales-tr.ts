@@ -155,6 +155,8 @@ export const tr: Record<string, string> = {
   produced: 'Üretilenler',
   producedOpen: 'Kenar çubuğunda aç',
   disconnected: 'Terminal bağlantısı kesildi, yeniden bağlanılıyor…',
+  terminalWaitBanner: 'Ajan {needle} için bekliyor',
+  terminalSkipWait: 'Beklemeyi atla',
   exited: 'Terminal süreci sonlandı',
   noSession: 'Kenar çubuğunu kullanmak için bir oturum seçin',
   pluginNotLoaded: 'Eklenti yüklenmedi; sekme kullanılamıyor:',

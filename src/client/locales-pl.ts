@@ -157,6 +157,8 @@ export const pl: Record<string, string> = {
   produced: 'Wyprodukowane',
   producedOpen: 'Otwórz w panelu bocznym',
   disconnected: 'Terminal odłączony, ponowne łączenie…',
+  terminalWaitBanner: 'Agent czeka na {needle}',
+  terminalSkipWait: 'Pomiń oczekiwanie',
   exited: 'Proces terminala zakończony',
   noSession: 'Wybierz rozmowę, aby korzystać z panelu bocznego',
   pluginNotLoaded: 'Wtyczka niezaładowana; karta chwilowo niedostępna:',

@@ -148,6 +148,8 @@ export const fr: Record<string, string> = {
   produced: 'Produits de cette exécution',
   producedOpen: 'Ouvrir dans la barre latérale',
   disconnected: 'Connexion du terminal perdue, reconnexion…',
+  terminalWaitBanner: 'L’agent attend {needle}',
+  terminalSkipWait: 'Ignorer l’attente',
   exited: 'Le processus du terminal s’est terminé',
   noSession: 'Sélectionnez une session pour utiliser la barre latérale',
   pluginNotLoaded: 'Plugin non chargé, onglet indisponible pour le moment :',
