@@ -1,12 +1,18 @@
 /**
  * wrapOpenPath / wrapRemoteOpenPath / wrapSidebarRight / hasDeclaredDeliveries
  * / createFileIconRegistry / buildTrajectoryGraph / layoutTrajectoryGraph
- * / resolveTrajectorySource 行为单测（node 直跑，零依赖）：
+ * / resolveTrajectorySource / git 面板补齐（上游·推送·分支·行数·gh）
+ * 行为单测（node 直跑，零依赖）：
  * 对应 src/client/openpath-intercept.ts 的三门接管语义、
  * src/client/deliveries.ts 的交付让位判定、
- * src/client/file-icon-registry.ts 的 fileIcons 注册/回退链语义，以及
+ * src/client/file-icon-registry.ts 的 fileIcons 注册/回退链语义、
  * src/client/trajectory-graph.ts + trajectory-layout.ts + trajectory-source.ts
- * 的「轨迹账本 → 图模型」投影、泳道布局/边路径与宿主 target 探测降级矩阵。
+ * 的「轨迹账本 → 图模型」投影、泳道布局/边路径与宿主 target 探测降级矩阵，以及
+ * src/git.ts + src/github.ts + src/client/git-branch-model.ts 的
+ * porcelain/numstat/for-each-ref/rev-list 解析、分支名校验、gh 行与错误整形，
+ * 外加一段「真 git 临时仓库」集成用例（本地裸仓做 origin：push -u、ahead/behind、
+ * 行数统计、分支增删与 not-merged 升级），以及 src/plans.ts 的
+ * 任务计划扫描（约定目录/去重/排序/截断/标题提取，含真临时目录集成）。
  *
  * 运行：node tests/run-openpath-tests.mjs
  *
@@ -21,8 +27,18 @@
  *   cp /tmp/csb-tr/trajectory-graph.js tests/trajectory-graph.mjs
  *   cp /tmp/csb-tr/trajectory-layout.js tests/trajectory-layout.mjs
  *   cp /tmp/csb-tr/trajectory-source.js tests/trajectory-source.mjs
+ *   ./node_modules/.bin/tsc src/git.ts src/github.ts src/client/git-branch-model.ts \
+ *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-git
+ *   cp /tmp/csb-git/git.js tests/git-helpers.mjs
+ *   cp /tmp/csb-git/github.js tests/github-helpers.mjs
+ *   cp /tmp/csb-git/client/git-branch-model.js tests/git-branch-model.mjs
+ *   sed -i '' "s|from './git.ts'|from './git-helpers.mjs'|" tests/github-helpers.mjs
+ *   ./node_modules/.bin/tsc src/plans.ts --target es2022 --module esnext \
+ *     --skipLibCheck --noCheck --outDir /tmp/csb-plans
+ *   cp /tmp/csb-plans/plans.js tests/plans-helpers.mjs
  * （不用 Node 的类型擦除直读 .ts：package.json 声明 engines.node >= 20，
- *   而 .ts 直读要 22.6+。）
+ *   而 .ts 直读要 22.6+。github.ts 的夹具要改一处 import 说明符，
+ *   因为它运行时依赖同目录的 git 模块。）
  */
 import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight } from './openpath-intercept.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
@@ -30,6 +46,26 @@ import { createFileIconRegistry } from './file-icon-registry.mjs'
 import { buildTrajectoryGraph, windowTrajectoryGraph } from './trajectory-graph.mjs'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.mjs'
 import { resolveTrajectorySource } from './trajectory-source.mjs'
+import {
+  isValidBranchName, parseAheadBehind, parseBranchRows, parseNumstat, unquoteGitPath,
+} from './git-helpers.mjs'
+import {
+  firstLine, ghSpawnError, isCurrentLocalBranch, isValidPrNumber,
+  mergeMethod, parseCreatedUrl, parseGhAccount, parseGhJsonList, parseIssues,
+  parsePullRequests, parseRepoName, validateTitleBody,
+} from './github-helpers.mjs'
+import { filterBranches, splitBranches, trackingNameOf } from './git-branch-model.mjs'
+import {
+  isOpenablePlanDocument, planTitleFromHead, scanPlans, selectPlans,
+} from './plans-helpers.mjs'
+import {
+  aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
+  pushBranch, summary,
+} from './git-helpers.mjs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 let failed = 0
 const ok = (cond, label) => {
@@ -798,6 +834,363 @@ console.log('[resolveTrajectorySource]')
     }) }))), 's1')
     ok(source.getSnapshot() === null, '宿主快照为 undefined → null')
     ok(typeof source.subscribe(() => {}) === 'function', '宿主不给 disposer 时补一个空函数')
+  }
+}
+
+// ── 源代码管理：上游/推送/分支（git 面板补齐）────────────────────
+console.log('[git helpers]')
+{
+  // parseAheadBehind：rev-list --left-right --count 的两种形态
+  {
+    const same = (a, b) => a.ahead === b.ahead && a.behind === b.behind
+    ok(same(parseAheadBehind('3\t2'), { ahead: 3, behind: 2 }), '3/2 解析')
+    ok(same(parseAheadBehind('0\t0'), { ahead: 0, behind: 0 }), '0/0 解析')
+    ok(same(parseAheadBehind('<3\t>2'), { ahead: 3, behind: 2 }), '带 < > 标记也解析')
+    ok(same(parseAheadBehind(' 4\t5 \n'), { ahead: 4, behind: 5 }), '空白/换行容错')
+    ok(same(parseAheadBehind(''), { ahead: 0, behind: 0 }), '空输出 → 0/0')
+    ok(same(parseAheadBehind('fatal: no upstream'), { ahead: 0, behind: 0 }), '非数字输出 → 0/0')
+  }
+
+  // isValidBranchName：git check-ref-format 高频拒绝项
+  {
+    for (const good of ['main', 'feat/x-1', 'release_1.2', 'a']) {
+      ok(isValidBranchName(good) === true, `合法分支名：${good}`)
+    }
+    for (const bad of ['', ' x', '-x', '.x', '/x', 'x/', 'x.', 'x.lock', 'a..b', 'a//b', 'a@{b',
+      'a~b', 'a^b', 'a:b', 'a?b', 'a*b', 'a[b', 'a\\b', 'a b', 'x'.repeat(201)]) {
+      ok(isValidBranchName(bad) === false, `拒绝分支名：${JSON.stringify(bad.slice(0, 12))}`)
+    }
+    ok(isValidBranchName(undefined) === false, '非字符串拒绝')
+    ok(isValidBranchName(123) === false, '数字拒绝')
+  }
+
+  // parseBranchRows：本地/远程、当前标记、origin/HEAD 过滤
+  {
+    const raw = [
+      'main\u001forigin/main\u001f*\u001frefs/heads/main',
+      'feat\u001f\u001f\u001frefs/heads/feat',
+      'origin/main\u001f\u001f\u001frefs/remotes/origin/main',
+      'origin/HEAD\u001f\u001f\u001frefs/remotes/origin/HEAD',
+      '',
+    ].join('\n')
+    const rows = parseBranchRows(raw)
+    ok(rows.length === 3, 'origin/HEAD 行被丢弃')
+    ok(rows[0].name === 'main' && rows[0].current === true && rows[0].upstream === 'origin/main', '当前分支带上游标记')
+    ok(rows[1].upstream === null, '无上游 → null')
+    ok(rows[2].remote === true && rows[2].current === false, '远程行：remote 标记、无当前标记')
+  }
+
+  // parseNumstat：普通/二进制/重命名/引号路径
+  {
+    const map = parseNumstat([
+      '12\t3\tsrc/a.ts',
+      '-\t-\tassets/logo.png',
+      '1\t1\tsrc/{old => new}/b.ts',
+      '2\t0\tsrc/old => src/new.ts',
+      '1\t0\t"dir/my file.ts"',
+      'garbage line',
+    ].join('\n'))
+    ok(map.get('src/a.ts').added === 12 && map.get('src/a.ts').removed === 3, '普通行计数')
+    ok(map.get('assets/logo.png').added === 0 && map.get('assets/logo.png').removed === 0, '二进制记 0/0')
+    ok(map.has('src/new/b.ts'), '花括号重命名归一到新路径')
+    ok(map.has('src/new.ts'), '箭头重命名归一到新路径')
+    ok(map.has('dir/my file.ts'), '带空格的引号路径被还原')
+    ok(map.size === 5, '垃圾行被跳过')
+  }
+
+  // unquoteGitPath：C 转义与八进制 UTF-8
+  {
+    ok(unquoteGitPath('plain/path.ts') === 'plain/path.ts', '无引号原样返回')
+    ok(unquoteGitPath('"a\\tb"') === 'a\tb', '\\t 还原为制表符')
+    ok(unquoteGitPath('"a\\"b"') === 'a"b', '转义引号还原')
+    ok(unquoteGitPath('"\\346\\226\\207"') === '文', '八进制 UTF-8 字节还原')
+  }
+}
+
+console.log('[github helpers]')
+{
+  ok(firstLine('\n\n  first  \nsecond') === 'first', 'firstLine 取首个非空行并 trim')
+  ok(firstLine('') === null && firstLine(undefined) === null, 'firstLine 空输入 → null')
+  ok(ghSpawnError({ code: 'ENOENT', message: 'spawn gh ENOENT' }) === 'gh CLI not installed', 'ENOENT → 未安装文案')
+  ok(ghSpawnError({ code: 'EACCES', message: 'nope' }) === 'nope', '其他错误码透出 message')
+
+  ok(parseGhJsonList('[{"number":1}]').length === 1, 'gh JSON 数组解析')
+  ok(parseGhJsonList('{"number":1}').length === 0, '非数组 → 空')
+  ok(parseGhJsonList('not json').length === 0, '坏 JSON → 空')
+  ok(parseGhJsonList('null').length === 0, 'null → 空')
+  ok(parseCreatedUrl('Creating pull request for x\nhttps://github.com/a/b/pull/7\n') === 'https://github.com/a/b/pull/7',
+    '创建输出取 URL')
+  ok(parseCreatedUrl('no link here') === null, '无链接 → null')
+
+  ok(JSON.stringify(validateTitleBody({ title: ' t ', body: ' b ' })) === JSON.stringify({ title: 't', body: 'b' }),
+    '标题/描述 trim')
+  ok(validateTitleBody({ title: '   ' }) === null, '空标题拒绝')
+  ok(validateTitleBody({ title: 'x'.repeat(501) }) === null, '超长标题拒绝')
+  ok(validateTitleBody({ title: 'ok', body: 'x'.repeat(4001) }) === null, '超长描述拒绝')
+  ok(validateTitleBody({ title: 'ok', body: 'x'.repeat(4000) }) !== null, '描述上限内通过')
+
+  ok(mergeMethod('merge') === 'merge' && mergeMethod('rebase') === 'rebase', '合并方式透传')
+  ok(mergeMethod('nonsense') === 'squash' && mergeMethod(undefined) === 'squash', '未知方式 → squash')
+
+  ok(isValidPrNumber(1) === true && isValidPrNumber(1_000_000_000) === true, '合法 PR 号')
+  ok(isValidPrNumber(0) === false && isValidPrNumber(-1) === false && isValidPrNumber(1.5) === false, '非法 PR 号')
+  ok(isValidPrNumber('3') === false, '字符串 PR 号拒绝')
+  ok(isValidPrNumber(1_000_000_001) === false, '越界 PR 号拒绝')
+
+  ok(parseRepoName('{"nameWithOwner":"kkutysllb/dsh-coding-sidebar"}') === 'kkutysllb/dsh-coding-sidebar', 'repo 名解析')
+  ok(parseRepoName('{}') === null && parseRepoName('x') === null, 'repo 名缺失/坏 JSON → null')
+
+  const prs = parsePullRequests(JSON.stringify([
+    { number: 7, title: 'feat', headRefName: 'feat/x', isDraft: false, url: 'u', author: { login: 'me' } },
+    { number: 0, title: 'bad' },
+    { number: 9, title: 'draft', headRefName: 'other', isDraft: true },
+  ]), 'feat/x')
+  ok(prs.length === 2, 'PR 行过滤 number<=0')
+  ok(prs[0].current === true && prs[0].author === 'me' && prs[0].draft === false, '当前分支 PR 标记 + 作者')
+  ok(prs[1].current === false && prs[1].draft === true, '草稿 PR 标记')
+  ok(prs[1].author === null, '缺作者 → null')
+
+  const issues = parseIssues(JSON.stringify([{ number: 3, title: 'bug', url: 'u', author: { login: 'x' } }, { number: 0 }]))
+  ok(issues.length === 1 && issues[0].number === 3, 'Issue 行解析与过滤')
+
+  ok(parseGhAccount('Logged in to github.com account kkutysllb (keyring)') === 'kkutysllb', 'gh 账号解析')
+  ok(parseGhAccount('no account here') === null, '无账号 → null')
+
+  const rows = [
+    { name: 'main', upstream: null, current: true, remote: false },
+    { name: 'origin/main', upstream: null, current: false, remote: true },
+  ]
+  ok(isCurrentLocalBranch(rows, 'main') === true, '当前分支判定（本地行）')
+  ok(isCurrentLocalBranch(rows, 'origin/main') === false, '远程行不算当前分支')
+}
+
+console.log('[git branch model]')
+{
+  ok(trackingNameOf({ name: 'main', remote: false }) === 'main', '本地行检出自身')
+  ok(trackingNameOf({ name: 'origin/feat/x', remote: true }) === 'feat/x', '远程行检出短名（建跟踪分支）')
+  ok(trackingNameOf({ name: 'origin', remote: true }) === 'origin', '无斜杠远程名原样')
+
+  const rows = [
+    { name: 'main', upstream: 'origin/main', current: true, remote: false },
+    { name: 'Feature/X', upstream: null, current: false, remote: false },
+    { name: 'origin/dev', upstream: null, current: false, remote: true },
+  ]
+  ok(filterBranches(rows, '').length === 3, '空查询保留全部')
+  ok(filterBranches(rows, 'feature').length === 1, '大小写不敏感匹配')
+  ok(filterBranches(rows, '  origin  ').length === 1, '查询 trim')
+  ok(filterBranches(rows, 'nope').length === 0, '无匹配 → 空')
+  ok(rows.length === 3, '过滤不改动输入数组')
+  const filtered = filterBranches(rows, 'main')
+  ok(filtered !== rows, '空查询返回副本而非原数组')
+
+  const split = splitBranches(rows)
+  ok(split.local.length === 2 && split.remote.length === 1, '本地/远程分组')
+  ok(split.local[0].name === 'main', '分组保持原顺序')
+}
+
+// ── 任务计划扫描（plans.ts；退役 git 面板的「任务计划」区块独立成页）──
+console.log('[plans helpers]')
+{
+  // planTitleFromHead：首个 #/##/### 标题优先，其余回退文件名
+  {
+    ok(planTitleFromHead('# My plan\n\nbody', 'plan.md') === 'My plan', 'H1 取为标题')
+    ok(planTitleFromHead('intro\n## Sub head\n', 'x.md') === 'Sub head', '正文后的 H2 也能取到')
+    ok(planTitleFromHead('#### too deep\n', 'x.md') === 'x', 'H4 不算标题 → 回退文件名')
+    ok(planTitleFromHead('#    \n', 'x.md') === 'x', '空标题 → 回退文件名')
+    ok(planTitleFromHead('', 'PLAN.md') === 'PLAN', '扩展名大小写不敏感剥离')
+    ok(planTitleFromHead('#  spaced  \n', 'x.md') === 'spaced', '标题 trim')
+  }
+
+  // isOpenablePlanDocument：文本扩展名白名单（送给系统应用前的防御）
+  {
+    for (const good of ['/w/plan.md', '/w/PLAN.MD', '/w/notes.markdown', '/w/todo.txt']) {
+      ok(isOpenablePlanDocument(good) === true, `允许系统打开：${good}`)
+    }
+    for (const bad of ['/w/doc.pdf', '/w/run.sh', '/w/img.png', '/w/plan.md.exe']) {
+      ok(isOpenablePlanDocument(bad) === false, `拒绝系统打开：${bad}`)
+    }
+  }
+
+  // selectPlans：dev:ino 去重、mtime 倒序、rel 破平、截断
+  {
+    const at = (rel, mtimeMs, dev, ino) => ({
+      path: `/w/${rel}`, base: rel.split('/').pop(), rel, mtimeMs, size: 1, dev, ino,
+    })
+    const found = [
+      at('plans/a.md', 100, 1, 11),
+      at('plan.md', 300, 1, 12),
+      at('docs/plan.md', 200, 1, 13),
+      // 同一 inode 的第二个拼写（大小写不敏感盘上 plan.md / PLAN.md）→ 去重
+      at('PLAN.md', 300, 1, 12),
+    ]
+    const picked = selectPlans(found)
+    ok(picked.length === 3, 'dev:ino 相同的第二个拼写被去重')
+    ok(picked.map(d => d.rel).join(',') === 'plan.md,docs/plan.md,plans/a.md', 'mtime 倒序')
+    ok(found.length === 4 && found[0].rel === 'plans/a.md', '不改动输入数组')
+
+    const tie = [at('b.md', 7, 2, 1), at('a.md', 7, 2, 2)]
+    ok(selectPlans(tie).map(d => d.rel).join(',') === 'a.md,b.md', 'mtime 相同按相对路径破平（顺序稳定）')
+    ok(selectPlans(found, 2).length === 2, 'limit 截断')
+    ok(selectPlans(found, 0).length === 0, 'limit 0 → 空')
+    ok(selectPlans(found, -1).length === 3, 'limit 负数 → 不截断')
+  }
+
+  // 真临时目录：约定位置扫描 + 非约定位置忽略
+  {
+    const root = mkdtempSync(join(tmpdir(), 'csb-plans-'))
+    const empty = mkdtempSync(join(tmpdir(), 'csb-plans-empty-'))
+    try {
+      const put = (rel, content, ageSeconds) => {
+        const path = join(root, rel)
+        mkdirSync(join(path, '..'), { recursive: true })
+        writeFileSync(path, content)
+        const when = new Date(Date.now() - ageSeconds * 1000)
+        utimesSync(path, when, when)
+      }
+      put('plan.md', '# Root plan\n', 100)
+      put('plans/a.md', '# Alpha\n', 500)
+      put('docs/plans/b.md', 'no heading here\n', 300)
+      put('.plans/c.md', '## Charlie\n', 400)
+      put('docs/plan.md', '# Docs plan\n', 200)
+      // 非约定位置：嵌套子目录与非 .md 都不该出现
+      put('plans/sub/deep.md', '# Deep\n', 50)
+      put('plans/notes.txt', 'not a plan\n', 50)
+
+      const docs = await scanPlans(root)
+      ok(docs.length === 5, `约定位置 5 份（实际 ${docs.length}）`)
+      ok(docs.map(d => d.rel).join(',') === 'plan.md,docs/plan.md,docs/plans/b.md,.plans/c.md,plans/a.md',
+        `最新在前且嵌套/非 md 被忽略（${docs.map(d => d.rel).join(',')}）`)
+      ok(docs.find(d => d.rel === 'plan.md').title === 'Root plan', '根 plan.md 标题取自 H1')
+      ok(docs.find(d => d.rel === 'docs/plan.md')?.title === 'Docs plan', 'docs/plan.md 也在约定文件清单里')
+      ok(docs.find(d => d.rel === 'docs/plans/b.md').title === 'b', '无标题文档回退文件名')
+      ok(docs.find(d => d.rel === '.plans/c.md').title === 'Charlie', '隐藏目录 .plans 也被扫描')
+      ok(!docs.some(d => d.rel.includes('deep') || d.rel.includes('notes')), '子目录/非 md 未混入')
+
+      const two = await scanPlans(root, 2)
+      ok(two.length === 2 && two[0].rel === 'plan.md', 'limit 作用于磁盘扫描')
+
+      ok((await scanPlans(empty)).length === 0, '空工作区 → 空列表')
+      ok((await scanPlans(join(empty, 'does-not-exist'))).length === 0, '不存在的 cwd 不抛错')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(empty, { recursive: true, force: true })
+    }
+  }
+}
+
+// ── 真 git 临时仓库集成（补齐面：上游/推送/分支/行数）────────────
+// 用真实 git（临时目录 + 裸仓 origin）覆盖「推送/上游/分支增删/行数统计」
+// 这些只能靠真仓库证明的语义；缺 git 的机器整段跳过。
+console.log('[git integration]')
+{
+  const hasGit = (() => {
+    try { execFileSync('git', ['--version'], { stdio: 'ignore' }); return true } catch { return false }
+  })()
+  if (!hasGit) {
+    console.log('  SKIP 本机无 git，跳过集成用例')
+  } else {
+    const root = mkdtempSync(join(tmpdir(), 'csb-git-'))
+    const repo = join(root, 'repo')
+    const bare = join(root, 'origin.git')
+    /** 提交身份随命令传入，绝不写进仓库/全局配置。 */
+    const git = (args, cwd = repo) => execFileSync('git', args, {
+      cwd,
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x',
+        GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x',
+      },
+    }).toString()
+    const commitAll = (message) => {
+      git(['add', '-A'])
+      git(['-c', 'user.name=t', '-c', 'user.email=t@x', 'commit', '-m', message])
+    }
+
+    try {
+      mkdirSync(repo)
+      git(['init', '-b', 'main'], repo)
+      git(['init', '--bare', bare], root)
+      writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n')
+      commitAll('init')
+      git(['remote', 'add', 'origin', bare])
+
+      // push -u：建立上游并同步
+      await pushBranch(repo, { setUpstream: true })
+      const synced = await aheadBehind(repo)
+      ok(synced.hasUpstream === true && synced.ahead === 0 && synced.behind === 0, 'push -u 建立上游并同步')
+      ok(git(['branch', '-vv']).includes('[origin/main]'), '分支带上游跟踪')
+
+      // 新提交 → ahead=1
+      writeFileSync(join(repo, 'a.txt'), 'one\ntwo\nthree\n')
+      commitAll('more')
+      const ahead = await aheadBehind(repo)
+      ok(ahead.ahead === 1 && ahead.behind === 0, '新提交后 ahead=1')
+
+      // 行数统计：已跟踪 diff（未提交改动）+ 未跟踪正文
+      writeFileSync(join(repo, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+      writeFileSync(join(repo, 'b.txt'), 'x\ny\nz\n')
+      const info = await summary(repo)
+      ok(info.branch === 'main', 'summary 报当前分支')
+      ok(info.defaultBranch === 'main', '默认分支取自 origin/main')
+      ok(info.remoteUrl === bare, 'summary 报 origin URL')
+      ok(info.untracked === 1, 'summary 报未跟踪文件数')
+      ok(info.added === 4, 'summary 汇总新增行（跟踪 diff 1 + 未跟踪正文 3）')
+      const fileA = info.files.find(file => file.path === 'a.txt')
+      ok(fileA !== undefined && fileA.added === 1 && fileA.removed === 0, 'summary 逐文件行数')
+
+      // 分支清单：本地 + 远程 + 上游标记 + 远程 HEAD 过滤
+      const rows = await branchRows(repo)
+      const local = rows.filter(row => !row.remote)
+      const remote = rows.filter(row => row.remote)
+      ok(local.some(row => row.name === 'main' && row.current === true), '分支清单含当前本地分支')
+      ok(local[0].upstream === 'origin/main', '本地分支带上游标记')
+      ok(remote.some(row => row.name === 'origin/main'), '分支清单含远程分支')
+      ok(remote.every(row => !row.name.endsWith('/HEAD')), '远程 HEAD 符号引用被过滤')
+
+      // 创建并检出
+      await createBranch(repo, 'feat/x')
+      ok(await currentBranch(repo) === 'feat/x', 'createBranch 建并检出')
+      ok((await branchRows(repo)).some(row => row.name === 'feat/x' && row.current === true), '新分支标记为当前')
+
+      // 安全删除：已合并分支（无上游、落后于 HEAD）可直接删
+      await createBranch(repo, 'tmp-merged')
+      await git(['checkout', 'feat/x'])
+      await deleteBranch(repo, 'tmp-merged', false)
+      ok(!(await branchRows(repo)).some(row => row.name === 'tmp-merged' && !row.remote), '已合并分支安全删除')
+
+      // 未合并分支：安全删除被拒（not-merged），强制删除成功
+      await createBranch(repo, 'wip')
+      writeFileSync(join(repo, 'c.txt'), 'wip\n')
+      commitAll('wip only')
+      await git(['checkout', 'feat/x'])
+      let unmerged = null
+      try { await deleteBranch(repo, 'wip', false) } catch (error) { unmerged = error }
+      ok(unmerged !== null && unmerged.code === 'not-merged', '未合并分支安全删除被拒（not-merged）')
+      if (unmerged === null) {
+        // 前置断言失败时不要继续执行强删（避免级联噪音）
+      } else {
+        await deleteBranch(repo, 'wip', true)
+        ok(!(await branchRows(repo)).some(row => row.name === 'wip' && !row.remote), '强制删除移除未合并分支')
+      }
+
+      // 当前分支不可删；非法分支名拦在 git 之前
+      let currentRefused = null
+      try { await deleteBranch(repo, 'feat/x', true) } catch (error) { currentRefused = error }
+      ok(currentRefused !== null && currentRefused.code === 'checked-out', '拒绝删除当前分支')
+      let badName = null
+      try { await createBranch(repo, 'bad name') } catch (error) { badName = error }
+      ok(badName !== null && badName.code === 'bad-branch', '非法分支名被拦在 git 之前')
+
+      // 新分支无上游 → push -u 建立跟踪
+      await createBranch(repo, 'feat/y')
+      ok((await aheadBehind(repo)).hasUpstream === false, '新分支暂无上游')
+      await pushBranch(repo, { setUpstream: true })
+      const tracked = await aheadBehind(repo)
+      ok(tracked.hasUpstream === true && tracked.ahead === 0, 'push -u 建立上游并同步（新分支）')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   }
 }
 

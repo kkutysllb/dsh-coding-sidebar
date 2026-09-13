@@ -37,8 +37,10 @@ import { searchFiles } from './fs-search.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
 import { isTrustedApiRequest, isLoopbackHostname } from './trust-fence.ts'
 import { registerBundleRoute } from './bundle-route.ts'
-import { launchExternal } from './open-external.ts'
+import { launchExternal, launchExternalFile } from './open-external.ts'
 import * as git from './git.ts'
+import * as github from './github.ts'
+import * as plans from './plans.ts'
 import { SettingsConflictError, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defaultShell, ensureSpawnHelper, PtyManager, shellDisplayName } from './pty-manager.ts'
 import { AgentPtyRegistry, armPtyResizeGate, tryResizePty, type AgentTerminalHandle } from './agent-pty.ts'
@@ -458,6 +460,118 @@ function buildApi(
       const path = await resolveGitPath(cwd, requireString(payload, 'path'), repoRoot)
       const rev = requireString(payload, 'rev')
       return { content: await git.show(cwd, rev, path, repoRoot) }
+    },
+    // ── Upstream / push / branch management (the retired git panel's surface) ──
+    // The changes view's enrichment (upstream distance, remote/default branch,
+    // per-file line counts). Kept off the 2s status poll: it costs several git
+    // calls plus untracked file reads, so the client asks for it on demand.
+    'git.summary': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      return { summary: await git.summary(cwd, selectedRepoOf(payload)) }
+    },
+    'git.push': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const repoRoot = selectedRepoOf(payload)
+      const explicit = (payload as { setUpstream?: unknown }).setUpstream
+      // The host owns the upstream decision: a branch that tracks nothing is
+      // pushed with `-u origin <branch>`, everything else with a plain push.
+      const setUpstream = explicit === true
+        ? true
+        : explicit === false
+          ? false
+          : !(await git.aheadBehind(cwd, repoRoot)).hasUpstream
+      await git.pushBranch(cwd, { setUpstream, selected: repoRoot })
+      return { ok: true, setUpstream }
+    },
+    'git.branch-rows': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      return { rows: await git.branchRows(cwd, selectedRepoOf(payload)) }
+    },
+    'git.branch-create': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      await git.createBranch(cwd, requireString(payload, 'name'), selectedRepoOf(payload))
+      return { ok: true }
+    },
+    'git.branch-delete': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const name = requireString(payload, 'name')
+      const force = (payload as { force?: unknown }).force === true
+      try {
+        await git.deleteBranch(cwd, name, force, selectedRepoOf(payload))
+      } catch (error) {
+        // A safe delete refuses unmerged branches: surface the distinct code so
+        // the panel escalates to a force delete behind an explicit confirm.
+        if (error instanceof git.GitCommandError && error.code === 'not-merged') {
+          throw new SidebarError('not-merged', error.message, 409)
+        }
+        throw error
+      }
+      return { ok: true }
+    },
+    // ── GitHub management (gh CLI, soft dependency) ────────────────────────
+    'gh.probe': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      return github.ghProbe(cwd)
+    },
+    'gh.list': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const branch = await git.currentBranch(cwd).catch(() => 'HEAD')
+      return github.ghList(cwd, branch === 'HEAD' ? null : branch)
+    },
+    'gh.create-pr': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const repoRoot = selectedRepoOf(payload)
+      const validated = github.validateTitleBody(payload)
+      if (validated === null) throw new SidebarError('bad-request', 'title/body missing or too long')
+      const record = payload as { base?: unknown; draft?: unknown }
+      const base = typeof record.base === 'string' && record.base.trim() !== '' ? record.base.trim() : null
+      const result = await github.ghCreatePr(cwd, {
+        title: validated.title,
+        body: validated.body,
+        base,
+        draft: record.draft === true,
+        push: {
+          // null = no upstream yet (push it), otherwise the unpushed count.
+          aheadOfUpstream: async () => {
+            const distance = await git.aheadBehind(cwd, repoRoot)
+            return distance.hasUpstream ? distance.ahead : null
+          },
+          setUpstream: async () => { await git.pushBranch(cwd, { setUpstream: true, selected: repoRoot }) },
+        },
+      })
+      return { ok: true, url: result.url }
+    },
+    'gh.merge-pr': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const record = payload as { number?: unknown; method?: unknown }
+      const number = typeof record.number === 'number' ? record.number : Number(record.number)
+      if (!github.isValidPrNumber(number)) throw new SidebarError('bad-request', 'invalid pull request number')
+      await github.ghMergePr(cwd, number, github.mergeMethod(record.method))
+      return { ok: true }
+    },
+    'gh.create-issue': async (payload) => {
+      const { cwd } = await gitCwdOf(payload)
+      const validated = github.validateTitleBody(payload)
+      if (validated === null) throw new SidebarError('bad-request', 'title/body missing or too long')
+      const result = await github.ghCreateIssue(cwd, validated.title, validated.body)
+      return { ok: true, url: result.url }
+    },
+    // ── Task plans (the retired git panel's 任务计划 section, now its own tab) ──
+    // Discovery rides ONE route: the client opens a doc in the sidebar editor
+    // itself (no round trip), so `plans.open` is only the fallback hand-off to
+    // the OS default application. It stays inside the workspace (the same
+    // containment fence as fs.read) and accepts text plan documents only.
+    'plans.list': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      return { plans: await plans.scanPlans(cwd), limit: plans.PLAN_LIMIT }
+    },
+    'plans.open': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      const path = await ensureWorkspacePath(cwd, requireString(payload, 'path'))
+      if (!plans.isOpenablePlanDocument(path)) {
+        throw new SidebarError('bad-request', 'only text plan documents can be opened externally')
+      }
+      return launchExternalFile(path)
     },
     // Diff-fold expansion data: both sides' full file contents so the client
     // can materialize the hidden context rows a -U3 hunk gap omitted. The

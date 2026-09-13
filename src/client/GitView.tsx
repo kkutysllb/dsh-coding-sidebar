@@ -12,11 +12,15 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { SessionLens } from './SessionLens.tsx'
+import { GitBranchView } from './GitBranchView.tsx'
+import { GitHubView } from './GitHubView.tsx'
 import {
-  Button, IconBranchOutline16, IconCodeOutline16, IconCopyOutline16, IconRefreshOutline16,
-  IconTrashOutline16, Input, Menu, Modal, writeClipboard,
+  Button, IconBranchOutline16, IconCloseOutline16, IconCodeOutline16, IconCopyOutline16, IconRefreshOutline16,
+  IconRightUpOutline16, IconTrashOutline16, Input, Menu, Modal, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { GitLogEntry, GitStatusEntry, GitStatusResult, GitWorktree, SessionScope } from './api.ts'
+import type {
+  GhListResult, GitLogEntry, GitStatusEntry, GitStatusResult, GitSummary, GitWorktree, SessionScope,
+} from './api.ts'
 import { api } from './api.ts'
 import { isWithinWorkspace, relativeTo } from './paths.ts'
 import { resolveSidebarPath } from './produced-files.ts'
@@ -117,7 +121,15 @@ export function GitView(props: {
       </button>
     </div>
   )
+  /** The Git lens' sub-view (the retired git panel's view switcher). */
+  const [view, setView] = useState<'changes' | 'branches' | 'github'>('changes')
   const [status, setStatus] = useState<GitStatusResult | null>(null)
+  /** Upstream distance + per-file line counts (loaded on demand, not on the 2s poll). */
+  const [summary, setSummary] = useState<GitSummary | null>(null)
+  /** Bumped after a mutation so the child views re-read their own data. */
+  const [branchRefreshKey, setBranchRefreshKey] = useState(0)
+  /** The in-flight push (drives the button label). */
+  const [pushing, setPushing] = useState(false)
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([])
   const [selectedWorktree, setSelectedWorktree] = useState<string | undefined>()
   const [repoRoot, setRepoRoot] = useState<string | undefined>(undefined)
@@ -152,6 +164,20 @@ export function GitView(props: {
 
   const gitScope: SessionScope = repoRoot === undefined ? scope : { ...scope, repoRoot }
 
+  /** Read the enrichment (upstream distance / line counts). Deliberately NOT
+   *  part of the 2s status poll: it runs an extra diff plus untracked file
+   *  reads, so it is refreshed on demand and after every mutation. */
+  const refreshSummary = useCallback(async (target?: string): Promise<void> => {
+    try {
+      const result = await api.gitSummary(gitScope, target ?? selectedRef.current)
+      setSummary(result.summary)
+    } catch {
+      // A repo without a remote / a detached HEAD has no upstream: the badge
+      // simply disappears instead of reporting a failure for a normal state.
+      setSummary(null)
+    }
+  }, [scope.sessionId, scope.cwd, repoRoot])
+
   /** Publish a complete checkout-derived view. Status, branch choices and
    *  history are one consistency unit: never mix rows from two worktrees. */
   const refreshTarget = useCallback(async (
@@ -172,6 +198,7 @@ export function GitView(props: {
       setBranchNames(branchResult.names)
       setLogEntries(logResult)
       setLogEnded(logResult.length < LOG_BATCH)
+      if (statusResult.isRepo) void refreshSummary(target)
     } catch (reason) {
       if (options.generation === refreshGeneration.current) {
         setError(reason instanceof Error ? reason.message : String(reason))
@@ -179,7 +206,7 @@ export function GitView(props: {
     } finally {
       if (options.loading && options.generation === refreshGeneration.current) setLoading(false)
     }
-  }, [scope.sessionId, scope.cwd, repoRoot])
+  }, [scope.sessionId, scope.cwd, repoRoot, refreshSummary])
 
   const refresh = useCallback(async (silent = false): Promise<void> => {
     if (refreshInFlight.current) return
@@ -221,7 +248,14 @@ export function GitView(props: {
       // Any automatic selection change refreshes the complete derived view.
       if (silent && !targetChanged) {
         const statusResult = await api.gitStatus(gitScope, target)
-        if (generation === refreshGeneration.current) setStatus(statusResult)
+        if (generation === refreshGeneration.current) {
+          setStatus(statusResult)
+          // The unpushed count moves on its own (a background fetch, an agent
+          // committing): keep the badge honest without the numstat cost.
+          void api.gitSummary(gitScope, target).then(result => {
+            if (generation === refreshGeneration.current) setSummary(result.summary)
+          }).catch(() => { /* no upstream: no badge */ })
+        }
         return
       }
       await refreshTarget(target, { loading: !silent, generation })
@@ -345,19 +379,45 @@ export function GitView(props: {
     }
   }
 
-  const commit = async (): Promise<void> => {
+  /**
+   * Commit, optionally pushing afterwards (the retired panel's "提交或推送").
+   *
+   * Staging semantics follow that panel: with nothing staged but a dirty tree,
+   * everything is staged first — a selective index is never overridden, since
+   * only the "nothing staged yet" case auto-stages. `pushAfter` then pushes the
+   * branch, setting its upstream when it has none.
+   */
+  const commit = async (pushAfter = false): Promise<void> => {
     const message = commitMsg.trim()
     if (message === '' || busy) return
     setBusy(true)
     setCommitError(null)
     try {
+      if (stagedEntries.length === 0) await api.gitStage(gitScope, undefined, selectedWorktree)
       await api.gitCommit(gitScope, message, selectedWorktree)
       setCommitMsg('')
+      if (pushAfter) await api.gitPush(gitScope, selectedWorktree)
       await refresh()
     } catch (reason) {
-      setCommitError(reason instanceof Error ? reason.message : String(reason))
+      setCommitError(`${pushAfter ? t('gitCommitPushFailed') : t('commitError')}: ${reason instanceof Error ? reason.message : String(reason)}`)
+      await refresh()
     } finally {
       setBusy(false)
+    }
+  }
+
+  /** Push the current branch (the host sets an upstream when there is none). */
+  const push = async (): Promise<void> => {
+    if (busy || pushing) return
+    setPushing(true)
+    setCommitError(null)
+    try {
+      await api.gitPush(gitScope, selectedWorktree)
+      await refresh()
+    } catch (reason) {
+      setCommitError(`${t('gitPushFailed')}: ${reason instanceof Error ? reason.message : String(reason)}`)
+    } finally {
+      setPushing(false)
     }
   }
 
@@ -410,8 +470,31 @@ export function GitView(props: {
 
   const stagedEntries = (status?.entries ?? []).filter(isStagedEntry)
   const unstagedEntries = (status?.entries ?? []).filter(isUnstagedEntry)
+  /** Per-path line counts keyed for the file rows (untracked files have none
+   *  in git's numstat; the summary's totals still count their bodies). */
+  const fileStats = new Map((summary?.files ?? []).map(file => [file.path, file]))
+  /** The upstream badge: distance and whether a push is pending. */
+  const pendingPush = summary !== null && (!summary.hasUpstream || summary.ahead > 0)
+  const viewSwitcher = status !== null && status.isRepo
+    ? (
+      <div className={css.changesLensToggle} role="tablist" aria-label={t('git')}>
+        {(['changes', 'branches', 'github'] as const).map(candidate => (
+          <button
+            key={candidate}
+            type="button"
+            className={clsx(css.changesLensTab, view === candidate && css.changesLensTabActive)}
+            aria-pressed={view === candidate}
+            onClick={() => { setCommitError(null); setView(candidate) }}
+          >
+            {candidate === 'changes' ? t('gitViewChanges') : candidate === 'branches' ? t('gitViewBranches') : t('ghSection')}
+          </button>
+        ))}
+      </div>
+    )
+    : null
 
   const renderEntry = (entry: GitStatusEntry, staged: boolean): ReactNode => {
+    const stat = fileStats.get(entry.path)
     return (
       <div key={`${staged ? 's' : 'u'}:${entry.path}`} className={css.gitRow}>
         <button
@@ -423,6 +506,12 @@ export function GitView(props: {
         >
           <span className={css.gitBadge}>{badgeOf(entry)}</span>
           <span className={css.gitName}>{entry.path}</span>
+          {stat !== undefined && stat.added !== null && (stat.added > 0 || (stat.removed ?? 0) > 0) && (
+            <span className={css.gitLineStat}>
+              {stat.added > 0 && <span className={css.gitAdded}>+{stat.added}</span>}
+              {(stat.removed ?? 0) > 0 && <span className={css.gitRemoved}>−{stat.removed}</span>}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -450,6 +539,48 @@ export function GitView(props: {
   return (
     <div className={css.git}>
       {lensToggle}
+      {viewSwitcher}
+      {/* One shared failure line: the branch and GitHub views report here too,
+          so a refused checkout cannot fail silently behind another view. */}
+      {commitError !== null && (
+        <div className={css.gitError} role="status">
+          {commitError}
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('close')}
+            title={t('close')}
+            onClick={() => { setCommitError(null) }}
+          >
+            <IconCloseOutline16 size={14} />
+          </button>
+        </div>
+      )}
+      {view === 'branches' && status !== null && status.isRepo && (
+        <GitBranchView
+          gitScope={gitScope}
+          worktree={selectedWorktree}
+          busy={busy}
+          setBusy={setBusy}
+          onChanged={refresh}
+          onError={setCommitError}
+          refreshKey={branchRefreshKey}
+          active={visible && view === 'branches'}
+        />
+      )}
+      {view === 'github' && status !== null && status.isRepo && (
+        <GitHubView
+          gitScope={gitScope}
+          worktree={selectedWorktree}
+          busy={busy}
+          setBusy={setBusy}
+          onError={setCommitError}
+          defaultBranch={summary?.defaultBranch ?? null}
+          active={visible && view === 'github'}
+        />
+      )}
+      {view === 'changes' && (
+      <>
       {worktrees.length > 1 && (
         <div className={css.gitWorktreeRow}>
           <span className={css.gitWorktreeLabel}>{t('worktree')}</span>
@@ -489,6 +620,20 @@ export function GitView(props: {
           {(status?.branch ?? '') !== '' && <option value={status!.branch}>{status!.branch}</option>}
           {branchNames.filter(name => name !== status?.branch).map(name => <option key={name} value={name}>{name}</option>)}
         </select>
+        {summary !== null && (
+          <span className={css.gitUpstream} title={summary.remoteUrl ?? undefined}>
+            {summary.hasUpstream
+              ? (
+                <>
+                  {summary.ahead > 0 && <span className={css.gitAhead} title={t('gitAhead', { n: summary.ahead })}>↑{summary.ahead}</span>}
+                  {summary.behind > 0 && <span className={css.gitBehind} title={t('gitBehind', { n: summary.behind })}>↓{summary.behind}</span>}
+                  {summary.ahead === 0 && summary.behind === 0 && <span className={css.gitSynced}>{t('gitPushed')}</span>}
+                  {summary.ahead > 0 && <span className={css.gitPending}>{t('gitPendingPush')}</span>}
+                </>
+              )
+              : <span className={css.gitPending}>{t('gitNoUpstream')}</span>}
+          </span>
+        )}
         <button
           type="button"
           className={css.iconButton}
@@ -550,13 +695,41 @@ export function GitView(props: {
             <button
               type="button"
               className={css.gitCommitButton}
-              disabled={busy || commitMsg.trim() === '' || stagedEntries.length === 0}
+              disabled={busy || commitMsg.trim() === '' || (stagedEntries.length === 0 && unstagedEntries.length === 0)}
               onClick={() => { void commit() }}
             >
               {t('commit')}
             </button>
           </div>
-          {commitError !== null && <div className={css.gitError}>{commitError}</div>}
+          <div className={css.gitPushRow}>
+            {summary !== null && (
+              <span className={css.gitLineStat}>
+                {summary.untracked > 0 && <span className={css.gitUntracked}>{t('gitUntracked', { n: summary.untracked })}</span>}
+                {summary.added > 0 && <span className={css.gitAdded}>+{summary.added}</span>}
+                {summary.removed > 0 && <span className={css.gitRemoved}>−{summary.removed}</span>}
+              </span>
+            )}
+            <span className={css.spacer} />
+            <button
+              type="button"
+              className={css.gitLink}
+              disabled={busy || pushing || commitMsg.trim() === ''
+                || (stagedEntries.length === 0 && unstagedEntries.length === 0)}
+              title={t('gitCommitPush')}
+              onClick={() => { void commit(true) }}
+            >
+              <IconRightUpOutline16 size={13} /> {t('gitCommitPush')}
+            </button>
+            <button
+              type="button"
+              className={css.gitLink}
+              disabled={busy || pushing || !pendingPush}
+              title={t('gitPush')}
+              onClick={() => { void push() }}
+            >
+              {pushing ? t('gitPushing') : t('gitPush')}
+            </button>
+          </div>
 
           <div className={css.gitSection}>
             <div className={css.gitSectionHeader}><span>{t('history')}</span></div>
@@ -748,6 +921,8 @@ export function GitView(props: {
             <p className={css.gitConfirmDesc}>{confirm?.description}</p>
           </Modal>
         </>
+      )}
+      </>
       )}
     </div>
   )

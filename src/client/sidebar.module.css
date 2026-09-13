@@ -2059,6 +2059,9 @@ body[data-dsh-sidebar-dragging] .panel {
 }
 
 .gitError {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   padding: 8px 12px;
   font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-state-error-primary);
@@ -2576,4 +2579,418 @@ body[data-dsh-sidebar-dragging] .panel {
 .browserLiveTarget {
   max-width: 260px;
   font-size: 12px;
+}
+
+/* ── Source control: upstream / push / branch / GitHub ──────────────────── */
+/* The retired @kkutysllb/dsh-git-panel plugin's surface, folded into this
+   panel. Same contract as the rest of the file: every color is a
+   --dsw-alias-* token, every type role a --dsw-font-* token. */
+
+.spacer {
+  flex: 1;
+  min-width: 4px;
+}
+
+/* Upstream badge in the branch row: ↑ahead ↓behind and its wording. */
+.gitUpstream {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.gitAhead {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.gitBehind {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.gitSynced {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.gitPending {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* Per-file +added/−removed pill on a status row. */
+.gitLineStat {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 8px;
+  font: var(--dsw-font-xxxs-11);
+  white-space: nowrap;
+}
+
+.gitAdded {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.gitRemoved {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.gitUntracked {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Commit-or-push row under the message box. */
+.gitPushRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.gitPushRow .gitLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ── Branch view ───────────────────────────────────────────────────────── */
+
+.gitBranchView {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.gitBranchToolbar,
+.gitBranchForm {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+}
+
+.gitBranchForm {
+  padding-top: 0;
+}
+
+.gitBranchSearch {
+  flex: 1;
+  min-width: 0;
+}
+
+.gitBranchRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding-right: 6px;
+}
+
+.gitBranchRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.gitBranchName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.gitBranchBadge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-11);
+  white-space: nowrap;
+}
+
+.gitBranchMeta {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+/* ── GitHub section ────────────────────────────────────────────────────── */
+
+.gitGh {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.gitGhHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px 0 12px;
+}
+
+.gitGhRepo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-strong-12);
+}
+
+.gitGhEnv {
+  flex: none;
+  padding: 0 12px 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.gitGhHint {
+  margin-top: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  line-height: 1.5;
+}
+
+.gitGhNotice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.gitGhRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 12px;
+  min-height: 30px;
+}
+
+.gitGhRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.gitGhNumber {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.gitGhTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.gitGhMergeConfirm {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.gitGhMethod {
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.gitGhForm {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 12px 12px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.gitGhFormTitle {
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-strong-11);
+}
+
+.gitGhInput {
+  width: 100%;
+}
+
+.gitGhTextarea {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  font-family: inherit;
+}
+
+.gitGhFormRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gitGhDraft {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+  white-space: nowrap;
+}
+
+/* The shared failure line: message + dismiss, visible from every sub-view. */
+.gitError button {
+  flex: none;
+  margin-left: auto;
+}
+
+.gitConfirmDanger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* ── Task plans (the 任务计划 tab) ───────────────────────────────────────── */
+
+.plansView {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.plansToolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+}
+
+.plansSearch {
+  flex: 1;
+  min-width: 0;
+}
+
+.plansRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+}
+
+.plansRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The primary row control: glyph + two stacked lines (title over path·time). */
+.plansRowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  padding: 5px 0 5px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.plansRowMain:focus-visible {
+  outline: 2px solid var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -1px;
+}
+
+.plansGlyph {
+  flex: none;
+  display: inline-flex;
+  padding-top: 1px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.plansText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.plansTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.plansMeta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.plansEmpty {
+  padding: 16px 12px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+.plansHint {
+  padding: 6px 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  overflow-wrap: anywhere;
+}
+
+.plansEmpty .plansHint {
+  padding: 4px 0 0;
 }

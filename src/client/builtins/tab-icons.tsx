@@ -22,12 +22,16 @@ import {
   VscGlobe,
   VscGraph,
   VscLayers,
+  VscTasklist,
   VscTerminal,
 } from 'react-icons/vsc'
 import styles from './tab-icons.module.css'
 
 /** The styled wrapper classes; typed so a renamed rule fails the build. */
-const css = styles as Record<'files' | 'changes' | 'tasks' | 'sidechat' | 'terminal' | 'browser' | 'trajectory', string>
+const css = styles as Record<
+  'files' | 'changes' | 'tasks' | 'plans' | 'sidechat' | 'terminal' | 'browser' | 'trajectory',
+  string
+>
 
 /** One tab type's glyph, sized by the caller's surface (14px in a strip). */
 export type TabIcon = (size: number) => ReactNode
@@ -55,6 +59,14 @@ export const changesTabIcon: TabIcon = (size) =>
  */
 export const tasksTabIcon: TabIcon = (size) =>
   themed(css.tasks, <VscLayers size={size} />)
+
+/**
+ * Task plans — the markdown planning docs an agent writes during a run. Same
+ * amber family as the tasks tab (both are agent work-in-progress surfaces),
+ * with a deliberately different glyph: a checklist page, not stacked sheets.
+ */
+export const plansTabIcon: TabIcon = (size) =>
+  themed(css.plans, <VscTasklist size={size} />)
 
 /** Side chat — the conversational/secondary accent. */
 export const sidechatTabIcon: TabIcon = (size) =>

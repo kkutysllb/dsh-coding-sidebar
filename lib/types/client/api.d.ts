@@ -61,6 +61,106 @@ export interface GitLogEntry {
     /** Ref decorations (--decorate=short), e.g. `HEAD -> main, origin/main`; '' when none. */
     refs: string;
 }
+/** One file's line-count summary (git.summary). */
+export interface GitFileStat {
+    path: string;
+    /** Added lines, or null for an untracked file (git reports no diff). */
+    added: number | null;
+    /** Removed lines, or null for an untracked file. */
+    removed: number | null;
+}
+/**
+ * The changes view's enrichment (host `git.summary`): upstream distance,
+ * remote/default branch and per-file line counts. Separate from the cheap
+ * status call so the 2s poll stays cheap.
+ */
+export interface GitSummary {
+    /** Current branch, or null on a detached HEAD. */
+    branch: string | null;
+    /** Commits on HEAD the upstream does not have (unpushed). */
+    ahead: number;
+    /** Commits on the upstream HEAD does not have. */
+    behind: number;
+    /** Whether the current branch tracks an upstream at all. */
+    hasUpstream: boolean;
+    /** `origin` URL when configured. */
+    remoteUrl: string | null;
+    /** Repository default branch (`origin/HEAD` / main / master), else null. */
+    defaultBranch: string | null;
+    /** Per-path line counts (tracked files only). */
+    files: GitFileStat[];
+    /** Total added lines (tracked diff + untracked file bodies). */
+    added: number;
+    /** Total removed lines. */
+    removed: number;
+    /** Untracked file count as git reports it. */
+    untracked: number;
+}
+/** One branch row (git.branch-rows). */
+export interface GitBranchRow {
+    /** Short ref name (a remote row keeps its `<remote>/` prefix). */
+    name: string;
+    /** Upstream short name when the row tracks one. */
+    upstream: string | null;
+    /** Whether this is the checked-out local branch. */
+    current: boolean;
+    /** Whether the row came from `refs/remotes`. */
+    remote: boolean;
+}
+/** One open pull request (gh.list). */
+export interface GhPullRequest {
+    number: number;
+    title: string;
+    /** Head branch the PR was opened from. */
+    head: string;
+    /** Draft PRs cannot be merged from the panel. */
+    draft: boolean;
+    url: string | null;
+    author: string | null;
+    /** Whether the current branch is this PR's head. */
+    current: boolean;
+}
+/** One open issue (gh.list). */
+export interface GhIssue {
+    number: number;
+    title: string;
+    url: string | null;
+    author: string | null;
+}
+/** The GitHub section payload (gh.list). */
+export interface GhListResult {
+    ok: boolean;
+    /** Degradation copy when `ok` is false (gh missing / not logged in / no remote). */
+    error: string | null;
+    /** `owner/repo`, when the remote resolves on GitHub. */
+    repo: string | null;
+    /** The current branch, for the "this branch" marker. */
+    current: string | null;
+    prs: GhPullRequest[];
+    issues: GhIssue[];
+}
+/** The gh environment probe (gh.probe). */
+export interface GhProbeResult {
+    installed: boolean;
+    authenticated: boolean;
+    account: string | null;
+    version: string | null;
+    error: string | null;
+}
+/** One plan document of the workspace's plan convention (plans.list). */
+export interface PlanDoc {
+    /** Absolute path (the editor tab seed / OS hand-off target). */
+    path: string;
+    /** File name (`plan.md`). */
+    base: string;
+    /** Workspace-relative display path (`plans/plan.md`). */
+    rel: string;
+    /** First heading of the document, or its extension-less file name. */
+    title: string;
+    /** Last modification time (ms since epoch). */
+    mtimeMs: number;
+    size: number;
+}
 /** Text read result. */
 export interface FsTextResult {
     kind: 'text';
@@ -202,6 +302,63 @@ export declare const api: {
     /** Cherry-pick one commit onto the current branch. */
     gitCherryPick: (scope: SessionScope, hash: string, worktree?: string) => Promise<{
         ok: true;
+    }>;
+    /** Upstream distance + remote/default branch + per-file line counts. */
+    gitSummary: (scope: SessionScope, worktree?: string, signal?: AbortSignal) => Promise<{
+        summary: GitSummary;
+    }>;
+    /** Push the current branch (the host sets an upstream when there is none). */
+    gitPush: (scope: SessionScope, worktree?: string, setUpstream?: boolean) => Promise<{
+        ok: true;
+        setUpstream: boolean;
+    }>;
+    /** Local + remote branches with upstream/current markers. */
+    gitBranchRows: (scope: SessionScope, worktree?: string, signal?: AbortSignal) => Promise<{
+        rows: GitBranchRow[];
+    }>;
+    /** Create a branch and check it out. */
+    gitBranchCreate: (scope: SessionScope, name: string, worktree?: string) => Promise<{
+        ok: true;
+    }>;
+    /** Delete a local branch; an unmerged branch fails with code `not-merged`
+     *  unless `force` is set (the panel asks before escalating). */
+    gitBranchDelete: (scope: SessionScope, name: string, force: boolean, worktree?: string) => Promise<{
+        ok: true;
+    }>;
+    /** gh CLI environment probe (installed / logged in / account). */
+    ghProbe: (scope: SessionScope) => Promise<GhProbeResult>;
+    /** Open PRs + issues plus the repository identity. */
+    ghList: (scope: SessionScope, worktree?: string, signal?: AbortSignal) => Promise<GhListResult>;
+    /** Create a PR from the current branch (the host pushes it first when needed). */
+    ghCreatePr: (scope: SessionScope, opts: {
+        title: string;
+        body: string;
+        base?: string;
+        draft?: boolean;
+    }, worktree?: string) => Promise<{
+        ok: true;
+        url: string | null;
+    }>;
+    /** Merge one PR (method: merge | squash | rebase; the host defaults to squash). */
+    ghMergePr: (scope: SessionScope, number: number, method?: string, worktree?: string) => Promise<{
+        ok: true;
+    }>;
+    /** Create an issue in the repository the cwd belongs to. */
+    ghCreateIssue: (scope: SessionScope, opts: {
+        title: string;
+        body: string;
+    }, worktree?: string) => Promise<{
+        ok: true;
+        url: string | null;
+    }>;
+    /** Plan documents the workspace's convention declares (newest first). */
+    plansList: (scope: SessionScope, signal?: AbortSignal) => Promise<{
+        plans: PlanDoc[];
+        limit: number;
+    }>;
+    /** Hand one plan document to the OS default application (workspace-contained). */
+    plansOpen: (scope: SessionScope, path: string) => Promise<{
+        started: true;
     }>;
     /** Release a terminal's process immediately (tab closed; the WS close frame
      *  may be unreachable while the socket is down, so the host also accepts

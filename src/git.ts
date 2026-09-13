@@ -497,3 +497,334 @@ export async function revert(cwd: string, hash: string, selected?: string): Prom
 export async function cherryPick(cwd: string, hash: string, selected?: string): Promise<void> {
   await runGit(await repoRoot(cwd, selected), ['cherry-pick', hash])
 }
+
+/* ------------------------------------------------------------------ *
+ * Upstream / push / branch management / line stats
+ *
+ * The retired `@kkutysllb/dsh-git-panel` plugin owned this surface; these
+ * operations close that gap inside the sidebar's own source-control tab. The
+ * semantics are ported verbatim (see each function's doc), and every parser
+ * stays pure so `node` can test it without a repository.
+ * ------------------------------------------------------------------ */
+
+/** One parsed upstream distance (`git rev-list --left-right --count`). */
+export interface GitAheadBehind {
+  /** Commits on HEAD that the upstream does not have (unpushed). */
+  ahead: number
+  /** Commits on the upstream that HEAD does not have. */
+  behind: number
+  /** Whether the current branch tracks an upstream at all. */
+  hasUpstream: boolean
+}
+
+/** Parse `rev-list --left-right --count HEAD...@{upstream}` (`3\t2`). The
+ *  output carries no marker bytes with this argument order; the `<`/`>`
+ *  form is accepted too so either orientation of the range parses. */
+export function parseAheadBehind(output: string): { ahead: number; behind: number } {
+  const match = /^([<>]?\d+)\s+([<>]?\d+)\s*$/.exec(output.trim())
+  if (match === null) return { ahead: 0, behind: 0 }
+  return {
+    ahead: Number.parseInt((match[1] ?? '0').replace(/[<>]/g, ''), 10),
+    behind: Number.parseInt((match[2] ?? '0').replace(/[<>]/g, ''), 10),
+  }
+}
+
+/** The high-frequency subset of `git check-ref-format` rules: enough to stop a
+ *  typo before it reaches git, over-strict for exotic-but-legal names. */
+export function isValidBranchName(name: unknown): name is string {
+  if (typeof name !== 'string') return false
+  if (name === '' || name.length > 200) return false
+  if (/\s/.test(name)) return false
+  if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) return false
+  if (name.endsWith('/') || name.endsWith('.') || name.endsWith('.lock')) return false
+  if (name.includes('..') || name.includes('//') || name.includes('@{')) return false
+  if (/[~^:?*[\]\\]/.test(name)) return false
+  return true
+}
+
+/** One branch row from `for-each-ref`. */
+export interface GitBranchRow {
+  /** Short ref name (a remote row keeps its `<remote>/` prefix). */
+  name: string
+  /** Upstream short name when the row tracks one. */
+  upstream: string | null
+  /** Whether this is the checked-out branch (local rows only). */
+  current: boolean
+  /** Whether the row came from `refs/remotes` (excluding the HEAD symref). */
+  remote: boolean
+}
+
+/**
+ * Parse `for-each-ref --format=%(refname:short)%1f%(upstream:short)%1f%(HEAD)%1f%(refname)`
+ * over `refs/heads` + `refs/remotes`.
+ *
+ * `%(HEAD)` is `*` on the checked-out local branch; the remote side has no
+ * such marker. Rows for `refs/remotes/<remote>/HEAD` (the origin default-branch
+ * symref) are dropped — they duplicate a real remote branch and would offer a
+ * phantom checkout target.
+ * @param output - raw for-each-ref output.
+ * @returns the parsed rows (local and remote interleaved as emitted).
+ */
+export function parseBranchRows(output: string): GitBranchRow[] {
+  const rows: GitBranchRow[] = []
+  for (const line of output.split('\n')) {
+    if (line === '') continue
+    const [name = '', upstream = '', head = '', refname = ''] = line.split('\u001f')
+    if (name === '') continue
+    const remote = refname.startsWith('refs/remotes/')
+    if (remote && name.endsWith('/HEAD')) continue
+    rows.push({
+      name,
+      upstream: upstream === '' ? null : upstream,
+      current: head === '*',
+      remote,
+    })
+  }
+  return rows
+}
+
+/** Parse `diff --numstat` output into per-path counts (binary files → 0/0). */
+export function parseNumstat(output: string): Map<string, { added: number; removed: number }> {
+  const map = new Map<string, { added: number; removed: number }>()
+  for (const line of output.split('\n')) {
+    const match = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line)
+    if (match === null) continue
+    let path = match[3] ?? ''
+    // Renames appear as either `{old => new}` inline or `old => new`.
+    const brace = /\{([^{}]*) => ([^{}]*)\}/.exec(path)
+    if (brace !== null) path = path.replace(brace[0], brace[2] ?? '').replace(/\/{2,}/g, '/')
+    else {
+      const arrow = path.indexOf(' => ')
+      if (arrow !== -1) path = path.slice(arrow + 4)
+    }
+    path = unquoteGitPath(path).trim()
+    if (path === '') continue
+    map.set(path, {
+      added: match[1] === '-' ? 0 : Number.parseInt(match[1] ?? '0', 10),
+      removed: match[2] === '-' ? 0 : Number.parseInt(match[2] ?? '0', 10),
+    })
+  }
+  return map
+}
+
+/** Undo git's porcelain quoting for a path (`"a\tb"` / octal-escaped UTF-8). */
+export function unquoteGitPath(path: string): string {
+  if (path.length < 2 || path[0] !== '"' || path[path.length - 1] !== '"') return path
+  const body = path.slice(1, -1)
+  const bytes: number[] = []
+  const simple: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 }
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i] ?? ''
+    if (char !== '\\' || i + 1 >= body.length) {
+      for (const byte of Buffer.from(char, 'utf8')) bytes.push(byte)
+      continue
+    }
+    const next = body[i + 1] ?? ''
+    if (next >= '0' && next <= '7') {
+      let value = 0
+      let digits = 0
+      let cursor = i + 1
+      while (cursor < body.length && digits < 3) {
+        const digit = body[cursor] ?? ''
+        if (digit < '0' || digit > '7') break
+        value = value * 8 + (digit.charCodeAt(0) - 48)
+        cursor++
+        digits++
+      }
+      bytes.push(value)
+      i = cursor - 1
+      continue
+    }
+    bytes.push(simple[next] ?? next.charCodeAt(0))
+    i++
+  }
+  return Buffer.from(bytes).toString('utf8')
+}
+
+/** One file's line-count summary for the source-control list. */
+export interface GitFileStat {
+  path: string
+  /** Added lines, or null for an untracked file (git reports no diff). */
+  added: number | null
+  /** Removed lines, or null for an untracked file. */
+  removed: number | null
+}
+
+/** The upstream + line-count summary the changes view renders beside status. */
+export interface GitSummary {
+  /** Current branch, or null on a detached HEAD. */
+  branch: string | null
+  ahead: number
+  behind: number
+  hasUpstream: boolean
+  /** `origin` URL when configured. */
+  remoteUrl: string | null
+  /** Repository default branch (`origin/HEAD` or main/master), else null. */
+  defaultBranch: string | null
+  /** Per-path line counts (tracked files only). */
+  files: GitFileStat[]
+  /** Total added lines (tracked diff + untracked file bodies). */
+  added: number
+  /** Total removed lines. */
+  removed: number
+  /** Untracked file count as git reports it. */
+  untracked: number
+}
+
+/** Untracked files are read to count lines: skip anything larger than this. */
+const UNTRACKED_MAX_BYTES = 2 * 1024 * 1024
+/** Concurrent untracked-file reads (a fresh checkout can list thousands). */
+const UNTRACKED_CONCURRENCY = 16
+/** Cap on untracked files whose lines are counted (a huge drop stops here). */
+const UNTRACKED_COUNT_LIMIT = 400
+
+/** Whether `stderr` says the current branch has no upstream configured. */
+function isMissingUpstream(message: string): boolean {
+  return /no upstream|has no upstream branch|no such remote|unknown revision|ambiguous argument/i.test(message)
+}
+
+/** Upstream distance of the current branch (`hasUpstream: false` when none). */
+export async function aheadBehind(cwd: string, selected?: string): Promise<GitAheadBehind> {
+  const root = await repoRoot(cwd, selected)
+  try {
+    const raw = await runGit(root, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'])
+    const parsed = parseAheadBehind(raw)
+    return { ...parsed, hasUpstream: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (isMissingUpstream(message)) return { ahead: 0, behind: 0, hasUpstream: false }
+    throw error
+  }
+}
+
+/** Count the lines of untracked files (bounded: size, count, concurrency).
+ *  `git diff HEAD --numstat` never sees untracked files, so an agent creating
+ *  a batch of new files would otherwise show "0 changed lines". */
+async function countUntrackedLines(root: string): Promise<number> {
+  const listed = await runGit(root, ['ls-files', '--others', '--exclude-standard']).catch(() => '')
+  const paths = listed.split('\n').filter(line => line !== '').slice(0, UNTRACKED_COUNT_LIMIT)
+  let total = 0
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < paths.length) {
+      const path = paths[cursor++]
+      if (path === undefined) return
+      const text = await readFile(join(root, path), 'utf8').catch(() => null)
+      if (text === null || Buffer.byteLength(text, 'utf8') > UNTRACKED_MAX_BYTES) continue
+      if (text === '') continue
+      // Trailing newline does not open a new line: count separators, +1 when
+      // the file does not end with one.
+      const lines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+      total += lines
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(UNTRACKED_CONCURRENCY, paths.length) }, worker))
+  return total
+}
+
+/** The repository's default branch: `origin/HEAD` first, then main/master. */
+async function defaultBranchOf(root: string): Promise<string | null> {
+  const head = await runGit(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).catch(() => '')
+  const name = head.trim().replace(/^refs\/remotes\/origin\//, '')
+  if (name !== '') return name
+  for (const candidate of ['main', 'master']) {
+    const ok = await runGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${candidate}`]).catch(() => '')
+    if (ok.trim() !== '') return candidate
+  }
+  return null
+}
+
+/**
+ * The changes view's enrichment: upstream distance, remote/default branch and
+ * per-file line counts. Deliberately separate from {@link status} because it
+ * costs several git calls plus untracked file reads — the 2s poll keeps using
+ * the cheap status call and refreshes this on demand.
+ */
+export async function summary(cwd: string, selected?: string): Promise<GitSummary> {
+  const root = await repoRoot(cwd, selected)
+  const [distance, remoteUrl, untrackedList, numstatRaw, branch] = await Promise.all([
+    aheadBehind(root).catch(() => ({ ahead: 0, behind: 0, hasUpstream: false })),
+    runGit(root, ['remote', 'get-url', 'origin']).catch(() => ''),
+    runGit(root, ['ls-files', '--others', '--exclude-standard']).catch(() => ''),
+    runGit(root, ['diff', 'HEAD', '--numstat']).catch(() => ''),
+    currentBranch(root).catch(() => 'HEAD'),
+  ])
+  const defaultBranch = await defaultBranchOf(root)
+  const counts = parseNumstat(numstatRaw)
+  const untrackedPaths = untrackedList.split('\n').filter(line => line !== '')
+  const files: GitFileStat[] = [...counts.entries()].map(([path, stat]) => ({
+    path,
+    added: stat.added,
+    removed: stat.removed,
+  }))
+  let added = files.reduce((total, file) => total + (file.added ?? 0), 0)
+  const removed = files.reduce((total, file) => total + (file.removed ?? 0), 0)
+  added += await countUntrackedLines(root)
+  return {
+    branch: branch === 'HEAD' ? null : branch,
+    ahead: distance.ahead,
+    behind: distance.behind,
+    hasUpstream: distance.hasUpstream,
+    remoteUrl: remoteUrl.trim() === '' ? null : remoteUrl.trim(),
+    defaultBranch,
+    files,
+    added,
+    removed,
+    untracked: untrackedPaths.length,
+  }
+}
+
+/** Push the current branch, optionally setting its upstream (`push -u origin <branch>`). */
+export async function pushBranch(cwd: string, options: { setUpstream?: boolean; selected?: string } = {}): Promise<void> {
+  const root = await repoRoot(cwd, options.selected)
+  if (options.setUpstream !== true) {
+    await runGit(root, ['push'])
+    return
+  }
+  const branch = await currentBranch(root)
+  if (branch === 'HEAD') throw new GitCommandError('cannot push a detached HEAD', 'git-error', 'push')
+  await runGit(root, ['push', '-u', 'origin', branch])
+}
+
+/** Create a branch and check it out (`checkout -b`). */
+export async function createBranch(cwd: string, name: string, selected?: string): Promise<void> {
+  if (!isValidBranchName(name)) throw new GitCommandError(`invalid branch name "${name}"`, 'bad-branch', 'checkout -b')
+  await runGit(await repoRoot(cwd, selected), ['checkout', '-b', name])
+}
+
+/** Branch rows: local first (with upstream/current markers), then remote. */
+export async function branchRows(cwd: string, selected?: string): Promise<GitBranchRow[]> {
+  const root = await repoRoot(cwd, selected)
+  const raw = await runGit(root, [
+    'for-each-ref',
+    '--format=%(refname:short)%1f%(upstream:short)%1f%(HEAD)%1f%(refname)',
+    'refs/heads',
+    'refs/remotes',
+  ])
+  const rows = parseBranchRows(raw)
+  return [...rows.filter(row => !row.remote), ...rows.filter(row => row.remote)]
+}
+
+/**
+ * Delete a local branch. Safe delete by default (`branch -d`); a refusal
+ * because the branch is not fully merged surfaces as a `not-merged`
+ * {@link GitCommandError} so the panel can escalate to a force delete with an
+ * explicit confirmation. The checked-out branch is refused before git runs.
+ */
+export async function deleteBranch(cwd: string, name: string, force: boolean, selected?: string): Promise<void> {
+  if (!isValidBranchName(name)) throw new GitCommandError(`invalid branch name "${name}"`, 'bad-branch', 'branch -d')
+  const root = await repoRoot(cwd, selected)
+  const current = await currentBranch(root).catch(() => '')
+  if (current === name) {
+    throw new GitCommandError(`cannot delete the checked-out branch "${name}"`, 'checked-out', 'branch -d')
+  }
+  try {
+    await runGit(root, ['branch', force ? '-D' : '-d', name])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!force && /not fully merged/i.test(message)) {
+      throw new GitCommandError(message, 'not-merged', 'branch -d')
+    }
+    throw error
+  }
+}

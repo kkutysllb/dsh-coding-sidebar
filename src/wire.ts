@@ -15,6 +15,8 @@ export type SidebarErrorCode =
   | 'too-large'
   | 'fs-error'
   | 'git-error'
+  /** A safe branch delete refused an unmerged branch (panel escalates to force). */
+  | 'not-merged'
   | 'pty-error'
   | 'pty-deps-missing'
   | 'shell-not-found'

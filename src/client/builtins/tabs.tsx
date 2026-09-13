@@ -10,8 +10,8 @@
 import { IconCodeOutline16, IconPanelLeftOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../../context-types.ts'
 import {
-  browserTabIcon, changesTabIcon, filesTabIcon, sidechatTabIcon, tasksTabIcon, terminalTabIcon,
-  trajectoryTabIcon,
+  browserTabIcon, changesTabIcon, filesTabIcon, plansTabIcon, sidechatTabIcon, tasksTabIcon,
+  terminalTabIcon, trajectoryTabIcon,
 } from './tab-icons.tsx'
 import { allLeaves, isAgentTabId, type SidebarState } from '../state.ts'
 import { t } from '../locales.ts'
@@ -20,6 +20,7 @@ import { EditorHost } from '../EditorHost.tsx'
 import { OpenWithSettings } from '../open-with-settings.tsx'
 import { lazyChunkComponent } from '../lazy-chunk.tsx'
 import { GitView } from '../GitView.tsx'
+import { PlansView } from '../PlansView.tsx'
 import { DiffTab } from '../DiffTab.tsx'
 import { SubagentView } from '../SubagentView.tsx'
 import { consumeSidechatSeed, SideChatView, sidechatThreadIdOf } from '../SideChatView.tsx'
@@ -194,6 +195,28 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
           ctx={ctx}
           active={visible}
           onOpenChild={(address) => { onSubagentJump?.(address.childSessionId) }}
+        />
+      ),
+    },
+    {
+      // Task plans: the markdown planning docs the workspace's convention
+      // declares (plans/, docs/plans/, .plans/ + plan.md & friends). The
+      // retired git panel carried this list as a section inside its card;
+      // here it is a page of its own. Single instance — one list per panel,
+      // always following the CURRENT session's workspace.
+      id: 'plans',
+      title: () => t('plans'),
+      icon: plansTabIcon,
+      order: 32,
+      single: true,
+      component: ({ ctx, store, scope, visible }) => (
+        <PlansView
+          scope={scope}
+          visible={visible}
+          // The tab opens a plan in the sidebar's OWN editor tab — the host's
+          // TabComponentProps does not carry an onOpenFile (the editor and git
+          // descriptors build theirs the same way).
+          onOpenFile={(path) => { openSidebarFile(ctx, store, scope.sessionId, path) }}
         />
       ),
     },

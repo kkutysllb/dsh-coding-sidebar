@@ -1,13 +1,14 @@
 /**
- * External open actions for the file tree's "open with" menu: hand a path to
- * the OS file manager (reveal/select) or launch a URL scheme's registered
- * handler (vscode://, cursor://, zed://, custom schemes).
+ * External open actions for the file tree's "open with" menu and the task-plan
+ * tab: hand a path to the OS file manager (reveal/select), launch a URL
+ * scheme's registered handler (vscode://, cursor://, zed://, custom schemes),
+ * or open a FILE with its default application (the plan tab's "系统应用打开").
  *
  * The client runs in a browser / DSH Desktop renderer where a raw `vscode://`
- * navigation is unreliable, so both actions fan out through this host route
- * and spawn the platform opener with an argv array (no shell interpolation).
- * The command builders are pure — the platform is injectable — so every
- * per-platform branch is unit-testable without spawning anything.
+ * navigation is unreliable, so all three actions fan out through this host
+ * route and spawn the platform opener with an argv array (no shell
+ * interpolation). The command builders are pure — the platform is injectable —
+ * so every per-platform branch is unit-testable without spawning anything.
  */
 import { spawn } from 'node:child_process'
 import { parentOf, requireAbsolute } from './fs-tree.ts'
@@ -53,6 +54,22 @@ export function urlCommand(url: string, platform: NodeJS.Platform = process.plat
   }
 }
 
+/** Open a FILE with the OS's default application for its type (the plan
+ *  tab's hand-off; the workspace containment and extension whitelist are the
+ *  caller's job — this module only builds and spawns). */
+export function openFileCommand(path: string, platform: NodeJS.Platform = process.platform): ExternalCommand {
+  switch (platform) {
+    case 'darwin':
+      return { command: 'open', args: [path] }
+    // Explorer launches the file's registered handler. Its exit status is
+    // meaningless here (the spawn is detached and unref'ed).
+    case 'win32':
+      return { command: 'explorer.exe', args: [path] }
+    default:
+      return { command: 'xdg-open', args: [path] }
+  }
+}
+
 /** Validate a URL-scheme open target: a parseable custom-scheme URL (never
  *  http/https — those would only dump the URL into a browser tab). */
 export function validateExternalUrl(raw: string): string {
@@ -82,6 +99,16 @@ export function launchExternal(action: OpenExternalAction, value: string): { sta
   const spec = action === 'reveal'
     ? revealCommand(requireAbsolute(value), platform)
     : urlCommand(validateExternalUrl(value), platform)
+  return spawnDetached(spec)
+}
+
+/** Open one absolute file path with the OS default application. */
+export function launchExternalFile(path: string): { started: true } {
+  return spawnDetached(openFileCommand(requireAbsolute(path), process.platform))
+}
+
+/** Spawn one platform opener detached, with no stdio and no shell. */
+function spawnDetached(spec: ExternalCommand): { started: true } {
   const child = spawn(spec.command, spec.args, { detached: true, stdio: 'ignore' })
   child.on('error', () => { /* opener missing/denied: handled by the OS */ })
   child.unref()

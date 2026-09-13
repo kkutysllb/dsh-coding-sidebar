@@ -137,3 +137,105 @@ export declare function discard(cwd: string, path: string, selected?: string): P
 export declare function revert(cwd: string, hash: string, selected?: string): Promise<void>;
 /** Cherry-pick one commit onto the current branch. */
 export declare function cherryPick(cwd: string, hash: string, selected?: string): Promise<void>;
+/** One parsed upstream distance (`git rev-list --left-right --count`). */
+export interface GitAheadBehind {
+    /** Commits on HEAD that the upstream does not have (unpushed). */
+    ahead: number;
+    /** Commits on the upstream that HEAD does not have. */
+    behind: number;
+    /** Whether the current branch tracks an upstream at all. */
+    hasUpstream: boolean;
+}
+/** Parse `rev-list --left-right --count HEAD...@{upstream}` (`3\t2`). The
+ *  output carries no marker bytes with this argument order; the `<`/`>`
+ *  form is accepted too so either orientation of the range parses. */
+export declare function parseAheadBehind(output: string): {
+    ahead: number;
+    behind: number;
+};
+/** The high-frequency subset of `git check-ref-format` rules: enough to stop a
+ *  typo before it reaches git, over-strict for exotic-but-legal names. */
+export declare function isValidBranchName(name: unknown): name is string;
+/** One branch row from `for-each-ref`. */
+export interface GitBranchRow {
+    /** Short ref name (a remote row keeps its `<remote>/` prefix). */
+    name: string;
+    /** Upstream short name when the row tracks one. */
+    upstream: string | null;
+    /** Whether this is the checked-out branch (local rows only). */
+    current: boolean;
+    /** Whether the row came from `refs/remotes` (excluding the HEAD symref). */
+    remote: boolean;
+}
+/**
+ * Parse `for-each-ref --format=%(refname:short)%1f%(upstream:short)%1f%(HEAD)%1f%(refname)`
+ * over `refs/heads` + `refs/remotes`.
+ *
+ * `%(HEAD)` is `*` on the checked-out local branch; the remote side has no
+ * such marker. Rows for `refs/remotes/<remote>/HEAD` (the origin default-branch
+ * symref) are dropped — they duplicate a real remote branch and would offer a
+ * phantom checkout target.
+ * @param output - raw for-each-ref output.
+ * @returns the parsed rows (local and remote interleaved as emitted).
+ */
+export declare function parseBranchRows(output: string): GitBranchRow[];
+/** Parse `diff --numstat` output into per-path counts (binary files → 0/0). */
+export declare function parseNumstat(output: string): Map<string, {
+    added: number;
+    removed: number;
+}>;
+/** Undo git's porcelain quoting for a path (`"a\tb"` / octal-escaped UTF-8). */
+export declare function unquoteGitPath(path: string): string;
+/** One file's line-count summary for the source-control list. */
+export interface GitFileStat {
+    path: string;
+    /** Added lines, or null for an untracked file (git reports no diff). */
+    added: number | null;
+    /** Removed lines, or null for an untracked file. */
+    removed: number | null;
+}
+/** The upstream + line-count summary the changes view renders beside status. */
+export interface GitSummary {
+    /** Current branch, or null on a detached HEAD. */
+    branch: string | null;
+    ahead: number;
+    behind: number;
+    hasUpstream: boolean;
+    /** `origin` URL when configured. */
+    remoteUrl: string | null;
+    /** Repository default branch (`origin/HEAD` or main/master), else null. */
+    defaultBranch: string | null;
+    /** Per-path line counts (tracked files only). */
+    files: GitFileStat[];
+    /** Total added lines (tracked diff + untracked file bodies). */
+    added: number;
+    /** Total removed lines. */
+    removed: number;
+    /** Untracked file count as git reports it. */
+    untracked: number;
+}
+/** Upstream distance of the current branch (`hasUpstream: false` when none). */
+export declare function aheadBehind(cwd: string, selected?: string): Promise<GitAheadBehind>;
+/**
+ * The changes view's enrichment: upstream distance, remote/default branch and
+ * per-file line counts. Deliberately separate from {@link status} because it
+ * costs several git calls plus untracked file reads — the 2s poll keeps using
+ * the cheap status call and refreshes this on demand.
+ */
+export declare function summary(cwd: string, selected?: string): Promise<GitSummary>;
+/** Push the current branch, optionally setting its upstream (`push -u origin <branch>`). */
+export declare function pushBranch(cwd: string, options?: {
+    setUpstream?: boolean;
+    selected?: string;
+}): Promise<void>;
+/** Create a branch and check it out (`checkout -b`). */
+export declare function createBranch(cwd: string, name: string, selected?: string): Promise<void>;
+/** Branch rows: local first (with upstream/current markers), then remote. */
+export declare function branchRows(cwd: string, selected?: string): Promise<GitBranchRow[]>;
+/**
+ * Delete a local branch. Safe delete by default (`branch -d`); a refusal
+ * because the branch is not fully merged surfaces as a `not-merged`
+ * {@link GitCommandError} so the panel can escalate to a force delete with an
+ * explicit confirmation. The checked-out branch is refused before git runs.
+ */
+export declare function deleteBranch(cwd: string, name: string, force: boolean, selected?: string): Promise<void>;

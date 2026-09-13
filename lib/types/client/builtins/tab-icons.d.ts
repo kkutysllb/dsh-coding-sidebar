@@ -27,6 +27,12 @@ export declare const changesTabIcon: TabIcon;
  * sessions plus the host's background jobs), not a to-do list.
  */
 export declare const tasksTabIcon: TabIcon;
+/**
+ * Task plans — the markdown planning docs an agent writes during a run. Same
+ * amber family as the tasks tab (both are agent work-in-progress surfaces),
+ * with a deliberately different glyph: a checklist page, not stacked sheets.
+ */
+export declare const plansTabIcon: TabIcon;
 /** Side chat — the conversational/secondary accent. */
 export declare const sidechatTabIcon: TabIcon;
 /**
