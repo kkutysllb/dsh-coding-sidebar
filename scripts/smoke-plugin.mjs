@@ -33,7 +33,7 @@ function check(name, condition, detail = '') {
 for (const f of ['lib/index.js', 'lib/client.js', 'lib/invariant.js', 'lib/types/index.d.ts', 'cordis.patch.yml']) {
   check(`产物在位：${f}`, existsSync(join(packageRoot, f)))
 }
-for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js']) {
+for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-locale.js']) {
   check(`分包在位：lib/${chunk}`, existsSync(join(packageRoot, 'lib', chunk)))
 }
 

@@ -362,26 +362,6 @@ export declare const en: Record<keyof typeof zh, string>;
  * (`'sidebar'` is taken by DSH's own ui-sidebar, hence this distinct name).
  */
 export declare const LOCALE_NS = "betterSidebar";
-/** The ja dictionary (key-set-equal to zh, enforced by the type annotation). */
-export declare const ja: Record<keyof typeof zh, string>;
-export declare const de: Record<keyof typeof zh, string>;
-export declare const fr: Record<keyof typeof zh, string>;
-export declare const pt: Record<keyof typeof zh, string>;
-export declare const ko: Record<keyof typeof zh, string>;
-export declare const ar: Record<keyof typeof zh, string>;
-export declare const hi: Record<keyof typeof zh, string>;
-export declare const id: Record<keyof typeof zh, string>;
-export declare const tr: Record<keyof typeof zh, string>;
-export declare const vi: Record<keyof typeof zh, string>;
-export declare const th: Record<keyof typeof zh, string>;
-export declare const ru: Record<keyof typeof zh, string>;
-export declare const it: Record<keyof typeof zh, string>;
-export declare const nl: Record<keyof typeof zh, string>;
-export declare const sv: Record<keyof typeof zh, string>;
-export declare const pl: Record<keyof typeof zh, string>;
-export declare const zhHK: Record<keyof typeof zh, string>;
-export declare const zhTW: Record<keyof typeof zh, string>;
-export declare const zhMO: Record<keyof typeof zh, string>;
 /**
  * The better-locale override store attached by the client apply
  * (absent → no override; the zh/en chain runs). The store's `active`
