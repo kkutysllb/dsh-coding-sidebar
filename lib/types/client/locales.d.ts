@@ -171,6 +171,14 @@ export declare const zh: {
     deleteDescFile: string;
     deleteDescDir: string;
     dismiss: string;
+    changesSessionGit: string;
+    changesSessionLens: string;
+    changesEmpty: string;
+    changesCount: string;
+    changesRedacted: string;
+    changesBinary: string;
+    changesPreviewError: string;
+    changesLens: string;
     exited: string;
     noSession: string;
     pluginNotLoaded: string;

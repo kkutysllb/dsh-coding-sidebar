@@ -10,6 +10,8 @@
  * file changes appear without a manual refresh.
  */
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import clsx from 'clsx'
+import { SessionLens } from './SessionLens.tsx'
 import {
   Button, IconBranchOutline16, IconCodeOutline16, IconCopyOutline16, IconRefreshOutline16,
   IconTrashOutline16, Input, Menu, Modal, writeClipboard,
@@ -90,6 +92,31 @@ export function GitView(props: {
   visible: boolean
 }) {
   const { scope, onOpenFile, onOpenDiff, visible } = props
+  // The unified changes tab's dual lens: the git view (this component's
+  // classic body) and the session lens (what the model wrote this session).
+  // Session-selected by default? No — git is the everyday surface; the lens
+  // is one click away.
+  const [lens, setLens] = useState<'git' | 'session'>('git')
+  const lensToggle = (
+    <div className={css.changesLensToggle} role="tablist" aria-label={t('changesLens')}>
+      <button
+        type="button"
+        className={clsx(css.changesLensTab, lens === 'git' && css.changesLensTabActive)}
+        aria-pressed={lens === 'git'}
+        onClick={() => { setLens('git') }}
+      >
+        {t('changesSessionGit')}
+      </button>
+      <button
+        type="button"
+        className={clsx(css.changesLensTab, lens === 'session' && css.changesLensTabActive)}
+        aria-pressed={lens === 'session'}
+        onClick={() => { setLens('session') }}
+      >
+        {t('changesSessionLens')}
+      </button>
+    </div>
+  )
   const [status, setStatus] = useState<GitStatusResult | null>(null)
   const [worktrees, setWorktrees] = useState<GitWorktree[]>([])
   const [selectedWorktree, setSelectedWorktree] = useState<string | undefined>()
@@ -411,8 +438,18 @@ export function GitView(props: {
     )
   }
 
+  if (lens === 'session') {
+    return (
+      <div className={css.git}>
+        {lensToggle}
+        <SessionLens scope={scope} />
+      </div>
+    )
+  }
+
   return (
     <div className={css.git}>
+      {lensToggle}
       {worktrees.length > 1 && (
         <div className={css.gitWorktreeRow}>
           <span className={css.gitWorktreeLabel}>{t('worktree')}</span>

@@ -31,6 +31,7 @@ import {
 } from './config.ts'
 import { parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.ts'
 import { removeWorkspaceEntry, renameWorkspaceEntry, writeWorkspaceUpload } from './fs-operations.ts'
+import { sessionFileOps } from './changes-ops.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
 import { searchFiles } from './fs-search.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
@@ -514,6 +515,18 @@ function buildApi(
     // exists. Kill is fenced to the owning session by the jobs registry.
     'jobs.output': (payload) => jobsApi.output(payload),
     'jobs.kill': (payload) => jobsApi.kill(payload),
+    // The session lens: file operations the model performed in this session,
+    // parsed from the session's own event log (read-only replay — the
+    // model's job_output cursor is never touched). Cold sessions degrade to
+    // an empty list (only live sessions have an in-memory log on this host).
+    'changes.ops': async (payload) => {
+      const sessionId = requireString(payload, 'sessionId')
+      const stored = ctx.sessions.get(sessionId)
+      const events = stored?.snapshotEvents !== undefined
+        ? stored.snapshotEvents() as unknown as Parameters<typeof sessionFileOps>[0]
+        : []
+      return { ops: sessionFileOps(events) }
+    },
     // Subagent live previews: one batch request per refresh; the route folds
     // the newest text/tool activity of every running child in the tree.
     'subagents.live': (payload) => subagentLiveApi.live(payload),

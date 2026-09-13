@@ -278,6 +278,10 @@ export const api = {
    *  banner's skip button). Idempotent: {skipped:0} when none is active. */
   agentSkipWait: (uuid: string) =>
     call<{ ok: true; skipped: number }>('agent-pty.skip-wait', { uuid }),
+  /** The session lens: file operations the model performed in one session
+   *  (parsed from the session's own event log; newest first). */
+  changesOps: (scope: SessionScope, signal?: AbortSignal) =>
+    call<{ ops: Array<{ path: string; tool: string; time: number; count: number }> }>('changes.ops', scopePayload(scope, {}), signal),
   /** Terminal dependency status (issue #140): after a WS close 1011 with
    *  reason `pty-deps-missing` the view fetches the full repair details here
    *  (the close reason itself is capped at 123 bytes). */

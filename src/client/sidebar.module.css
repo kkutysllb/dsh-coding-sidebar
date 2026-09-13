@@ -1696,6 +1696,121 @@ body[data-dsh-sidebar-dragging] .panel {
   outline: none;
 }
 
+/* ── The unified changes tab's dual-lens toggle + session lens ─────────── */
+
+.changesLensToggle {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.changesLensTab {
+  flex: 1;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-strong-11);
+  cursor: pointer;
+}
+
+.changesLensTab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.changesLensTabActive,
+.changesLensTabActive:hover {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+
+.sessionLens {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sessionLensBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px;
+}
+
+.sessionLensCount {
+  flex: 1;
+  min-width: 0;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sessionLensEmpty {
+  padding: 16px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+.sessionLensItem {
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.sessionLensRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.sessionLensRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sessionLensPath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.sessionLensMeta {
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sessionLensPreview {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0 8px 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11-font-size);
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* The "Agent 正在等待 {needle}" wait banner: a warn-toned strip above the
    terminal surface while the model blocks in terminal_wait_for; the needle
    ellipsizes inline and the full text rides the title tooltip. */
