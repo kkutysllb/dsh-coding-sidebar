@@ -1,25 +1,35 @@
 /**
  * wrapOpenPath / wrapRemoteOpenPath / wrapSidebarRight / hasDeclaredDeliveries
- * / createFileIconRegistry 行为单测（node 直跑，零依赖）：
+ * / createFileIconRegistry / buildTrajectoryGraph / layoutTrajectoryGraph
+ * / resolveTrajectorySource 行为单测（node 直跑，零依赖）：
  * 对应 src/client/openpath-intercept.ts 的三门接管语义、
- * src/client/deliveries.ts 的交付让位判定，以及
- * src/client/file-icon-registry.ts 的 fileIcons 注册/回退链语义。
+ * src/client/deliveries.ts 的交付让位判定、
+ * src/client/file-icon-registry.ts 的 fileIcons 注册/回退链语义，以及
+ * src/client/trajectory-graph.ts + trajectory-layout.ts + trajectory-source.ts
+ * 的「轨迹账本 → 图模型」投影、泳道布局/边路径与宿主 target 探测降级矩阵。
  *
  * 运行：node tests/run-openpath-tests.mjs
  *
  * 夹具再生成（src 改动后必须重跑，否则本文件测的是旧副本）：
  *   ./node_modules/.bin/tsc src/client/openpath-intercept.ts src/client/deliveries.ts \
- *     src/client/file-icon-registry.ts \
+ *     src/client/file-icon-registry.ts src/client/trajectory-graph.ts \
+ *     src/client/trajectory-layout.ts src/client/trajectory-source.ts \
  *     --target es2022 --module esnext --skipLibCheck --outDir /tmp/csb-tr
  *   cp /tmp/csb-tr/openpath-intercept.js tests/openpath-intercept.mjs
  *   cp /tmp/csb-tr/deliveries.js tests/deliveries.mjs
  *   cp /tmp/csb-tr/file-icon-registry.js tests/file-icon-registry.mjs
+ *   cp /tmp/csb-tr/trajectory-graph.js tests/trajectory-graph.mjs
+ *   cp /tmp/csb-tr/trajectory-layout.js tests/trajectory-layout.mjs
+ *   cp /tmp/csb-tr/trajectory-source.js tests/trajectory-source.mjs
  * （不用 Node 的类型擦除直读 .ts：package.json 声明 engines.node >= 20，
  *   而 .ts 直读要 22.6+。）
  */
 import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight } from './openpath-intercept.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
 import { createFileIconRegistry } from './file-icon-registry.mjs'
+import { buildTrajectoryGraph, windowTrajectoryGraph } from './trajectory-graph.mjs'
+import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.mjs'
+import { resolveTrajectorySource } from './trajectory-source.mjs'
 
 let failed = 0
 const ok = (cond, label) => {
@@ -482,6 +492,312 @@ console.log('[createFileIconRegistry]')
     }
     const folder = r.folderIcon('/w/src', true, 14)
     ok(folder.builtin === 'folder' && folder.open === true && folder.size === 14, '未注册目录走内置（带展开态）')
+  }
+}
+
+// ── buildTrajectoryGraph / windowTrajectoryGraph（轨迹账本 → 图模型）──
+console.log('[buildTrajectoryGraph]')
+{
+  /** 断言用的边键（kind:from->to 之外只看 kind 对）。 */
+  const kinds = (graph) => graph.edges.map(edge => `${edge.kind}:${edge.from}->${edge.to}`)
+  const has = (graph, from, to, kind) => graph.edges.some(edge => edge.from === from && edge.to === to && edge.kind === kind)
+  const byId = (graph, id) => graph.nodes.find(node => node.id === id)
+
+  // 1) 空/缺失快照 → 空图
+  {
+    for (const [label, snapshot] of [['null', null], ['undefined', undefined], ['空对象', {}]]) {
+      const graph = buildTrajectoryGraph(snapshot)
+      ok(graph.nodes.length === 0 && graph.edges.length === 0, `${label} → 无节点无边`)
+      ok(graph.stats.nodes === 0 && graph.stats.turns === 0 && graph.live === false, `${label} → 统计归零且非活跃`)
+    }
+  }
+
+  // 2) 两轮真实会话：输入 → 请求 → 助手 → 工具 → 下一请求（agent loop），尾部流式中
+  const snapshot = {
+    systemPrompts: [{ seq: 1, time: 1000 }],
+    eventNodes: [
+      { kind: 'user', seq: 2, time: 1100, content: [{ type: 'text', text: '把 README 修好' }] },
+      {
+        kind: 'assistant', seq: 20, time: 1300, turn: 1, step: 1,
+        blocks: [
+          { kind: 'reasoning', text: '先看文件' },
+          { kind: 'tool-call', callId: 'c1', name: 'fs_read', argsRaw: '{"path":"README.md"}' },
+        ],
+        usage: { inputTokens: 120, outputTokens: 30, cacheReadTokens: 100, reasoningTokens: 8 },
+        timing: { stepStartTime: 1200, firstTokenTime: 1250, completedTime: 1300 },
+      },
+      {
+        kind: 'tool-result', seq: 30, time: 1400, callId: 'c1', isError: false,
+        call: { name: 'fs_read', argsRaw: '{"path":"README.md"}' },
+        content: [{ type: 'text', text: 'file body' }],
+      },
+      { kind: 'context', seq: 35, time: 1450, content: [{ type: 'text', text: 'git status' }], provenance: { role: 'inject', label: 'plugin' } },
+      { kind: 'model-retry', seq: 45, time: 1500, turn: 2, step: 1, retryState: 'started', code: 'RATE', message: 'busy' },
+      { kind: 'turn-error', seq: 91, time: 1900, turn: 2, step: 1, message: 'boom', code: 'E1' },
+      { kind: 'compaction', seq: 95, time: 2000, summary: '早前对话摘要', shadowedItemCount: 12 },
+      { kind: 'mystery-event', seq: 96, time: 2010, type: 'mystery' },
+    ],
+    requests: [
+      { purpose: 'assistant', startSeq: 10, startedAt: 1200, completedAt: 1300, status: 'complete', turn: 1, step: 1, resultSeq: 20, usage: { inputTokens: 120, outputTokens: 30 } },
+      { purpose: 'assistant', startSeq: 40, startedAt: 1500, completedAt: 1900, status: 'error', turn: 2, step: 1, resultSeq: 50, retry: 1, error: 'boom' },
+      { purpose: 'assistant', startSeq: 60, startedAt: 1950, completedAt: null, status: 'running', turn: 2, step: 1, retry: 2 },
+      { purpose: 'compaction', startSeq: 94, startedAt: 1990, completedAt: 2000, status: 'complete', turn: null, step: 0, replacementSeq: 95 },
+    ],
+    partial: { turn: 2, step: 1, blocks: [{ kind: 'text', text: '正在写回' }] },
+    runningCalls: [
+      { callId: 'c9', name: 'fs_write', argsRaw: '{"path":"README.md"}', turn: 2, step: 1, time: 1960, subCalls: [{ callId: 'c9a', name: 'fs_stat', time: 1965 }] },
+    ],
+  }
+  const graph = buildTrajectoryGraph(snapshot)
+
+  // 节点身份与泳道
+  ok(byId(graph, 'sys:1')?.lane === 'input', 'system prompt 落在输入泳道')
+  ok(byId(graph, 'ev:user:2')?.lane === 'input' && byId(graph, 'ev:user:2').opensTurn === true, 'user 记录在输入泳道且开启新轮')
+  ok(byId(graph, 'req:10')?.lane === 'model' && byId(graph, 'req:10').status === 'complete', '请求在模型泳道且已完成')
+  ok(byId(graph, 'ev:assistant:20')?.lane === 'model', '助手记录在模型泳道')
+  ok(byId(graph, 'ev:tool-result:30')?.lane === 'tool', '工具结果在工具泳道')
+  ok(byId(graph, 'ev:mystery-event:96')?.kind === 'unknown', '未知事件退化为 unknown 节点')
+  ok(byId(graph, 'req:60')?.live === true && byId(graph, 'req:60').status === 'running', '进行中的请求标记为活跃')
+  ok(byId(graph, 'partial:2:1')?.kind === 'partial' && byId(graph, 'partial:2:1').live === true, '流式助手是活跃节点')
+  ok(byId(graph, 'call:c9')?.kind === 'running-call' && byId(graph, 'call:c9').live === true, '未落地的调用是活跃节点')
+
+  // 真实引用边
+  ok(has(graph, 'ev:user:2', 'req:10', 'prompt'), '输入 → 请求：prompt 边')
+  ok(has(graph, 'sys:1', 'req:10', 'prompt') === false, '同一输入不被两个请求重复消费')
+  ok(has(graph, 'req:10', 'ev:assistant:20', 'result'), 'resultSeq 回指：请求 → 助手')
+  ok(has(graph, 'ev:assistant:20', 'ev:tool-result:30', 'dispatch'), 'callId 配对：助手 → 工具结果')
+  ok(has(graph, 'ev:tool-result:30', 'req:40', 'loop'), '工具结果 → 下一个请求：agent loop 回边')
+  ok(has(graph, 'req:60', 'partial:2:1', 'result'), '进行中的请求 → 流式记录')
+  ok(has(graph, 'creq:94', 'ev:compaction:95', 'result'), '压缩请求 → 压缩检查点')
+  ok(has(graph, 'req:40', 'ev:model-retry:45', 'result'), '失败请求 → 重试标记')
+  ok(has(graph, 'ev:model-retry:45', 'req:60', 'prompt'), '重试标记 → 重试请求')
+  ok(has(graph, 'ev:turn-error:91', 'ev:turn-error:91', 'result') === false, '错误标记不与自己连边')
+  ok(graph.edges.some(edge => edge.to === 'ev:turn-error:91' && edge.kind === 'result'), '回合内最后一个请求 → 失败标记')
+  ok(has(graph, 'ev:assistant:20', 'call:c9', 'dispatch') === false, '不把无关调用连到别的助手')
+  ok(kinds(graph).length === new Set(kinds(graph)).size, '边 id 去重')
+
+  // 活跃边标记
+  const liveEdge = graph.edges.find(edge => edge.to === 'partial:2:1')
+  ok(liveEdge?.live === true, '流入活跃记录的边标记为活跃（驱动流动画）')
+  ok(graph.edges.find(edge => edge.to === 'ev:assistant:20')?.live === false, '历史边不标记为活跃')
+
+  // 轮次归属
+  ok(byId(graph, 'ev:user:2')?.turn === 1, 'user 记录归属它喂给的请求那一轮')
+  ok(byId(graph, 'ev:tool-result:30')?.turn === 1 && byId(graph, 'ev:tool-result:30').step === 1, '工具记录继承发起它的助手 turn/step')
+  ok(byId(graph, 'creq:94')?.turn === null, '轮次外的压缩请求 turn 为 null')
+  ok(byId(graph, 'ev:compaction:95')?.turn === null, '压缩检查点不归属任何轮')
+
+  // 缩放与令牌
+  ok(byId(graph, 'ev:assistant:20')?.tokens?.cacheRead === 100, '原始 usage 形状（cacheReadTokens）被读到')
+  ok(byId(graph, 'ev:assistant:20')?.durationMs === 100, '助手耗时由 timing 推出')
+  ok(byId(graph, 'req:10')?.durationMs === 100, '请求耗时由 startedAt/completedAt 推出')
+  ok(byId(graph, 'req:60')?.durationMs === null, '进行中的请求没有耗时')
+
+  // 统计
+  ok(graph.stats.turns === 2, '统计：两轮')
+  ok(graph.stats.tools === 3, '统计：三个工具节点（结果 + 活跃调用 + 子调用）')
+  ok(graph.stats.running >= 3, '统计：至少三个活跃记录')
+  ok(graph.stats.errors === 2, '统计：错误请求与回合失败标记各记一次')
+  ok(graph.stats.tokens.input === 240 && graph.stats.tokens.output === 60, '统计：令牌按桶求和')
+
+  // 时间线（回放）：按账本顺序，每人带一条入边
+  ok(graph.timeline.length === graph.nodes.length, '时间线覆盖全部记录')
+  ok(graph.timeline[0]?.nodeId === 'sys:1' && graph.timeline[0].edgeId === null, '时间线首条无入边')
+  ok(graph.timeline.every((step, index) => step.nodeId === graph.nodes[index].id),
+    '时间线按账本顺序（seq）而非时间戳——回放的节奏由各步 at 决定')
+
+  // 3) 未落地且没有活跃调用 → 合成「等待结果」节点（fractional seq 排在助手之后）
+  {
+    const pending = buildTrajectoryGraph({
+      eventNodes: [
+        { kind: 'assistant', seq: 7, time: 10, turn: 1, step: 1, blocks: [{ kind: 'tool-call', callId: 'lost', name: 'fs_read' }] },
+      ],
+      requests: [{ purpose: 'assistant', startSeq: 1, startedAt: 1, completedAt: 5, status: 'complete', turn: 1, step: 1, resultSeq: 7 }],
+    })
+    const waiting = pending.nodes.find(node => node.id === 'waiting:lost')
+    ok(waiting?.kind === 'tool' && waiting.status === 'idle', '无配对的调用合成等待节点')
+    ok(waiting?.seq === 7.5 && waiting.badge === 'lost', '等待节点用 fractional seq 排在助手之后')
+    ok(pending.edges.some(edge => edge.from === 'ev:assistant:7' && edge.to === 'waiting:lost' && edge.kind === 'dispatch'),
+      '等待节点仍由 callId 边连上')
+  }
+
+  // 4) 子调用（subCalls）连线 + 工具 → 子工具的 subcall 边
+  {
+    const nested = buildTrajectoryGraph({
+      eventNodes: [
+        { kind: 'assistant', seq: 2, time: 10, turn: 1, step: 1, blocks: [{ kind: 'tool-call', callId: 'p', name: 'dispatch' }] },
+        {
+          kind: 'tool-result', seq: 5, time: 20, callId: 'p', isError: false,
+          call: { name: 'dispatch', argsRaw: '{}' },
+          subCalls: [{ callId: 'k', name: 'run_task', time: 15 }],
+        },
+        { kind: 'tool-result', seq: 9, time: 30, callId: 'k', isError: true, call: { name: 'run_task', argsRaw: '{}' }, content: [] },
+      ],
+      requests: [{ purpose: 'assistant', startSeq: 1, startedAt: 1, completedAt: 2, status: 'complete', turn: 1, step: 1, resultSeq: 2 }],
+    })
+    ok(nested.edges.some(edge => edge.from === 'ev:tool-result:5' && edge.to === 'ev:tool-result:9' && edge.kind === 'subcall'),
+      'subCalls 派生出 subcall 边')
+    ok(nested.nodes.find(node => node.id === 'ev:tool-result:9')?.status === 'error', '失败的子调用标红')
+  }
+
+  // 5) 窗口裁剪：超限只留尾部，跨界边被丢弃
+  {
+    const many = buildTrajectoryGraph({
+      eventNodes: Array.from({ length: 10 }, (_, index) => ({ kind: 'user', seq: index + 1, time: index, content: [{ type: 'text', text: `m${index}` }] })),
+      requests: [{ purpose: 'assistant', startSeq: 100, startedAt: 100, completedAt: 101, status: 'complete', turn: 1, step: 1, resultSeq: 101 }],
+      eventNodes2: undefined,
+    })
+    const windowed = windowTrajectoryGraph(many, 4)
+    ok(windowed.hidden === many.nodes.length - 4, '窗口报告被折叠的记录数')
+    ok(windowed.graph.nodes.length === 4, '窗口只保留尾部 4 条')
+    ok(windowed.graph.nodes[0].id === many.nodes[many.nodes.length - 4].id, '窗口从尾部倒数第四条开始')
+    ok(windowed.graph.edges.every(edge => windowed.graph.nodes.some(node => node.id === edge.from)
+      && windowed.graph.nodes.some(node => node.id === edge.to)), '窗口丢掉跨界的边')
+    ok(windowed.graph.timeline.length === 4, '窗口的时间线同步裁剪')
+    const untouched = windowTrajectoryGraph(many, 999)
+    ok(untouched.hidden === 0 && untouched.graph === many, '未超限时原样返回')
+    const empty = windowTrajectoryGraph(many, 0)
+    ok(empty.graph.nodes.length === 0 && empty.hidden === many.nodes.length, 'limit<=0 → 全折叠')
+  }
+}
+
+// ── layoutTrajectoryGraph / ellipsize（泳道几何与路径）──────────
+console.log('[layoutTrajectoryGraph]')
+{
+  const graph = buildTrajectoryGraph({
+    eventNodes: [
+      { kind: 'user', seq: 2, time: 10, content: [{ type: 'text', text: 'hi' }] },
+      { kind: 'assistant', seq: 20, time: 30, turn: 1, step: 1, blocks: [{ kind: 'tool-call', callId: 'c1', name: 'fs_read' }] },
+      {
+        kind: 'tool-result', seq: 30, time: 40, callId: 'c1', isError: false,
+        call: { name: 'fs_read', argsRaw: '{}' }, content: [],
+        subCalls: [{ callId: 'c2', name: 'inner', time: 35 }],
+      },
+      { kind: 'tool-result', seq: 31, time: 41, callId: 'c2', isError: false, call: { name: 'inner', argsRaw: '{}' }, content: [] },
+    ],
+    requests: [
+      { purpose: 'assistant', startSeq: 10, startedAt: 20, completedAt: 30, status: 'complete', turn: 1, step: 1, resultSeq: 20 },
+      { purpose: 'assistant', startSeq: 40, startedAt: 50, completedAt: 60, status: 'complete', turn: 2, step: 1, resultSeq: 41 },
+    ],
+  })
+  const layout = layoutTrajectoryGraph(graph)
+
+  ok(layout.nodes.length === graph.nodes.length, '每个节点都被布局')
+  ok(layout.nodes.every((node, index) => index === 0 || node.y > layout.nodes[index - 1].y), '节点按账本顺序自上而下')
+  ok(layout.nodes.every(node => node.cx === node.x + node.w / 2 && node.cy === node.y + node.h / 2), '中心点与矩形自洽')
+
+  // 泳道不重叠（同一行内）
+  const laneRows = new Map()
+  for (const node of layout.nodes) {
+    const row = laneRows.get(node.y) ?? []
+    row.push(node)
+    laneRows.set(node.y, row)
+  }
+  const overlapping = [...laneRows.values()].some(row => {
+    const sorted = [...row].sort((a, b) => a.x - b.x)
+    return sorted.some((node, index) => index > 0 && sorted[index - 1].x + sorted[index - 1].w > node.x)
+  })
+  ok(overlapping === false, '同一行内泳道不重叠')
+
+  // 轮次分区：两个非空轮 + 无轮记录不成区（turn null 的区不渲染）
+  const labelled = layout.bands.filter(band => band.turn !== null)
+  ok(labelled.length === 2, '两轮 → 两个带标签的分区')
+  ok(labelled[0].turn === 1 && labelled[1].turn === 2, '分区按轮次递增')
+  ok(labelled.every(band => band.height > 0 && band.to > band.from), '分区范围非空')
+
+  // 路径：几何自洽，且 loop 回边向右甩出
+  ok(layout.edges.length === graph.edges.length, '每条边都被路由')
+  ok(layout.edges.every(edge => edge.d.startsWith('M ') && edge.d.includes('C')), '路径是三次贝塞尔')
+  ok(layout.edges.every(edge => edge.midY >= Math.min(edge.y1, edge.y2) && edge.midY <= Math.max(edge.y1, edge.y2)), '中点落在两端之间')
+  const loop = layout.edges.find(edge => edge.kind === 'loop')
+  ok(loop !== undefined, '存在 agent loop 回边')
+  if (loop !== undefined) {
+    const control = loop.d.match(/-?\d+(?:\.\d+)?/g).map(Number)
+    ok(control[2] > loop.x1 && control[4] > loop.x2, 'loop 边先向右甩出再回到模型泳道')
+  }
+
+  // 子调用嵌套：向右缩进、更窄
+  const parent = layout.nodes.find(node => node.id === 'ev:tool-result:30')
+  const child = layout.nodes.find(node => node.id === 'ev:tool-result:31')
+  ok(parent !== undefined && child !== undefined && child.depth === 1, '子调用有嵌套深度')
+  if (parent !== undefined && child !== undefined) {
+    ok(child.x > parent.x && child.w < parent.w, '子调用向右缩进且更窄')
+    ok(child.cx > parent.cx, '子调用中心在父节点右侧')
+  }
+
+  // 选项覆盖与画布尺寸
+  const tight = layoutTrajectoryGraph(graph, { rowHeight: 20, nodeHeight: 10, bandHeight: 4, padding: 0, width: 100 })
+  ok(tight.height < layout.height, '行距/内边距可调，画布随之变矮')
+  ok(tight.width === 100, '画布宽度可覆盖')
+  ok(layoutTrajectoryGraph(buildTrajectoryGraph(null)).height === 20, '空图仍有上下内边距')
+
+  // ellipsize：SVG 没有 text-overflow，宽度必须自己算
+  ok(ellipsize('short', 100, 11) === 'short', '放得下就原样返回')
+  ok(ellipsize('abcdefghij', 20, 11).endsWith('…'), '超宽截断并加省略号')
+  ok(ellipsize('中文字符测试', 30, 11).length < 6, '中日韩按两列计宽，更早截断')
+  ok(ellipsize('', 30, 11) === '', '空串安全')
+}
+
+// ── resolveTrajectorySource（宿主轨迹 target 探测与降级）────────
+console.log('[resolveTrajectorySource]')
+{
+  const target = (overrides = {}) => ({
+    getSnapshot: () => ({ eventNodes: [] }),
+    subscribe: () => () => {},
+    ...overrides,
+  })
+  const ctxOf = (service) => ({ get: (key) => (key === 'uiConversation' ? service : undefined) })
+  const uiOf = (binder) => ({ binding: binder })
+
+  // 1) 正常路径
+  {
+    let unsubscribed = 0
+    const source = resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => target({
+      subscribe: () => () => { unsubscribed++ },
+    }) }))), 's1')
+    ok(source !== null, '有 uiConversation 时解析出 source')
+    ok(JSON.stringify(source.getSnapshot()) === JSON.stringify({ eventNodes: [] }), 'getSnapshot 直通宿主')
+    const unsubscribe = source.subscribe(() => {})
+    unsubscribe()
+    ok(unsubscribed === 1, 'subscribe 的 disposer 直通宿主')
+  }
+
+  // 2) 缺失/畸形宿主面 → null（不抛进 React）
+  {
+    ok(resolveTrajectorySource({ get: () => undefined }, 's1') === null, '无 uiConversation → null')
+    ok(resolveTrajectorySource(ctxOf({}), 's1') === null, '无 binding → null')
+    ok(resolveTrajectorySource(ctxOf(uiOf(() => undefined)), 's1') === null, 'binding 返回 undefined → null')
+    ok(resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => undefined }))), 's1') === null, 'target 返回 undefined → null')
+    ok(resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => ({ getSnapshot: () => null }) }))), 's1') === null,
+      'target 缺 subscribe → null')
+    ok(resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => ({ subscribe: () => () => {} }) }))), 's1') === null,
+      'target 缺 getSnapshot → null')
+  }
+
+  // 3) 宿主抛错 → 静默降级
+  {
+    ok(resolveTrajectorySource(ctxOf(uiOf(() => { throw new Error('no such session') })), 's1') === null,
+      'binding 抛错 → null')
+    ok(resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => { throw new Error('nope') } }))), 's1') === null,
+      'target 抛错 → null')
+    const source = resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => target({
+      getSnapshot: () => { throw new Error('boom') },
+      subscribe: () => { throw new Error('boom') },
+    }) }))), 's1')
+    ok(source !== null && source.getSnapshot() === null, 'getSnapshot 抛错 → null 而非崩溃')
+    const dispose = source.subscribe(() => {})
+    ok(typeof dispose === 'function', 'subscribe 抛错 → 仍返回可调用的空 disposer')
+    dispose()
+  }
+
+  // 4) 宿主返回 undefined 快照 / 无 disposer
+  {
+    const source = resolveTrajectorySource(ctxOf(uiOf(() => ({ target: () => target({
+      getSnapshot: () => undefined,
+      subscribe: () => undefined,
+    }) }))), 's1')
+    ok(source.getSnapshot() === null, '宿主快照为 undefined → null')
+    ok(typeof source.subscribe(() => {}) === 'function', '宿主不给 disposer 时补一个空函数')
   }
 }
 

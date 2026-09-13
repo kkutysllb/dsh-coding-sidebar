@@ -11,6 +11,7 @@ import { IconCodeOutline16, IconPanelLeftOutline16 } from '@deepseek-ai/dsh-clie
 import type { Context } from '../../context-types.ts'
 import {
   browserTabIcon, changesTabIcon, filesTabIcon, sidechatTabIcon, tasksTabIcon, terminalTabIcon,
+  trajectoryTabIcon,
 } from './tab-icons.tsx'
 import { allLeaves, isAgentTabId, type SidebarState } from '../state.ts'
 import { t } from '../locales.ts'
@@ -45,6 +46,25 @@ import type { TabDescriptor } from '../service.ts'
 const LazyTerminal = lazyChunkComponent<TerminalViewProps>(
   'terminal',
   (mod) => mod.TerminalView as ComponentType<TerminalViewProps> | undefined,
+)
+
+/** Props of the trajectory graph chunk entry (see src/client/chunks/trajectory.tsx). */
+interface TrajectoryChunkProps {
+  ctx: Context
+  scope: SessionScope
+  active: boolean
+}
+
+/**
+ * Lazy wrapper over the trajectory graph: the projection, swimlane layout and
+ * SVG view (~70KB source) are fetched only when the tab is first opened, so
+ * the core bundle keeps its startup size. The wrapper keeps the descriptor
+ * contract `(props) => ReactNode`; `pick` is module-level for a stable
+ * identity (an inline lambda would re-trigger the load effect).
+ */
+const LazyTrajectory = lazyChunkComponent<TrajectoryChunkProps>(
+  'trajectory',
+  (mod) => mod.TrajectoryGraph as ComponentType<TrajectoryChunkProps> | undefined,
 )
 
 /** The terminal view's props (mirror of TerminalView's own signature). */
@@ -175,6 +195,19 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
           active={visible}
           onOpenChild={(address) => { onSubagentJump?.(address.childSessionId) }}
         />
+      ),
+    },
+    {
+      // The trajectory graph: DSH's own ledger (the host `trajectory`
+      // Conversation view target) drawn as a live node/edge flow. Single
+      // instance — the page always follows the CURRENT session's scope.
+      id: 'trajectory',
+      title: () => t('trajectory'),
+      icon: trajectoryTabIcon,
+      order: 33,
+      single: true,
+      component: ({ ctx, scope, visible }) => (
+        <LazyTrajectory ctx={ctx} scope={scope} active={visible} />
       ),
     },
     {

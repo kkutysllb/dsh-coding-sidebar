@@ -61,6 +61,8 @@
     "lib/client-registry.js",
     "lib/client-terminal.js",
     "lib/client-editor.js",
+    "lib/client-trajectory.js",
+    "lib/client-locale.js",
     "lib/types/**/*.d.ts",
     "src",
     "scripts/install.sh",

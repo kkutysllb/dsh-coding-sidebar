@@ -1,0 +1,413 @@
+/*
+ * Trajectory graph (src/client/TrajectoryGraph.tsx).
+ *
+ * Every color resolves to a `--dsw-alias-*` token with its own fallback chain
+ * — the same skin contract the rest of the side card follows (no color
+ * literals, no `--dsw-specific-*`). The per-record accent is handed in from
+ * the view as `--node-accent` (see ACCENT in TrajectoryGraph.tsx), so the
+ * whole node palette is one declaration.
+ *
+ * Motion: the flow animation is the point of this tab, so it is described in
+ * one place — `trajFlow` moves a dashed overlay along a live edge, `trajPulse`
+ * breathes a halo around a record that is still moving, and the SVG
+ * `<animateMotion>` packets (JSX) ride the real path geometry. All of it stops
+ * under `prefers-reduced-motion`, and the view unmounts packets while the tab
+ * is not the visible one.
+ */
+
+.wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.2));
+}
+
+.stat {
+  flex: none;
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  white-space: nowrap;
+}
+
+/* A quiet "something is moving" light beside the counts. */
+.liveDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+  animation: trajPulse 1.6s ease-in-out infinite;
+}
+
+.spacer {
+  flex: 1;
+  min-width: 4px;
+}
+
+.tool {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  cursor: pointer;
+}
+
+.tool:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentcolor 10%, transparent));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.tool[aria-pressed='true'] {
+  border-color: var(--dsw-alias-border-l3, transparent);
+  background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentcolor 14%, transparent));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Lane legend, under the toolbar. */
+.legend {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 8px 4px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+}
+
+.legendDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.laneInput {
+  background: var(--dsw-alias-label-primary, currentcolor);
+}
+
+.laneModel {
+  background: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+}
+
+.laneTool {
+  background: var(--dsw-alias-link, var(--dsw-alias-brand-primary));
+}
+
+/* ----------------------------------------------------------------- canvas */
+
+.canvas {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+  overscroll-behavior: contain;
+  cursor: grab;
+  scrollbar-width: thin;
+}
+
+.canvasDragging {
+  cursor: grabbing;
+}
+
+.svg {
+  display: block;
+  margin: 0 auto;
+}
+
+/* Animations stop while this tab is not the visible one. */
+.paused .flow,
+.paused .liveDot,
+.paused .nodeLive {
+  animation-play-state: paused;
+}
+
+/* ------------------------------------------------------------ turn bands */
+
+.band {
+  fill: var(--dsw-alias-bg-layer-2, color-mix(in srgb, currentcolor 4%, transparent));
+  opacity: 0.5;
+}
+
+.bandLabel {
+  font: var(--dsw-font-xs-12, 10px/14px system-ui);
+  fill: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------ edges */
+
+.edge {
+  fill: none;
+  stroke: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.45));
+  stroke-width: 1.2;
+}
+
+.edgePrompt {
+  stroke: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.5));
+}
+
+.edgeResult {
+  stroke: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.45));
+}
+
+.edgeDispatch {
+  stroke: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.45));
+}
+
+.edgeSubcall {
+  stroke: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  stroke-dasharray: 3 3;
+}
+
+/* The agent loop closing: the one edge that runs backwards in the picture. */
+.edgeLoop {
+  stroke: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+  stroke-width: 1.4;
+  opacity: 0.75;
+}
+
+/* A live edge is heavier and tinted by the moving state. */
+.edgeLive {
+  stroke: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+  stroke-width: 1.8;
+  opacity: 0.95;
+}
+
+.edgeDim {
+  opacity: 0.12;
+}
+
+.edgeHot {
+  stroke: var(--dsw-alias-label-primary, currentcolor);
+  stroke-width: 2.2;
+}
+
+/* The dashed overlay that travels along a live edge. */
+.flow {
+  fill: none;
+  stroke: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 2 12;
+  animation: trajFlow 1.1s linear infinite;
+}
+
+.arrow {
+  fill: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.6));
+}
+
+.arrowLive {
+  fill: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+}
+
+/* The data packet riding a path (animateMotion drives the position). */
+.packet {
+  fill: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary));
+  filter: drop-shadow(0 0 3px var(--dsw-alias-state-success-primary, currentcolor));
+}
+
+.packetHot {
+  fill: var(--dsw-alias-label-primary, currentcolor);
+  filter: drop-shadow(0 0 4px var(--dsw-alias-label-primary, currentcolor));
+}
+
+/* ------------------------------------------------------------------ nodes */
+
+.node {
+  cursor: pointer;
+}
+
+.nodeRect {
+  fill: var(--dsw-alias-bg-layer-2, color-mix(in srgb, currentcolor 6%, transparent));
+  stroke: var(--node-accent, var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35)));
+  stroke-width: 1;
+}
+
+/* The accent spine on the chip's left edge. */
+.nodeAccent {
+  fill: var(--node-accent, var(--dsw-alias-border-l2, currentcolor));
+}
+
+.nodeLabel {
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  fill: var(--dsw-alias-label-primary, currentcolor);
+  user-select: none;
+  pointer-events: none;
+}
+
+.nodeBadge {
+  font: var(--dsw-font-xs-12, 9px/12px system-ui);
+  fill: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  user-select: none;
+  pointer-events: none;
+}
+
+/* A record that is still moving. */
+.nodeLive .nodeRect {
+  stroke-width: 1.6;
+  animation: trajPulse 1.8s ease-in-out infinite;
+}
+
+.nodeDim {
+  opacity: 0.14;
+}
+
+.nodeHot .nodeRect {
+  stroke: var(--dsw-alias-label-primary, currentcolor);
+  stroke-width: 2;
+}
+
+/* ------------------------------------------------------------- empty/notes */
+
+.note {
+  flex: none;
+  padding: 6px 10px;
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  border-top: 1px dashed var(--dsw-alias-border-l2, transparent);
+}
+
+.empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  font: var(--dsw-font-s-14, 13px/20px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+}
+
+.emptyHint {
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+  max-width: 260px;
+}
+
+/* -------------------------------------------------------------- inspector */
+
+.inspector {
+  flex: none;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
+  background: var(--dsw-alias-bg-layer-2, transparent);
+}
+
+.inspectorHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 8px;
+}
+
+.inspectorKind {
+  font: var(--dsw-font-xs-12, 11px/16px ui-monospace, monospace);
+  color: var(--node-accent, var(--dsw-alias-label-primary));
+}
+
+.inspectorLane,
+.inspectorStatus {
+  font: var(--dsw-font-xs-12, 10px/14px system-ui);
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.inspectorStatus[data-status='running'] {
+  color: var(--dsw-alias-state-success-primary, inherit);
+}
+
+.inspectorStatus[data-status='error'] {
+  color: var(--dsw-alias-state-error-primary, inherit);
+}
+
+.inspectorStatus[data-status='interrupted'] {
+  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary, inherit));
+}
+
+.inspectorMeta {
+  flex: none;
+  padding: 0 8px 4px;
+  font: var(--dsw-font-xs-12, 10px/14px ui-monospace, monospace);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+}
+
+.inspectorBody {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 8px 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: var(--dsw-font-xs-12, 11px/16px ui-monospace, monospace);
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+/* ------------------------------------------------------------- animations */
+
+@keyframes trajFlow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+@keyframes trajPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow,
+  .liveDot,
+  .nodeLive .nodeRect {
+    animation: none;
+  }
+}

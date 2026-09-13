@@ -294,7 +294,14 @@ function makeCssPlugin(pluginId: string): BuildPlugin {
           minify: true,
         })
         const classMap: Record<string, string> = {}
-        for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name
+        // Sort by local name: lightningcss's exports come back in a
+        // nondeterministic order, which made every rebuild re-shuffle every
+        // class map in every artifact (`git status` on lib/ showed thousands
+        // of no-op lines). The hash prefix and the names are unaffected — only
+        // the emitted key order, which nothing reads positionally.
+        const entries = Object.entries(cssExports ?? {})
+          .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        for (const [local, exp] of entries) classMap[local] = exp.name
         return [
           injectTag(pluginId, fileId, code.toString()),
           `export default ${JSON.stringify(classMap)};`,
@@ -309,7 +316,7 @@ function makeCssPlugin(pluginId: string): BuildPlugin {
 }
 
 /** The lazy chunk names (keep in sync with src/bundle-route.ts CHUNK_NAMES). */
-const CHUNKS = ['terminal', 'editor', 'locale']
+const CHUNKS = ['terminal', 'editor', 'locale', 'trajectory']
 
 export default [
   {

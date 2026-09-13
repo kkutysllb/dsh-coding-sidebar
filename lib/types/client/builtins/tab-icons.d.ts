@@ -37,3 +37,8 @@ export declare const sidechatTabIcon: TabIcon;
 export declare const terminalTabIcon: TabIcon;
 /** Browser — the same secondary accent as the side chat's sibling surfaces. */
 export declare const browserTabIcon: TabIcon;
+/**
+ * Trajectory — the flow glyph, in the model/request accent: this page and the
+ * green request chips of the graph it draws are the same subject.
+ */
+export declare const trajectoryTabIcon: TabIcon;

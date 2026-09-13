@@ -20,13 +20,14 @@ import {
   VscCommentDiscussion,
   VscGitCommit,
   VscGlobe,
+  VscGraph,
   VscLayers,
   VscTerminal,
 } from 'react-icons/vsc'
 import styles from './tab-icons.module.css'
 
 /** The styled wrapper classes; typed so a renamed rule fails the build. */
-const css = styles as Record<'files' | 'changes' | 'tasks' | 'sidechat' | 'terminal' | 'browser', string>
+const css = styles as Record<'files' | 'changes' | 'tasks' | 'sidechat' | 'terminal' | 'browser' | 'trajectory', string>
 
 /** One tab type's glyph, sized by the caller's surface (14px in a strip). */
 export type TabIcon = (size: number) => ReactNode
@@ -70,3 +71,10 @@ export const terminalTabIcon: TabIcon = (size) =>
 /** Browser — the same secondary accent as the side chat's sibling surfaces. */
 export const browserTabIcon: TabIcon = (size) =>
   themed(css.browser, <VscGlobe size={size} />)
+
+/**
+ * Trajectory — the flow glyph, in the model/request accent: this page and the
+ * green request chips of the graph it draws are the same subject.
+ */
+export const trajectoryTabIcon: TabIcon = (size) =>
+  themed(css.trajectory, <VscGraph size={size} />)

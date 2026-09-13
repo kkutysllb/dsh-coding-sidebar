@@ -445,6 +445,33 @@ export interface SidebarConversation {
 }
 
 /**
+ * One per-Session observable published by a Conversation view target (mirror
+ * of the host `ObservableSnapshot`). The trajectory graph consumes the host
+ * `ui-trajectory` plugin's target through it; the sidebar never imports the
+ * host view types (see src/client/trajectory-source.ts).
+ */
+export interface SidebarConversationTarget {
+  /** Latest target-owned snapshot, or null/undefined before assembly. */
+  getSnapshot(): unknown
+  subscribe(listener: () => void): () => void
+}
+
+/** One Session's Conversation binding (mirror of the host `ConversationBinding`). */
+export interface SidebarConversationBinding {
+  /** Resolve one registered view target's observable face. */
+  target(name: string): SidebarConversationTarget
+}
+
+/**
+ * The target-neutral Conversation assembly face (mirror of the host
+ * `UiConversation`): per-Session bindings over every registered view target.
+ * Optional — every probe must tolerate a host without it.
+ */
+export interface SidebarConversationAssembly {
+  binding(sessionId: string): SidebarConversationBinding
+}
+
+/**
  * The client workspaces service face (mirror of the runtime IWorkspaces). Only
  * the chat's file-open funnel is touched: `openPath` hands an absolute path
  * to the Host OS's default application, and every chat-side file open
@@ -582,6 +609,13 @@ export interface SidebarContextShape {
   sessionPersistence: SidebarSessionPersistenceService
   /** The composer draft face (client ui-conversation, lazy `ctx.get` probe). */
   conversation: SidebarConversation
+  /**
+   * The target-neutral Conversation assembly (client ui-conversation, lazy
+   * `ctx.get` probe). Optional: the trajectory graph degrades to its
+   * "unavailable" state on a host without it, and on a host whose
+   * `ui-trajectory` plugin never registered the target.
+   */
+  uiConversation?: SidebarConversationAssembly
   /**
    * The client-side sidebar registry: external plugins register tab types
    * and file previewers here. Provided by the client half (see

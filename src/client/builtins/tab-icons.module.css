@@ -36,3 +36,9 @@
 .browser {
   color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary)));
 }
+
+.trajectory {
+  /* The graph page's own subject is the model request, so its glyph wears the
+     request chips' accent rather than a fresh color. */
+  color: var(--dsw-alias-state-success-primary, var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary)));
+}

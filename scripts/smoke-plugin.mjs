@@ -33,7 +33,7 @@ function check(name, condition, detail = '') {
 for (const f of ['lib/index.js', 'lib/client.js', 'lib/invariant.js', 'lib/types/index.d.ts', 'cordis.patch.yml']) {
   check(`产物在位：${f}`, existsSync(join(packageRoot, f)))
 }
-for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-locale.js']) {
+for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-locale.js', 'client-trajectory.js']) {
   check(`分包在位：lib/${chunk}`, existsSync(join(packageRoot, 'lib', chunk)))
 }
 
@@ -104,6 +104,30 @@ check(
 // 图形不由插件自带：宿主 ui-primitives 的 FileTypeIcon 承担内置画稿，
 // 因此没有（也不该有）文件图标懒加载分包。
 check('无文件图标懒加载分包（宿主 FileTypeIcon 承担内置图形）', !existsSync(join(packageRoot, 'lib', 'client-file-icons.js')))
+
+// 轨迹图 Tab：描述符 id 在核心包里，宿主 target 探针在懒加载分包里。
+// 探针走 `ctx.get('uiConversation')`（宿主服务名）；宿主面缺一即退化为
+// 「轨迹数据不可用」空态，绝不抛进 React —— 故这里只钉字符串存在性。
+check(
+  "内置 'trajectory' Tab 已注册（轨迹账本 → 图）",
+  clientSrc.includes("'trajectory'") || clientSrc.includes('"trajectory"'),
+)
+{
+  const chunkPath = join(packageRoot, 'lib', 'client-trajectory.js')
+  const chunkSrc = existsSync(chunkPath) ? readFileSync(chunkPath, 'utf8') : ''
+  check(
+    "轨迹图经 'uiConversation' 探针订阅宿主 trajectory target",
+    chunkSrc.includes("'uiConversation'") || chunkSrc.includes('"uiConversation"'),
+  )
+  check(
+    "轨迹图分包带宿主 target 名 'trajectory'",
+    chunkSrc.includes("'trajectory'") || chunkSrc.includes('"trajectory"'),
+  )
+}
+// 图模型/泳道布局是纯模块（node 直测）；视图本体（投影 + 布局 + SVG 渲染）
+// 走懒加载分包：首屏核心包不为这个 Tab 变胖，首次打开 Tab 时才拉
+// lib/client-trajectory.js（同 terminal/editor 的机制）。
+check('轨迹图视图走懒加载分包', existsSync(join(packageRoot, 'lib', 'client-trajectory.js')))
 
 /* ═══ 4a. server 面可加载 ═══ */
 
