@@ -33,7 +33,7 @@ function check(name, condition, detail = '') {
 for (const f of ['lib/index.js', 'lib/client.js', 'lib/invariant.js', 'lib/types/index.d.ts', 'cordis.patch.yml']) {
   check(`产物在位：${f}`, existsSync(join(packageRoot, f)))
 }
-for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-locale.js', 'client-trajectory.js']) {
+for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'client-locale.js', 'client-trajectory.js']) {
   check(`分包在位：lib/${chunk}`, existsSync(join(packageRoot, 'lib', chunk)))
 }
 
@@ -62,10 +62,8 @@ check('cordis.patch.yml insert 挂载 dsh-coding-sidebar', /^- insert:/m.test(pa
 /* ═══ 3. 产物卫生 ═══ */
 
 // bottomPanel 裁剔卫生：lib 全部 js 无底面板标识符残留
-// （v1.0.4 起追加：文件预览线裁剔卫生，见 VIEWER_MARKS）
+// （client-mermaid.js 第三方布局算法的 bottomHeight 不在扫描名单）
 const BOTTOM_MARKS = ['bottomPanel', 'bottomResize', 'bottomClose', 'bottom-panel', 'bottomHeight:']
-// 精确标识符而非泛词（模块注释里的退役说明会提到 mermaid 字样）
-const VIEWER_MARKS = ['registerFileViewer', 'matchFileViewer', 'FileViewerDescriptor', 'FileViewerProps', 'FileFetchStrategy', 'MarkdownHtml', 'PdfView', 'LazyMermaidMarkdown', 'splitMermaidBlocks', 'client-mermaid']
 const offenders = []
 for (const f of readdirSync(join(packageRoot, 'lib')).filter(n => n.endsWith('.js'))) {
   const src = readFileSync(join(packageRoot, 'lib', f), 'utf8')
@@ -74,16 +72,6 @@ for (const f of readdirSync(join(packageRoot, 'lib')).filter(n => n.endsWith('.j
   }
 }
 check('lib 无 bottomPanel 残留字符串', offenders.length === 0, offenders.join('; ').slice(0, 200))
-
-// 预览线裁剔卫生（v1.0.4）：lib 全部 js 无 file-viewer 注册/匹配/渲染面残留
-const viewerOffenders = []
-for (const f of readdirSync(join(packageRoot, 'lib')).filter(n => n.endsWith('.js'))) {
-  const src = readFileSync(join(packageRoot, 'lib', f), 'utf8')
-  for (const mark of VIEWER_MARKS) {
-    if (src.includes(mark)) viewerOffenders.push(`${f}: ${mark}`)
-  }
-}
-check('lib 无文件预览线残留字符串（v1.0.4 裁剔）', viewerOffenders.length === 0, viewerOffenders.join('; ').slice(0, 200))
 
 // 版本一致：产物常量由 tsdown define 从 package.json version 注入（单一事实源），
 // 若产物中找不到或与包版本脱钩即 FAIL（上游 0.17.1 常量 vs 0.17.2 包名病的回归门）。

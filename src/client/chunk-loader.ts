@@ -1,10 +1,11 @@
 /**
- * Lazy chunk loader for the client bundle. The heavy editor/terminal
- * libraries (CodeMirror, xterm — several MB) live in separate build-time
- * bundles (`lib/client-<name>.js`) fetched only on first use of the feature
- * that needs them, so startup downloads/parses only the ~1MB core bundle.
- * (v1.0.4: the mermaid chunk was retired with the file-viewer line; the
- * office stack moved to the ecosystem even earlier.)
+ * Lazy chunk loader for the client bundle. The heavy preview/terminal
+ * libraries (CodeMirror, xterm — the editor/terminal stacks, several MB)
+ * live in separate build-time bundles (`lib/client-<name>.js`) fetched only
+ * on first use of the feature that needs them, so startup downloads/parses
+ * only the ~1MB core bundle. (The office stack — Univer / docx-preview /
+ * pptx-renderer — is no longer bundled here: Office previews moved to the
+ * recommended office plugin, see plugins-viewers.ts.)
  *
  * How a chunk script works (see tsdown.config.ts chunkBundle):
  *
@@ -48,7 +49,7 @@
  * client.js); an edit that does land while a core HMR happens is caught by
  * the ETag comparison on the next activation.
  */
-export type ChunkName = 'terminal' | 'editor' | 'locale' | 'trajectory'
+export type ChunkName = 'terminal' | 'editor' | 'locale' | 'trajectory' | 'mermaid'
 
 /** The module exports a chunk factory provides (namespace-ish record). */
 export type ChunkExports = Record<string, unknown>

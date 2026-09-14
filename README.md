@@ -11,7 +11,7 @@
   <a href="https://github.com/topics/dsh-coding-sidebar"><img alt="插件生态：GitHub topic dsh-coding-sidebar" src="https://img.shields.io/badge/%E6%8F%92%E4%BB%B6%E7%94%9F%E6%80%81-topic%20dsh--coding--sidebar-4d6bfe" /></a><br /><br />
   <img alt="文件管理" src="https://img.shields.io/badge/-文件管理-4d6bfe" /> <img alt="代码编辑" src="https://img.shields.io/badge/-代码编辑-4d6bfe" /> <img alt="内嵌浏览器" src="https://img.shields.io/badge/-内嵌浏览器-4d6bfe" /> <img alt="真实终端" src="https://img.shields.io/badge/-真实终端-4d6bfe" /> <img alt="Git 面板" src="https://img.shields.io/badge/-Git%20面板-4d6bfe" /> <img alt="后台任务" src="https://img.shields.io/badge/-后台任务-4d6bfe" /> <img alt="侧边对话" src="https://img.shields.io/badge/-侧边对话-4d6bfe" /> <img alt="插件接入" src="https://img.shields.io/badge/-插件接入-4d6bfe" /><br /><br />
   <b>右侧栏工作台</b>，并把 <code>ctx.betterSidebar</code> 服务开放给所有插件——<br />
-  通过 <code>registerTab</code> 注册新的侧边栏页面、<code>registerFileIcon</code> 注册文件/目录图标；文件预览由 DSH 内置能力承担。
+  通过 <code>registerTab</code> 注册新的侧边栏页面、<code>registerFileIcon</code> 注册文件/目录图标、<code>registerFileViewer</code> 注册文件预览器。
 </div>
 
 <div align="center">
@@ -36,7 +36,8 @@
 
 ## ✨ 功能一览
 
-- **🗂️ 文件工作台**：资源管理器（懒加载目录树；文件 / 文件夹图标直接用 DSH 官方 `FileTypeIcon` 全彩画稿——48 类代码与配置图形 + markdown / 图片 / PDF / Office / 视频等类目色，分类交给宿主 `classifyFileType`，插件不自带扩展名表、也没有图标懒加载分包；软链接按目标类型展示——目录软链接可展开、失效链接标红）+ CodeMirror 编辑器（纯编辑：行号 / 自动换行 / 语法高亮 / Ctrl+S 保存）；文件预览由 DSH 内置能力承担
+- **🗂️ 文件工作台**：资源管理器（懒加载目录树；文件 / 文件夹图标直接用 DSH 官方 `FileTypeIcon` 全彩画稿——48 类代码与配置图形 + markdown / 图片 / PDF / Office / 视频等类目色，分类交给宿主 `classifyFileType`，插件不自带扩展名表、也没有图标懒加载分包；软链接按目标类型展示——目录软链接可展开、失效链接标红）+ CodeMirror 编辑器（行号 / 自动换行 / 语法高亮 / Ctrl+S 保存）
+- **🖼️ 文件预览**：打开文件按类型自动选预览器（内置 6 个：图片 / PDF / Markdown / HTML / 代码 / 二进制下载），匹配规则是「扩展名 + 优先级 + NUL 探测 + `detect` 嗅探」，第三方插件可用 `ctx.betterSidebar.registerFileViewer` 覆盖或新增，设置页可按 viewer 逐个开关。Markdown 走预览 / 编辑双模（预览渲染 GFM 表格、KaTeX、shiki 高亮与**内嵌 HTML** 消毒渲染，≥3 标题出现浮动**目录大纲**，本地 / 相对图片改写为会话媒体路由），含 mermaid fence 时按需拉取约 7MB 的 `client-mermaid.js` 分包（无 mermaid 文件零加载），图表走 `securityLevel: 'strict'` + SVG 二次清洗并可点开放大；HTML 预览默认跑在**不透明源沙箱 iframe**（状态行可临时解锁，设置页有全局开关，均带警示）；文本越界 / 二进制文件走下载兜底
 - **🎨 彩色 Tab 图标**：文件 / 源代码管理 / 任务管理 / 任务计划 / 轨迹图 / 侧边对话 / 终端 / 浏览器八个内置类型与 diff 视图的图形换成彩色版本，颜色全部取自 `--dsw-alias-*` 令牌（皮肤可整体接管，无颜色字面量）
 - **🕸️ 轨迹图（Graph）**：把 DSH 自己的**轨迹账本**画成实时流动的节点 / 边图——三列泳道（输入 / 模型·助手 / 工具）× 时间向下；边全部是账本里真实的引用关系（`resultSeq` 请求→产出、`callId` 助手→工具结果、`subCalls` 父调用→子调用、工具结果→下一次请求的 **agent loop 回边**）。活跃链路（进行中的请求 / 未落地的工具调用 / 流式助手）持续流动：虚线上游走 + 数据包沿**真实弧线**飞行；「回放」按记录的真实时间戳（1×/2×/4×）逐跳点亮；节点可点开详情（序号 / 时间 / 耗时 / 令牌 / 参数与结果）。数据不是自己解析事件流——直接订阅宿主 `@deepseek-ai/dsh-client-ui-trajectory` 的 `trajectory` view target，宿主缺失时退化为「轨迹数据不可用」空态。视图走懒加载分包（约 112KB / gzip 33KB），首屏核心包只增 4.7KB
 - **🌐 内嵌浏览器**：多开网页 tab，后退 / 前进 / 刷新；内容运行在沙箱 iframe；外链默认按协议分流——HTTP 在侧边栏打开、HTTPS 走系统浏览器（设置页可分别调整）
@@ -55,7 +56,7 @@
 - **⚡ 按需加载**：启动只拉 ~325KB 核心，终端 / 编辑器等重依赖用到才按需拉取（[设计文档](docs/plans/2026-08-12-lazy-chunks-design.md)）
 - **🌏 多语言**：界面文案跟随 DSH 语言（zh / en）实时切换；安装 `@huanlin/dsh-plugin-better-locale` 后支持日语（ja）等第三语言覆盖（见下方「🌏 第三语言覆盖」）
 
-> 🔌 **核心理念**：服务优先——内置的 8 tab 与第三方插件通过同一套 `ctx.betterSidebar` API 注册，能力完全对等；官方不再内置、可由生态提供的功能，交由生态插件实现（已有 **28+ 生态插件**，见下方「🌐 插件生态」）；文件预览自 v1.0.4 起由 DSH 内置能力承担。接入文档见「🔌 服务化扩展」。
+> 🔌 **核心理念**：服务优先——内置的 8 tab 与第三方插件通过同一套 `ctx.betterSidebar` API 注册，能力完全对等；官方不再内置、可由生态提供的功能，交由生态插件实现（已有 **28+ 生态插件**，见下方「🌐 插件生态」）；文件预览同样走注册表（内置 6 个 viewer，第三方可 `registerFileViewer` 覆盖或新增，见下方「🖼️ 文件预览插件」）。接入文档见「🔌 服务化扩展」。
 
 ## 🚀 安装
 
@@ -160,7 +161,7 @@ dsh registry enable dsh-external/dsh-coding-sidebar
 
 | | |
 |---|---|
-| **🗂️ 文件工作台：资源管理器 + 编辑器**<br/><sub>支持两种格式的资源管理器：内嵌在编辑器中 / 独立显示文件树。懒加载目录树、软链接按目标类型展示（目录软链接可展开、失效链接标红）、全局文件名搜索、上传文件/文件夹与拖放上传、右键菜单（在新 Tab 打开 / 在侧边打开 / 复制路径）、悬浮 `@文件` 一键引用进输入框。</sub><br/><div align="center"><img width="420" alt="文件资源管理器" src="https://github.com/user-attachments/assets/a410bfd2-a8ba-43e6-873e-22417756e94d" /></div> | **🖥️ CodeMirror 代码编辑器**<br/><sub>纯编辑：行号 / 自动换行 / 语法高亮 / Ctrl+S 保存；文件预览由 DSH 内置能力承担（v1.0.4 起侧边栏预览线退役）。</sub><br/><div align="center"><img width="420" alt="CodeMirror 代码编辑器" src="https://github.com/user-attachments/assets/b44b488e-568c-4ee0-b96c-e9c906598a77" /></div> |
+| **🗂️ 文件工作台：资源管理器 + 编辑器**<br/><sub>支持两种格式的资源管理器：内嵌在编辑器中 / 独立显示文件树。懒加载目录树、软链接按目标类型展示（目录软链接可展开、失效链接标红）、全局文件名搜索、上传文件/文件夹与拖放上传、右键菜单（在新 Tab 打开 / 在侧边打开 / 复制路径）、悬浮 `@文件` 一键引用进输入框。</sub><br/><div align="center"><img width="420" alt="文件资源管理器" src="https://github.com/user-attachments/assets/a410bfd2-a8ba-43e6-873e-22417756e94d" /></div> | **🖥️ CodeMirror 编辑器 + 文件预览**<br/><sub>编辑器：行号 / 自动换行 / 语法高亮 / Ctrl+S 保存；预览按类型分流——markdown 预览·编辑双模（内嵌 HTML 消毒渲染 + 目录大纲 + mermaid 按需分包 + 本地图片改写）、HTML 沙箱预览（状态行可临时解锁）、图片 / PDF 直出、其余二进制下载兜底。</sub><br/><div align="center"><img width="420" alt="CodeMirror 代码编辑器" src="https://github.com/user-attachments/assets/b44b488e-568c-4ee0-b96c-e9c906598a77" /></div> |
 | **💻 真实终端**<br/><sub>xterm.js + node-pty 真实 shell（不是模拟器）：断线重连 transcript 回放、shell / shellArgs 可配置（设置页或 `cordis.patch.yml`）、可选为模型注入 `terminal_*` 工具（agent 可直接开终端跑命令）。</sub><br/><div align="center"><img width="420" alt="真实终端" src="https://github.com/user-attachments/assets/0dad6ad3-ff3f-4b5a-86d2-f832ce65323e" /></div> | **🌿 Git 面板**<br/><sub>暂存 / 取消暂存 / 提交（`Ctrl+Enter`）/ 还原，历史列表；点击改动文件打开 **VSCode 式 diff tab**（红绿行级对比）。</sub><br/><div align="center"><img width="420" alt="Git 面板" src="https://github.com/user-attachments/assets/e7fc1220-305f-4bca-8583-e77ab4f4fa78" /></div> |
 | **🌐 内嵌浏览器**<br/><sub>多开网页 tab：后退 / 前进 / 刷新 / 地址栏；内容运行在**不透明源沙箱 iframe**（界面实时显示沙箱状态，可按页面临时解锁）；聊天里的外链点击可被接管到侧边栏打开（按协议分流，可配）。</sub><br/><div align="center"><img width="420" alt="内嵌浏览器" src="https://github.com/user-attachments/assets/9bc6b65a-64fc-4942-a685-76e391e55606" /></div> | **🧩 任务页：子代理拓扑 + 后台任务**<br/><sub>子代理树实时拓扑（运行状态、批量实时预览）+ 后台任务清单（退出码 / 实时输出 / 强制终止）；面板顶部 Git / 会话双视角切换——会话视角列出模型本会话写/改过的文件（点击脱敏预览）；新子代理 / 新任务自动激活任务页（宽屏同时展开侧边栏，窄屏不强制抽屉，可关）。条目过多时默认只展开最新 5 条子代理 / 3 条后台任务，历史一键折叠展开。</sub><br/><div align="center"><img width="420" alt="任务页：子代理拓扑" src="https://github.com/user-attachments/assets/dcd8ed2f-59fa-405b-937b-2d250f5034dd" /></div> |
 | **💬 侧边对话(beta)**<br/><sub>Codex 风格侧边线程：**每个对话一个独立 Tab**；线程继承主会话完整上下文（含进行中回合，以 interrupted 诚实冻结）独立运行，不污染主会话；可持续追问、重启冷恢复；一键「保存为新会话」提升为顶层会话。</sub><br/><div align="center"><img width="420" alt="侧边对话(beta)" src="https://github.com/user-attachments/assets/3a338c36-f5de-4000-95f3-4b1cd04f60fc" /></div> | **🪟 分栏与自由窗口**<br/><sub>侧边栏内拖 Tab 到分栏边缘**拆分**、拖到中间**合并**；把 tab 拖到主会话区域可变为**自由窗口**（悬浮 / 缩放 / 置顶，拖回 pane 停靠）。</sub> |
@@ -168,7 +169,7 @@ dsh registry enable dsh-external/dsh-coding-sidebar
 
 ## 🌐 插件生态
 
-`ctx.betterSidebar` 服务向所有插件开放扩展点：**`registerTab`（注册侧边栏页面）**、**`registerFileIcon`（注册文件 / 目录图标）**。内置 8 tab 与第三方插件走同一套 API，能力完全对等。（v1.0.4 起 `registerFileViewer` 预览器扩展点退役——文件预览由 DSH 内置能力承担。）
+`ctx.betterSidebar` 服务向所有插件开放扩展点：**`registerTab`（注册侧边栏页面）**、**`registerFileIcon`（注册文件 / 目录图标）**、**`registerFileViewer`（注册文件预览器）**。内置 8 tab、6 viewer 与第三方插件走同一套 API，能力完全对等。
 
 `registerFileIcon`（能力 `'fileIcons'`）按扩展名（`exts`）、精确文件名（`names`）、目录名（`folderNames`）注册自己的图形，优先级降序、同级按注册序，注销即回退；内置图形是宿主 ui-primitives 的 `FileTypeIcon`（分类器 `classifyFileType`）。注意语义：宿主分类器覆盖任意路径，因此 `exts: []` 的 catch-all 会接管所有未被具体命中的行。
 
@@ -235,9 +236,9 @@ GitHub topic [`dsh-coding-sidebar`](https://github.com/topics/dsh-coding-sidebar
 
 </details>
 
-### 🖼️ 文件预览插件（随预览线退役）
+### 🖼️ 文件预览插件（推荐预览插件目录）
 
-v1.0.4 起侧边栏不再承载文件预览（DSH 0.1.5-rc.2 内置预览已完善），`registerFileViewer` 扩展点同步退役：此前的 Office 预览 / 视频预览 / Jupyter 等预览类插件不再受支持，请改用 DSH 内置预览；文本文件仍可在侧边栏编辑器中编辑，其他二进制走下载兜底。
+侧边栏的预览线由 `registerFileViewer` 承载（内置 6 个 viewer），生态可注册新的文件类型预览器：设置页「侧边卡片 → 文件预览」网格末尾的虚线卡片打开预览插件弹窗（含 [GitHub topic](https://github.com/topics/dsh-coding-sidebar) 入口与推荐目录）。Office 三件套 / 视频等重型预览仍走生态插件——它们把重型渲染库拆出主包、按需安装，注册进同一套 viewer 注册表。
 
 ### 🧰 增强与工具
 
@@ -448,7 +449,7 @@ v1.0.4 起侧边栏不再承载文件预览（DSH 0.1.5-rc.2 内置预览已完�
 
 ## 🔌 服务化扩展
 
-从 v0.4.0 起暴露 `ctx.betterSidebar` 服务，其他插件可注册侧边栏页面（内置 8 tab 亦通过同一服务注册；v1.0.4 起文件预览器扩展点退役，预览由 DSH 内置能力承担）。v0.12.1 补齐基座能力（完整类型导出、能力探测、状态订阅、tab 角标、生命周期回调、定向打开、插件自有设置等）；此后新增 `registerFileIcon` 扩展点与 `'fileIcons'` 能力（文件 / 目录图标注册，内置图形为宿主 `FileTypeIcon` 官方画稿）。
+从 v0.4.0 起暴露 `ctx.betterSidebar` 服务，其他插件可注册侧边栏页面与文件预览器（内置 8 tab、6 viewer 亦通过同一服务注册）。v0.12.1 补齐基座能力（完整类型导出、能力探测、状态订阅、tab 角标、生命周期回调、定向打开、插件自有设置等）；此后新增 `registerFileIcon` 扩展点与 `'fileIcons'` 能力（文件 / 目录图标注册，内置图形为宿主 `FileTypeIcon` 官方画稿）。v1.0.4 曾随 DSH 内置预览成熟而裁掉预览线，**v1.0.14 起按上游实现恢复**（viewer 注册表 / Markdown·Mermaid·HTML 渲染面 / `/sidebar/html` 路由 / `viewersEnabled` 与 HTML 沙箱设置项全部回归）。
 
 完整接入文档：
 - **[`AGENTS.md`](./AGENTS.md)**——仓库内维护的接入文档（全字段、匹配算法、HMR 陷阱、声明式设置、版本探测）；
@@ -482,7 +483,7 @@ pnpm watch        # tsdown --watch
 
 - Git 无 push/pull/fetch；无文件 watcher/自动轮询；工具行内文件打开按钮不可拦截
 - 终端 Tab 拖到另一分栏会重挂载（shell 重开）
-- **文件预览自 v1.0.4 起退役**：图片 / Markdown / HTML / PDF / Office 等预览由 DSH 内置能力承担，侧边栏保留文本编辑与非文本文件下载兜底；依赖侧边栏预览的生态插件（如预览划选增强）随之失效
+- **文件预览线 v1.0.14 起恢复**：图片 / PDF / Markdown / HTML / 代码 / 二进制下载六个内置 viewer 与 `registerFileViewer` 扩展点回归（v1.0.4 曾裁掉）；含 mermaid fence 的 markdown 首次预览会按需拉取约 7MB 的 `client-mermaid.js` 分包（无 mermaid 文件不加载），HTML 预览默认沙箱、可在设置页或状态行解锁（均带警示）
 - 浏览器沙箱无登录态/第三方 Cookie 受限，部分站点登录需走弹窗；被 `X-Frame-Options`/`frame-ancestors` 拒绝嵌入的站点（如 arxiv.org）显示原因面板（含「在浏览器中打开」）；iframe 内部跳转不进后退栈
 - 移动端（<768px）自动合并为全宽抽屉：窄屏进入时全部标签页并入右侧栏，回桌面仍保留在右侧栏；未选中会话时点按开关会显示选择会话提示。
 

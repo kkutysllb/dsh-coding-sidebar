@@ -12,7 +12,11 @@
  * porcelain/numstat/for-each-ref/rev-list 解析、分支名校验、gh 行与错误整形，
  * 外加一段「真 git 临时仓库」集成用例（本地裸仓做 origin：push -u、ahead/behind、
  * 行数统计、分支增删与 not-merged 升级），以及 src/plans.ts 的
- * 任务计划扫描（约定目录/去重/排序/截断/标题提取，含真临时目录集成）。
+ * 任务计划扫描（约定目录/去重/排序/截断/标题提取，含真临时目录集成），
+ * 以及文件预览线的纯函数面：src/client/mermaid-blocks.ts 的 CommonMark 围栏切分、
+ * src/client/markdown-html.ts 的 markdown/HTML 分段与结构部件归约、
+ * src/client/editor-load.ts 的 viewer 策略分派与二进制 head 重匹配、
+ * src/client/markdown-images.ts 的本地图片目标改写（代码块掩码/引用定义门）。
  *
  * 运行：node tests/run-openpath-tests.mjs
  *
@@ -36,6 +40,16 @@
  *   ./node_modules/.bin/tsc src/plans.ts --target es2022 --module esnext \
  *     --skipLibCheck --noCheck --outDir /tmp/csb-plans
  *   cp /tmp/csb-plans/plans.js tests/plans-helpers.mjs
+ *   ./node_modules/.bin/tsc src/client/mermaid-blocks.ts src/client/markdown-html.ts \
+ *     src/client/editor-load.ts src/client/markdown-images.ts src/client/paths.ts \
+ *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-preview
+ *   cp /tmp/csb-preview/client/mermaid-blocks.js tests/mermaid-blocks.mjs
+ *   cp /tmp/csb-preview/client/markdown-html.js tests/markdown-html.mjs
+ *   cp /tmp/csb-preview/client/editor-load.js tests/editor-load.mjs
+ *   cp /tmp/csb-preview/client/markdown-images.js tests/markdown-images.mjs
+ *   cp /tmp/csb-preview/client/paths.js tests/paths.mjs
+ *   sed -i '' "s|from './mermaid-blocks.ts'|from './mermaid-blocks.mjs'|" tests/markdown-html.mjs
+ *   sed -i '' "s|from './paths.ts'|from './paths.mjs'|" tests/markdown-images.mjs
  * （不用 Node 的类型擦除直读 .ts：package.json 声明 engines.node >= 20，
  *   而 .ts 直读要 22.6+。github.ts 的夹具要改一处 import 说明符，
  *   因为它运行时依赖同目录的 git 模块。）
@@ -58,6 +72,14 @@ import { filterBranches, splitBranches, trackingNameOf } from './git-branch-mode
 import {
   isOpenablePlanDocument, planTitleFromHead, scanPlans, selectPlans,
 } from './plans-helpers.mjs'
+import {
+  CLOSE_FENCE_RE, OPEN_FENCE_RE, fenceInfo, splitMermaidBlocks,
+} from './mermaid-blocks.mjs'
+import {
+  analyzeHtmlSegment, analyzeMarkdownHtml, collectReferenceDefinitions, splitHtmlBlocks,
+} from './markdown-html.mjs'
+import { decodeHead, planFirstMatch, planFsReadOutcome } from './editor-load.mjs'
+import { resolveLocalMediaDest, rewriteLocalImageUrls } from './markdown-images.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -1081,6 +1103,191 @@ console.log('[plans helpers]')
 // ── 真 git 临时仓库集成（补齐面：上游/推送/分支/行数）────────────
 // 用真实 git（临时目录 + 裸仓 origin）覆盖「推送/上游/分支增删/行数统计」
 // 这些只能靠真仓库证明的语义；缺 git 的机器整段跳过。
+console.log('[preview helpers]')
+{
+  // splitMermaidBlocks：CommonMark 围栏语义 + mermaid info 串识别
+  {
+    ok(splitMermaidBlocks('').length === 0, '空文档无块')
+
+    const plain = splitMermaidBlocks('# T\n\nbody')
+    ok(plain.length === 1 && plain[0].kind === 'markdown', '无围栏 → 单 markdown 块')
+
+    const mixed = splitMermaidBlocks('# T\n\n```mermaid\ngraph TD\n  A-->B\n```\n\nafter')
+    ok(mixed.length === 3, 'markdown/mermaid/markdown 三段')
+    ok(mixed[1].kind === 'mermaid' && mixed[1].code === 'graph TD\n  A-->B', 'mermaid 代码体（info 串剥离）')
+    ok(mixed[2].kind === 'markdown' && mixed[2].text.includes('after'), '收尾 markdown 保留')
+
+    const js = splitMermaidBlocks('```js\nconst a = 1\n```\n')
+    ok(js.length === 1 && js[0].kind === 'markdown', '非 mermaid 围栏留在 markdown 流')
+
+    const tilde = splitMermaidBlocks('~~~mermaid\ngraph LR\n~~~')
+    ok(tilde.length === 1 && tilde[0].kind === 'mermaid', '波浪号围栏同样识别')
+
+    const upper = splitMermaidBlocks('```Mermaid\ngraph TD\n```')
+    ok(upper.length === 1 && upper[0].kind === 'mermaid', 'info 串大小写不敏感')
+
+    const brace = splitMermaidBlocks('```mermaid{theme=dark}\ngraph TD\n```')
+    ok(brace.length === 1 && brace[0].kind === 'mermaid', 'mermaid{...} 形态识别')
+
+    const open = splitMermaidBlocks('```mermaid\ngraph TD\nA-->B')
+    ok(open.length === 1 && open[0].code === 'graph TD\nA-->B', '未闭合围栏吞到文件尾')
+
+    const four = splitMermaidBlocks('````mermaid\ngraph TD\n```\nstill code\n````')
+    ok(four.length === 1 && four[0].code === 'graph TD\n```\nstill code', '闭合围栏须不短于开启围栏')
+
+    const backtickInfo = splitMermaidBlocks('```foo`bar\nbody\n```')
+    ok(backtickInfo.length === 1 && backtickInfo[0].kind === 'markdown', '反引号 info 串含反引号 → 非围栏')
+
+    ok(CLOSE_FENCE_RE.test('```') && !CLOSE_FENCE_RE.test('```js'), '闭合围栏只认纯围栏行')
+    ok(OPEN_FENCE_RE.test('  ```js') && !OPEN_FENCE_RE.test('    ```js'), '开启围栏最多 3 空格缩进')
+    ok(fenceInfo(' js ', '`') === 'js', 'fenceInfo 取首个词并 trim')
+    ok(fenceInfo('`x`', '`') === null, 'fenceInfo 反引号围栏含反引号 → null')
+    ok(fenceInfo('', '~') === '', 'fenceInfo 空 info 串合法')
+  }
+
+  // markdown-html：整档闸门 + 分段 + 结构部件归约
+  {
+    const plain = analyzeMarkdownHtml('# T\n\nhello')
+    ok(plain.hasBlockHtml === false && plain.hasInlineHtml === false, '纯 markdown 无 HTML')
+    ok(plain.segments.length === 1 && plain.segments[0].kind === 'markdown', '纯 markdown 单段')
+    ok(plain.referenceDefinitions === '', '无引用定义 → 空串')
+
+    const block = analyzeMarkdownHtml('intro\n\n<div class="x">\nhi\n</div>\n')
+    ok(block.hasBlockHtml === true, '块级 HTML 被识别')
+    ok(block.segments.some(s => s.kind === 'html' && s.text.includes('hi')), 'HTML 段带原文')
+    ok(block.segments.some(s => s.kind === 'markdown' && s.text === 'intro'), '前置 markdown 段切出')
+
+    const inline = analyzeMarkdownHtml('a <span>b</span> c')
+    ok(inline.hasInlineHtml === true && inline.hasBlockHtml === false, '行内 HTML 只置行内标记')
+
+    const fenced = analyzeMarkdownHtml('```html\n<div>not a run</div>\n```')
+    ok(fenced.hasBlockHtml === false, '围栏内的 HTML 不算块级')
+    ok(fenced.hasInlineHtml === true, '行内闸门是源级正则（围栏内容可能假阳）')
+
+    const comment = analyzeMarkdownHtml('<!-- note\nstill note -->\n\nbody')
+    ok(comment.segments[0].kind === 'html' && comment.segments[0].text.includes('still note'), '多行注释整段为 HTML')
+
+    const refs = analyzeMarkdownHtml('[a][1]\n\n![i][2]\n\n[1]: https://x/one.png\n[2]: ./two.png')
+    ok(
+      refs.referenceDefinitions.includes('[1]: https://x/one.png')
+      && refs.referenceDefinitions.includes('[2]: ./two.png'),
+      '引用定义按文档序收集',
+    )
+    ok(splitHtmlBlocks('').length === 0, '空文档无分段')
+    ok(
+      collectReferenceDefinitions([{ kind: 'html', text: '[1]: ./x.png' }]) === '',
+      'HTML 段不贡献引用定义',
+    )
+
+    const balanced = analyzeHtmlSegment('<div>x</div>')
+    ok(balanced.parts.length === 1 && balanced.parts[0].kind === 'html', '配平片段归约为单个 html 叶子')
+
+    const unclosed = analyzeHtmlSegment('<div class="a"><p>x</p>')
+    ok(unclosed.parts.length === 2 && unclosed.parts[0].kind === 'open' && unclosed.parts[0].tag === 'div', '未闭合开标签升为 open 部件')
+    ok(unclosed.parts[0].attrs.includes('class="a"'), 'open 部件带属性原文')
+    ok(unclosed.parts[1].kind === 'html' && unclosed.parts[1].html === '<p>x</p>', '配平内层留在 html 叶子')
+
+    const stray = analyzeHtmlSegment('</div>')
+    ok(stray.parts.length === 1 && stray.parts[0].kind === 'close' && stray.parts[0].tag === 'div', '无匹配闭标签成为 close 部件')
+
+    const voided = analyzeHtmlSegment('<img src="a.png">')
+    ok(voided.parts.length === 1 && voided.parts[0].kind === 'html', '空元素不产生结构部件')
+  }
+
+  // editor-load：viewer 策略分派 + 二进制 head 重匹配
+  {
+    const viewer = (id, fetchStrategy) => ({ id, title: () => id, exts: [], fetchStrategy, component: () => null })
+
+    ok(planFirstMatch(undefined, () => 'u').kind === 'binary', '无匹配 viewer → 下载兜底')
+    ok(planFirstMatch(viewer('b', 'binary-download'), () => 'u').kind === 'binary', 'binary-download 策略 → 下载兜底')
+    const media = planFirstMatch(viewer('i', 'mediaUrl'), () => 'u')
+    ok(media.kind === 'render' && media.mediaUrl === 'u', 'mediaUrl 策略 → 渲染媒体地址')
+    const none = planFirstMatch(viewer('n', 'none'), () => 'u')
+    ok(none.kind === 'render' && none.mediaUrl === 'u', 'none 策略 → 渲染（同走媒体地址）')
+    ok(planFirstMatch(viewer('c', 'custom'), () => 'u').kind === 'customLoad', 'custom 策略 → 交 viewer 自取')
+    ok(planFirstMatch(viewer('f', 'fsRead'), () => 'u').kind === 'fetchFsRead', 'fsRead 策略 → 宿主取字节')
+
+    ok(decodeHead('AAEC').join(',') === '0,1,2', 'base64 头部解码为字节')
+
+    const text = planFsReadOutcome(viewer('f', 'fsRead'), { binary: false, content: 'hi', truncated: true }, () => undefined, () => 'u')
+    ok(text.kind === 'render' && text.content === 'hi' && text.truncated === true, '文本结果 → 渲染并透传截断标记')
+
+    const customViewer = viewer('plugin:bin', 'custom')
+    const claimedCustom = planFsReadOutcome(
+      viewer('f', 'fsRead'), { binary: true, content: '', truncated: false, head: 'AAAA' }, () => customViewer, () => 'u',
+    )
+    ok(claimedCustom.kind === 'customLoad' && claimedCustom.viewer === customViewer, '二进制重匹配 custom viewer → customLoad')
+
+    const mediaViewer = viewer('i', 'mediaUrl')
+    const claimedMedia = planFsReadOutcome(
+      viewer('f', 'fsRead'), { binary: true, content: '', truncated: false, head: 'AAAA' }, () => mediaViewer, () => 'u',
+    )
+    ok(claimedMedia.kind === 'render' && claimedMedia.viewer === mediaViewer && claimedMedia.mediaUrl === 'u', '二进制重匹配 mediaUrl viewer → 渲染媒体')
+
+    const claimedFsRead = planFsReadOutcome(
+      viewer('f', 'fsRead'), { binary: true, content: '', truncated: false, head: 'AAAA' }, () => viewer('f2', 'fsRead'), () => 'u',
+    )
+    ok(claimedFsRead.kind === 'binary', '二进制重匹配 fsRead viewer → 仍走下载兜底')
+
+    const noHead = planFsReadOutcome(
+      viewer('f', 'fsRead'), { binary: true, content: '', truncated: false }, () => customViewer, () => 'u',
+    )
+    ok(noHead.kind === 'binary', '二进制但无 head 字节 → 无法重匹配，走下载兜底')
+  }
+
+  // markdown-images：本地图片目标 → /sidebar/file 媒体路由（含掩码与引用门）
+  {
+    const scope = { sessionId: 's1', cwd: '/w' }
+    const resolve = (dest, filePath = '/w/docs/r.md') => resolveLocalMediaDest(dest, scope, filePath, 'http://h')
+    const rewrite = (text, filePath = '/w/r.md') => rewriteLocalImageUrls(text, scope, filePath, 'http://h')
+
+    ok(resolve('https://x/a.png') === 'https://x/a.png', '远程地址原样返回')
+    ok(resolve('#anchor') === '#anchor', '锚点原样返回')
+    ok(resolve('') === '', '空目标原样返回')
+    ok(resolve('data:image/png;base64,AA') === 'data:image/png;base64,AA', 'data: URI 原样返回')
+
+    const rel = new URL(resolve('./img/a.png'))
+    ok(rel.pathname === '/sidebar/file', '相对路径改写到媒体路由')
+    ok(rel.searchParams.get('path') === '/w/docs/img/a.png', '相对路径按文件目录解析并归一')
+    ok(rel.searchParams.get('sessionId') === 's1', '媒体地址带 sessionId')
+    ok(rel.searchParams.get('cwd') === '/w', '媒体地址带 cwd')
+
+    const abs = new URL(resolve('/w/b.png'))
+    ok(abs.searchParams.get('path') === '/w/b.png', '绝对路径保持')
+
+    const dotdot = new URL(resolve('../up.png'))
+    ok(dotdot.searchParams.get('path') === '/w/up.png', '.. 段被归一')
+
+    const win = new URL(resolve('C:\\img\\a.png', 'C:\\docs\\r.md'))
+    ok(win.searchParams.get('path') === 'C:\\img\\a.png', 'Windows 盘符路径不当远程 URL')
+
+    const noCwd = new URL(resolveLocalMediaDest('./a.png', { sessionId: 's2' }, '/w/r.md', 'http://h'))
+    ok(noCwd.searchParams.get('cwd') === null, '无 cwd 时不带该参数')
+
+    ok(rewrite('![a](./x.png)').startsWith('![a](http://h/sidebar/file?'), '行内图片目标被改写')
+    ok(rewrite('![a](https://x/a.png)') === '![a](https://x/a.png)', '远程图片不动')
+    // 上游同款实现：行内图片的 title（`"..."`）在改写时不保留 —— 断言住当前契约，
+    // 免得日后悄悄漂移（预览里 title 只影响 tooltip）。
+    ok(
+      rewrite('![a](./x.png "t")') === '![a](http://h/sidebar/file?sessionId=s1&path=%2Fw%2Fx.png&cwd=%2Fw)',
+      '行内图片 title 不保留（上游同款契约）',
+    )
+
+    ok(rewrite('```\n![a](./x.png)\n```') === '```\n![a](./x.png)\n```', '围栏代码块内的图片语法不改写')
+    ok(rewrite('use `![a](./x.png)` here') === 'use `![a](./x.png)` here', '行内代码 span 内的图片语法不改写')
+
+    const linkKept = rewrite('[text][1]\n\n[1]: ./a.png')
+    ok(linkKept.includes('[1]: ./a.png'), '普通链接的引用定义不改写')
+
+    const refImage = rewrite('![alt][2]\n\n[2]: ./b.png')
+    ok(refImage.includes('[2]: http://h/sidebar/file?'), '图片引用的定义行被改写')
+
+    const shortcut = rewrite('![pic]\n\n[pic]: <./c.png>')
+    ok(shortcut.includes('[pic]: http://h/sidebar/file?'), '快捷引用的尖括号目标被改写')
+    ok(!shortcut.includes('<http://h/sidebar/file'), '尖括号本身被剥离')
+  }
+}
+
 console.log('[git integration]')
 {
   const hasGit = (() => {

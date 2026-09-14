@@ -1,12 +1,10 @@
 /**
- * The "add plugin" modal (Side card settings → the dashed card at the end
- * of the 侧边栏内容 grid): declares that the sidebar's tab extension point
- * is open to plugins (registered through `ctx.betterSidebar`), points at
- * the GitHub topic page for discovery, and shows the repo's recommended
- * plugin catalog (name / url / description / install script).
- *
- * (v1.0.4: the file-viewer extension point was retired with the file-viewer
- * registry — this modal now catalogs tab plugins only.)
+ * The "add plugin" modals (Side card settings → the dashed cards at the
+ * end of the 侧边栏内容 / 文件预览 grids): declare that the sidebar's
+ * extension points — tab pages and file previewers — are open to plugins
+ * (registered through `ctx.betterSidebar`), point at the GitHub topic page
+ * for discovery, and show the repo's recommended plugin catalog of the
+ * matching kind (name / url / description / install script).
  *
  * Per entry there are two actions:
  * - 「跳转」opens the plugin's repo in a REAL new browser tab (window.open
@@ -26,16 +24,26 @@ import { Modal, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { BetterSidebarService } from './service.ts'
 import { PLUGIN_TOPIC_URL, type PluginEntry } from './plugins-shared.ts'
 import { builtinTabPlugins } from './plugins-tabs.ts'
+import { builtinViewerPlugins } from './plugins-viewers.ts'
 import { t } from './locales.ts'
 import css from './SideCardSection.module.css'
+
+/** Which extension point the modal is adding a plugin for. */
+export type PluginKind = 'tab' | 'viewer'
+
+/** The catalog of one kind (kept in two repo files: plugins-tabs.ts /
+ *  plugins-viewers.ts). */
+function catalogOf(kind: PluginKind): readonly PluginEntry[] {
+  return kind === 'tab' ? builtinTabPlugins : builtinViewerPlugins
+}
 
 /** How long the "已复制" feedback stays on the copy button. */
 const COPIED_FEEDBACK_MS = 1500
 
 /** The modal body: the GitHub topic button + the recommended plugin list
  *  with per-entry jump/copy buttons (extracted for direct testing). */
-export function PluginListBody(props: { service: BetterSidebarService }) {
-  const { service } = props
+export function PluginListBody(props: { service: BetterSidebarService; kind: PluginKind }) {
+  const { service, kind } = props
   // Which entry's copy button currently shows the "已复制" feedback.
   const [copiedId, setCopiedId] = useState<string | null>(null)
   // Live catalog filter (name / id / description). A free-text search keeps
@@ -44,7 +52,7 @@ export function PluginListBody(props: { service: BetterSidebarService }) {
   // becomes a wall of scrolling.
   const [query, setQuery] = useState('')
 
-  const catalog = builtinTabPlugins
+  const catalog = catalogOf(kind)
   const needle = query.trim().toLowerCase()
   const matches = (entry: PluginEntry): boolean => {
     if (needle === '') return true
@@ -169,14 +177,14 @@ export function PluginListBody(props: { service: BetterSidebarService }) {
 }
 
 /** The modal itself (mounted only while open — see the module comment). */
-export function AddPluginModal(props: { service: BetterSidebarService; onClose: () => void }) {
-  const { service, onClose } = props
+export function AddPluginModal(props: { service: BetterSidebarService; onClose: () => void; kind: PluginKind }) {
+  const { service, onClose, kind } = props
   return (
     <Modal
       open
       onClose={onClose}
-      title={t('addPluginsTabCard')}
-      description={t('addPluginsTabDesc')}
+      title={kind === 'tab' ? t('addPluginsTabCard') : t('addPluginsViewerCard')}
+      description={kind === 'tab' ? t('addPluginsTabDesc') : t('addPluginsViewerDesc')}
       closeLabel={t('close')}
       className={css.pluginModal}
       footer={(
@@ -185,7 +193,7 @@ export function AddPluginModal(props: { service: BetterSidebarService; onClose: 
         </button>
       )}
     >
-      <PluginListBody service={service} />
+      <PluginListBody service={service} kind={kind} />
     </Modal>
   )
 }
