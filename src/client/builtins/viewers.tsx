@@ -1,22 +1,28 @@
 /**
- * The 6 built-in file viewer descriptors: every preview surface is a
- * registered viewer (image / pdf / markdown / html / code /
- * binary-download), exactly like external plugins register theirs. Office
- * previews (.docx / .xlsx / .pptx) are NOT built in anymore — they moved to
- * the recommended office plugin (see plugins-viewers.ts), which registers
- * the same ids through this service.
+ * The 10 built-in file viewer descriptors: every preview surface is a
+ * registered viewer (image / pdf / docx / xlsx / pptx / video / markdown /
+ * html / code / binary-download), exactly like external plugins register
+ * theirs.
+ *
+ * The Office three-piece set (docx/xlsx/pptx) and the video player are
+ * maintained in-tree since 1.0.15: the derivative plugins that used to
+ * provide them (`@huanlin/dsh-plugin-better-sidebar-plugin-office`,
+ * `dsh-video-preview`) are absorbed into this package, so they must NOT be
+ * installed alongside this version — their viewer ids would collide with
+ * these registrations.
  *
  * The `binary-download` viewer sniffs NUL bytes via `detect` for unknown
  * binaries and serves legacy doc/xls/ppt by extension; `code` is the
  * catch-all (`exts: []`, lowest priority) that claims any file no other
  * viewer did.
  *
- * The heavy viewers (the CodeMirror-backed markdown/html/code) render
- * through {@link lazyChunkComponent} wrappers — their libraries are fetched
- * only when such a file is first opened (see chunk-loader.ts). The
- * descriptor metadata (id/exts/priority/detect) is identical either way,
- * so matching semantics and external-plugin overrides are unaffected; the
- * `component` wrapper keeps the descriptor contract `(props) => ReactNode`.
+ * The heavy viewers (the CodeMirror-backed markdown/html/code and the
+ * docx-preview + Univer + pptx-renderer Office stack) render through
+ * {@link lazyChunkComponent} wrappers — their libraries are fetched only
+ * when such a file is first opened (see chunk-loader.ts). The descriptor
+ * metadata (id/exts/priority/detect) is identical either way, so matching
+ * semantics and external-plugin overrides are unaffected; the `component`
+ * wrapper keeps the descriptor contract `(props) => ReactNode`.
  *
  * Every viewer carries the declarative settings-surface fields — `title`
  * and `icon` — so the Side card settings page can render the enable/disable
@@ -25,12 +31,17 @@
 import { IconCodeOutline16, IconDownloadOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { lazyChunkComponent } from '../lazy-chunk.tsx'
 import { PdfView } from '../PdfView.tsx'
+import { VideoView } from '../VideoView.tsx'
 import { BinaryDownload } from '../binary-download.tsx'
 import {
+  IconDocxOutline16,
   IconImageOutline16,
   IconMarkdownOutline16,
   IconPdfOutline16,
+  IconPptxOutline16,
   IconHtmlOutline16,
+  IconVideoOutline16,
+  IconXlsxOutline16,
 } from '../icons.tsx'
 import type { ComponentType } from 'react'
 import type { FileViewerDescriptor, FileViewerProps } from '../service.ts'
@@ -44,8 +55,11 @@ import css from '../sidebar.module.css'
  * shape (the view reads only its own subset of FileViewerProps).
  */
 const LazyTextEditor = lazyChunkComponent<FileViewerProps>('editor', (mod) => mod.TextEditor as ComponentType<FileViewerProps> | undefined)
+const LazyDocxView = lazyChunkComponent<FileViewerProps>('office', (mod) => mod.DocxView as ComponentType<FileViewerProps> | undefined)
+const LazyXlsxView = lazyChunkComponent<FileViewerProps>('office', (mod) => mod.XlsxView as ComponentType<FileViewerProps> | undefined)
+const LazyPptxView = lazyChunkComponent<FileViewerProps>('office', (mod) => mod.PptxView as ComponentType<FileViewerProps> | undefined)
 
-/** The 6 built-in file viewer descriptors. */
+/** The 10 built-in file viewer descriptors. */
 export function builtinViewers(): readonly FileViewerDescriptor[] {
   return [
     {
@@ -68,6 +82,47 @@ export function builtinViewers(): readonly FileViewerDescriptor[] {
       fetchStrategy: 'mediaUrl',
       component: ({ scope, path, title }) => (
         <PdfView scope={scope} path={path} title={title} />
+      ),
+    },
+    {
+      id: 'docx',
+      title: () => t('viewerDocx'),
+      icon: (size: number) => <IconDocxOutline16 size={size} />,
+      exts: ['docx'],
+      fetchStrategy: 'mediaUrl',
+      component: (props) => <LazyDocxView {...props} />,
+    },
+    {
+      id: 'xlsx',
+      title: () => t('viewerXlsx'),
+      icon: (size: number) => <IconXlsxOutline16 size={size} />,
+      exts: ['xlsx'],
+      fetchStrategy: 'mediaUrl',
+      component: (props) => <LazyXlsxView {...props} />,
+    },
+    {
+      id: 'pptx',
+      title: () => t('viewerPptx'),
+      icon: (size: number) => <IconPptxOutline16 size={size} />,
+      exts: ['pptx'],
+      fetchStrategy: 'mediaUrl',
+      component: (props) => <LazyPptxView {...props} />,
+    },
+    {
+      id: 'video',
+      title: () => t('viewerVideo'),
+      icon: (size: number) => <IconVideoOutline16 size={size} />,
+      // `m2ts` covers the MPEG-TS container; the bare `ts` extension is
+      // deliberately NOT claimed (here it means TypeScript — see VideoView.tsx).
+      exts: [
+        'mp4', 'webm', 'mov', 'qt', 'm4v', 'mkv', 'avi', 'wmv', 'flv',
+        'ogv', 'ogg', 'mpeg', 'mpg', '3gp', '3g2', 'm2ts',
+      ],
+      // The player fetches no bytes itself (the <video> element streams from
+      // the media route), so 'none' is the honest strategy.
+      fetchStrategy: 'none',
+      component: ({ scope, path, title }) => (
+        <VideoView scope={scope} path={path} title={title} />
       ),
     },
     {

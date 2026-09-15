@@ -15,7 +15,7 @@
  */
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { Context, SidebarHttpRequest, SidebarSessionPersistenceService } from './context-types.ts'
@@ -35,6 +35,7 @@ import { sessionFileOps } from './changes-ops.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
 import { searchFiles } from './fs-search.ts'
 import { decodeHtmlUrl } from './html-route.ts'
+import { serveMediaRange } from './media-range.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
 import { isTrustedApiRequest, isLoopbackHostname } from './trust-fence.ts'
 import { registerBundleRoute } from './bundle-route.ts'
@@ -96,6 +97,24 @@ const MEDIA_TYPES: Record<string, string> = {
   '.pdf': 'application/pdf',
   '.html': 'text/html',
   '.htm': 'text/html',
+  // Video/audio: claimed by the built-in video viewer, streamed with Range
+  // support (see src/media-range.ts). The list mirrors the viewer's `exts`.
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.ogg': 'audio/ogg',
+  '.mov': 'video/quicktime',
+  '.qt': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.wmv': 'video/x-ms-wmv',
+  '.flv': 'video/x-flv',
+  '.m2ts': 'video/mp2t',
+  '.mpeg': 'video/mpeg',
+  '.mpg': 'video/mpeg',
+  '.3gp': 'video/3gpp',
+  '.3g2': 'video/3gpp2',
 }
 
 /** Content type served by /sidebar/file (binary-safe fallback for unknowns). */
@@ -1042,7 +1061,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         res.end('forbidden')
         return
       }
-      if (req.method !== 'GET') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405)
         res.end()
         return
@@ -1055,10 +1074,30 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         const cwd = await sessionCwdOf(ctx, sessionId, url.searchParams.get('cwd') ?? undefined)
         const path = await ensureWorkspacePath(cwd, raw)
         const info = await stat(path)
-        if (!info.isFile() || info.size > resolved.mediaLimit) {
+        if (!info.isFile()) throw new SidebarError('fs-error', 'not a file or too large', 400)
+        const type = mediaTypeForPath(path)
+        // A ranged request (the video viewer's browser always sends one)
+        // STREAMS the file and is therefore exempt from `mediaLimit`: the cap
+        // exists to keep whole files out of host memory, and a stream never
+        // loads one. Every other request keeps the previous behavior exactly
+        // (buffer the file, answer 200, enforce the cap).
+        if (typeof req.headers.range === 'string' && req.headers.range !== '') {
+          // The structural request/response faces satisfy the route contract;
+          // the streaming responder wants the real Node types (it pipes into
+          // the response and destroys it on stream errors) — cast at this
+          // boundary, same as the terminal WebSocket upgrade below.
+          serveMediaRange(
+            req as unknown as IncomingMessage,
+            res as unknown as ServerResponse,
+            path,
+            info.size,
+            type,
+          )
+          return
+        }
+        if (info.size > resolved.mediaLimit) {
           throw new SidebarError('fs-error', 'not a file or too large', 400)
         }
-        const type = mediaTypeForPath(path)
         const body = await readFile(path)
         // Raw bytes either way (binary-safe); ?download=1 switches the
         // disposition so the browser saves the file instead of showing it.
@@ -1067,7 +1106,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
           headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}`
         }
         res.writeHead(200, headers)
-        res.end(body)
+        res.end(req.method === 'HEAD' ? undefined : body)
       } catch (error) {
         writeError(res, error)
       }

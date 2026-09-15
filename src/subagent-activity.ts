@@ -7,7 +7,17 @@
  * lines. Kept framework-free so the parser is unit-testable in the node
  * environment.
  */
-import type { SidebarSessionEvent } from './context-types.ts'
+/**
+ * The minimal event shape {@link lastActivity} folds. `data` stays opaque:
+ * hosts type message payloads structurally (branded interfaces are not
+ * assignable to an index signature), and the reads below narrow locally.
+ */
+export interface ActivityEvent {
+  type: string
+  seq: number
+  time: number
+  data: unknown
+}
 
 /**
  * Extract the concatenated plain text of a content-block list (the durable
@@ -53,7 +63,7 @@ export interface LastActivity {
  * @returns the last text and/or tool call; an empty object when the log has neither.
  */
 export function lastActivity(
-  events: readonly SidebarSessionEvent[],
+  events: readonly ActivityEvent[],
   maxMessages = Infinity,
 ): LastActivity {
   let text: string | undefined
@@ -63,7 +73,8 @@ export function lastActivity(
     if (text !== undefined && tool !== undefined) break
     const event = events[index]
     if (event === undefined) continue
-    const { type, data } = event
+    const { type } = event
+    const data = event.data as Record<string, unknown>
     if (type === 'user/message' || type === 'assistant/message') {
       messagesSeen += 1
       if (messagesSeen > maxMessages) break

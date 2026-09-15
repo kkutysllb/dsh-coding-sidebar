@@ -274,6 +274,15 @@ export declare const zh: {
     viewerMarkdown: string;
     viewerCode: string;
     viewerBinary: string;
+    viewerDocx: string;
+    viewerXlsx: string;
+    viewerPptx: string;
+    viewerVideo: string;
+    previousSlide: string;
+    nextSlide: string;
+    zoom: string;
+    zoomHint: string;
+    videoUnsupported: string;
     viewerHtml: string;
     browser: string;
     browserPlaceholder: string;
@@ -390,7 +399,6 @@ export declare const zh: {
     addPluginsEmpty: string;
     openPlugin: string;
     copyInstall: string;
-    pluginOfficeDesc: string;
     pluginFlowglassDesc: string;
     pluginGitForgeDesc: string;
     pluginGitRemotesDesc: string;
@@ -398,7 +406,6 @@ export declare const zh: {
     pluginSidebarQaDesc: string;
     pluginSshTunnelDesc: string;
     pluginTurnReviewDesc: string;
-    pluginVideoPreviewDesc: string;
     pluginDocsPanelDesc: string;
     pluginEgoBrowserDesc: string;
     trajectory: string;

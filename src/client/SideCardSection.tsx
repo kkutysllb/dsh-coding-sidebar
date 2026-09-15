@@ -63,6 +63,7 @@ import {
   type TitleBarScheme,
 } from '../prefs-shared.ts'
 import { api } from './api.ts'
+import { PLUGIN_DISPLAY_NAME } from './channel-policy.ts'
 import { parsePrefs } from './prefs.ts'
 import { AddPluginModal, type PluginKind } from './add-plugin-modal.tsx'
 import { t } from './locales.ts'
@@ -861,7 +862,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
           instance's, kept in lockstep with package.json by
           tests/service.spec.ts). */}
       <div className={css.versionBadge}>
-        <span className={css.versionBadgeName}>dsh-coding-sidebar</span>
+        <span className={css.versionBadgeName}>{PLUGIN_DISPLAY_NAME}</span>
         <span className={css.versionBadgeTag}>v{service.version}</span>
       </div>
 

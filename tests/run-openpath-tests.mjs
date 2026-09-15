@@ -16,6 +16,7 @@
  * 以及文件预览线的纯函数面：src/client/mermaid-blocks.ts 的 CommonMark 围栏切分、
  * src/client/markdown-html.ts 的 markdown/HTML 分段与结构部件归约、
  * src/client/editor-load.ts 的 viewer 策略分派与二进制 head 重匹配、
+ * src/media-range.ts 的 HTTP Range 解析（内置视频预览的 206/416 归约与无效区间忽略）、
  * src/client/markdown-images.ts 的本地图片目标改写（代码块掩码/引用定义门）。
  *
  * 运行：node tests/run-openpath-tests.mjs
@@ -40,6 +41,9 @@
  *   ./node_modules/.bin/tsc src/plans.ts --target es2022 --module esnext \
  *     --skipLibCheck --noCheck --outDir /tmp/csb-plans
  *   cp /tmp/csb-plans/plans.js tests/plans-helpers.mjs
+ *   ./node_modules/.bin/tsc src/media-range.ts --target es2022 --module esnext \
+ *     --skipLibCheck --noCheck --outDir /tmp/csb-media
+ *   cp /tmp/csb-media/media-range.js tests/media-range.mjs
  *   ./node_modules/.bin/tsc src/client/mermaid-blocks.ts src/client/markdown-html.ts \
  *     src/client/editor-load.ts src/client/markdown-images.ts src/client/paths.ts \
  *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-preview
@@ -80,6 +84,7 @@ import {
 } from './markdown-html.mjs'
 import { decodeHead, planFirstMatch, planFsReadOutcome } from './editor-load.mjs'
 import { resolveLocalMediaDest, rewriteLocalImageUrls } from './markdown-images.mjs'
+import { parseRange } from './media-range.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -1398,6 +1403,51 @@ console.log('[git integration]')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  }
+}
+
+/* ═══════════ 媒体路由 Range 解析（内置视频预览的拖动进度） ═══════════ */
+
+console.log('\n[media range]')
+{
+  // size = 1000 字节的假文件；断言按「返回区间 / null（整文件）/ 416」三类归约。
+  const SIZE = 1000
+  const full = parseRange(undefined, SIZE)
+  ok(full === null, '无 Range 头 → 整文件 200')
+
+  const open = parseRange('bytes=0-', SIZE)
+  ok(open !== null && !('unsatisfiable' in open) && open.start === 0 && open.end === SIZE - 1, 'bytes=0- → 0..999')
+
+  const head = parseRange('bytes=0-99', SIZE)
+  ok(head !== null && !('unsatisfiable' in head) && head.start === 0 && head.end === 99, 'bytes=0-99 → 0..99')
+
+  const middle = parseRange('bytes=500-600', SIZE)
+  ok(middle !== null && !('unsatisfiable' in middle) && middle.start === 500 && middle.end === 600, 'bytes=500-600 → 500..600')
+
+  const clamp = parseRange('bytes=900-5000', SIZE)
+  ok(clamp !== null && !('unsatisfiable' in clamp) && clamp.start === 900 && clamp.end === SIZE - 1, '超出 EOF 的 end 被夹到 999')
+
+  const suffix = parseRange('bytes=-100', SIZE)
+  ok(suffix !== null && !('unsatisfiable' in suffix) && suffix.start === 900 && suffix.end === 999, 'bytes=-100 → 末 100 字节')
+
+  const suffixAll = parseRange('bytes=-5000', SIZE)
+  ok(suffixAll !== null && !('unsatisfiable' in suffixAll) && suffixAll.start === 0 && suffixAll.end === 999, '后缀大于文件 → 整文件')
+
+  const multi = parseRange('bytes=0-10,30-40', SIZE)
+  ok(multi !== null && !('unsatisfiable' in multi) && multi.start === 0 && multi.end === 10, '多段只取第一段')
+
+  const upper = parseRange('BYTES=0-9', SIZE)
+  ok(upper !== null && !('unsatisfiable' in upper) && upper.start === 0 && upper.end === 9, '单位大小写不敏感')
+
+  const past = parseRange('bytes=1000-', SIZE)
+  ok(past !== null && 'unsatisfiable' in past, '起点越过 EOF → 416（unsatisfiable）')
+
+  const empty = parseRange('bytes=0-', 0)
+  ok(empty !== null && 'unsatisfiable' in empty, '空文件 → 416')
+
+  // 语法无效一律忽略（回落 200），绝不让 createReadStream 抛 ERR_OUT_OF_RANGE
+  for (const bad of ['bytes=', 'bytes=abc', 'items=0-1', 'bytes=1.5-3', 'bytes=5-3', 'bytes=-0', 'bytes=-abc', 'bytes=--']) {
+    ok(parseRange(bad, SIZE) === null, `无效/倒置区间被忽略：${bad}`)
   }
 }
 

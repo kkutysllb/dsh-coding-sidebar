@@ -33,7 +33,7 @@ function check(name, condition, detail = '') {
 for (const f of ['lib/index.js', 'lib/client.js', 'lib/invariant.js', 'lib/types/index.d.ts', 'cordis.patch.yml']) {
   check(`产物在位：${f}`, existsSync(join(packageRoot, f)))
 }
-for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'client-locale.js', 'client-trajectory.js']) {
+for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'client-office.js', 'client-locale.js', 'client-trajectory.js']) {
   check(`分包在位：lib/${chunk}`, existsSync(join(packageRoot, 'lib', chunk)))
 }
 
@@ -116,6 +116,32 @@ check(
 // 走懒加载分包：首屏核心包不为这个 Tab 变胖，首次打开 Tab 时才拉
 // lib/client-trajectory.js（同 terminal/editor 的机制）。
 check('轨迹图视图走懒加载分包', existsSync(join(packageRoot, 'lib', 'client-trajectory.js')))
+
+// Office 三件套 + 视频预览自 1.0.15 起为内置 viewer（收编了两个衍生插件）：
+// 描述符留在核心包（匹配语义/设置清单照常），重型渲染库（docx-preview /
+// Univer+SheetJS / pptx-renderer，约 22MB）走 office 懒加载分包，首屏不为它变胖。
+check(
+  '内置 office/video viewer 已注册（docx/xlsx/pptx/video）',
+  ['docx', 'xlsx', 'pptx', 'video'].every(id => clientSrc.includes(`'${id}'`) || clientSrc.includes(`"${id}"`)),
+)
+check('Office 渲染栈走懒加载分包', existsSync(join(packageRoot, 'lib', 'client-office.js')))
+{
+  const officePath = join(packageRoot, 'lib', 'client-office.js')
+  const officeSrc = existsSync(officePath) ? readFileSync(officePath, 'utf8') : ''
+  check(
+    'Office 分包导出 docx/xlsx/pptx 三个视图',
+    ['DocxView', 'XlsxView', 'PptxView'].every(name => officeSrc.includes(name)),
+  )
+  // 纯度门禁的产物侧复核：客户端分包不得残留 Node builtin 引用。
+  check('Office 分包无 Node builtin 引用', !/require\("(node:)?(fs|crypto|path|os|stream)"\)/.test(officeSrc))
+}
+
+// 视频预览的宿主面：/sidebar/file 支持 Range（206 + Accept-Ranges），否则浏览器
+// 会禁用视频拖动进度条。断言产物里的流式响应标记。
+{
+  const serverSrc = readFileSync(join(packageRoot, 'lib', 'index.js'), 'utf8')
+  check('媒体路由带 Range 流式响应（accept-ranges + 206）', serverSrc.includes('accept-ranges') && serverSrc.includes('content-range'))
+}
 
 /* ═══ 4a. server 面可加载 ═══ */
 

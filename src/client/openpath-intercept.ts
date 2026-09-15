@@ -170,11 +170,16 @@ export interface FileAddressTarget {
   readonly sessionId?: string
 }
 
-/** The scheme and type every file address opens with (mirror of the runtime grammar). */
+/**
+ * The scheme and type every file address opens with (mirror of the runtime
+ * grammar). The QiLin channel renames the scheme to `qilin-resource://file/`
+ * at sync time — the channel rewrite below is the single source of that
+ * difference.
+ */
 const FILE_ADDRESS_PREFIX = 'dsh-resource://file/'
 
 /**
- * Decode a `dsh-resource://file/…` address into the path it names.
+ * Decode a file-resource address into the path it names.
  *
  * A dependency-free mirror of the runtime's `parseFileAddress`
  * (`@deepseek-ai/dsh-util-workspace-path`): this module deliberately imports no

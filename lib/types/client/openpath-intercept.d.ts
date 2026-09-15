@@ -109,7 +109,7 @@ export interface FileAddressTarget {
     readonly sessionId?: string;
 }
 /**
- * Decode a `dsh-resource://file/…` address into the path it names.
+ * Decode a file-resource address into the path it names.
  *
  * A dependency-free mirror of the runtime's `parseFileAddress`
  * (`@deepseek-ai/dsh-util-workspace-path`): this module deliberately imports no

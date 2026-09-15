@@ -331,6 +331,14 @@ export function SideChatView(props: {
    *  (big pages — chunk deltas re-expand on cold reads), later reads fetch
    *  one tail page and merge (seq-deduped). */
   const fetchThread = useCallback(async (childId: string): Promise<void> => {
+    // Capability probe: the transcript pull rides the carrier's legacy
+    // `connection.api.sessions.history` RPC. Hosts that moved to a remote-
+    // namespace carrier (QiLin) expose no `.api` face — keep the last rows
+    // instead of throwing on every poll (same policy as a wire failure).
+    const legacySessions = (ctx.connection as unknown as {
+      api?: { sessions?: { history?: unknown } }
+    }).api?.sessions?.history
+    if (legacySessions === undefined) return
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller

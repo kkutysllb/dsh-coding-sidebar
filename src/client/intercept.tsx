@@ -20,7 +20,7 @@ import { t } from './locales.ts'
 import { resolveSidebarPath, selectProducedFiles } from './produced-files.ts'
 import { hasDeclaredDeliveries } from './deliveries.ts'
 import {
-  wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, type SidebarRightStub,
+  wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, type OpenPathService, type SidebarRightStub,
 } from './openpath-intercept.ts'
 import css from './sidebar.module.css'
 
@@ -189,7 +189,12 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
     openInSidebar: (path: string, sessionId: string) => { openSidebarFile(ctx, store, sessionId, path) },
     revealInExplorer: (_path: string, sessionId: string) => { revealInExplorer(ctx, store, sessionId, lastProduced) },
   }
-  const disposeOld = wrapOpenPath(ctx.workspaces, deps)
+  // Optional probe: the workspaces service is absent on hosts past the
+  // open-path migration (QiLin exposes no service under this name) — read
+  // via ctx.get like the remote probe below so the legacy door simply stays
+  // unwrapped there instead of failing the whole registration.
+  const workspaces = ctx.get('workspaces') as OpenPathService | undefined
+  const disposeOld = workspaces === undefined ? () => {} : wrapOpenPath(workspaces, deps)
   // Optional probe: the Remote carrier is absent on pre-migration baselines
   // (and the wrap itself no-ops when the method is missing). Read via
   // ctx.get like every other optional service (same recipe as the

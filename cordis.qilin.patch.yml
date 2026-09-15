@@ -1,0 +1,64 @@
+# @qilin/coding-sidebar bundle patch — the QiLin distribution channel.
+#
+# This file is the `qilin.bundle.patch` layer of the vendored first-party copy
+# (QiLin repo `vendor/coding-sidebar`) and of the online-upgrade channel
+# package (same name `@qilin/coding-sidebar`, published from the plugin
+# repository). It differs from the DSH channel's cordis.patch.yml in exactly
+# one product decision: under QiLin this workbench REPLACES the stock right
+# Sidebar's tab surface instead of merely coexisting with it.
+#
+# Replacement scope — the four stock tab-type rows are disabled, while
+# `ui-sidebar-right` itself STAYS MOUNTED on purpose: it owns the
+# `sidebarRight` controller and the `sidebarRightTabs` registry that
+# `ui-chat` and `ui-trajectory` hard-inject, and the plugin's open-path
+# interception (ctx.sidebarRight.openResource, the door ui-chat actually
+# calls) routes file opens into this workbench, so the stock panel stays
+# empty in practice. Disabling the controller row instead would strand the
+# conversation surface pending `sidebarRight` and take the chat UI down.
+#
+# Settings replacement lives in the CLIENT bundle (a patch layer cannot add
+# slot registrations): under this channel the plugin's settings section
+# registers with the stock `sidebar-right` id at priority -1, so the slot
+# cell's shadowing semantics replace the stock Sidebar-tabs settings page
+# and its nav row with this plugin's Side card page (see
+# src/client/channel-policy.ts; QiLin's settings shell projects nav rows
+# from winner cells, matching what the content column renders).
+#
+# Built-in mounting: the `web` and `qilin` profile templates list
+# `@qilin/coding-sidebar` in `qilin.profile.bundles`, so boot applies this
+# patch after `@qilin/base` and `@qilin/web-app` — the targeted rows below
+# exist by then. Online upgrade installs a newer copy into the profile
+# (`qilin plugin --profile web add @qilin/coding-sidebar@<spec>`); the
+# profile's node_modules wins the two-anchor resolution, the single bundle
+# entry mounts the newer copy, and no second row ever appears.
+#
+# Replacement is disable-not-delete on purpose: a user patch layer above this
+# one can re-enable any stock row (and disable `coding-sidebar`) to restore
+# the stock tab surface. A composition without the stock rows (custom
+# profiles that never stack @qilin/web-app) simply finds nothing to disable.
+#
+# Double-mount guard: same policy as the DSH channel — this row backs off
+# when an earlier enabled entry already mounts the same package (aggregate
+# bundles or manual rows). The loader evaluates the expression at entry-list
+# order, so the aggregate must precede this bundle in the stack.
+
+# ── replace the stock right Sidebar's tab surface (rows owned by @qilin/web-app) ─
+
+- id: ui-sidebar-documentpreview
+  disabled: true
+
+- id: ui-sidebar-files
+  disabled: true
+
+- id: ui-sidebar-tasks
+  disabled: true
+
+- id: ui-sidebar-plans
+  disabled: true
+
+# ── mount this plugin ────────────────────────────────────────────────────────
+
+- insert:
+    - id: coding-sidebar
+      name: '@qilin/coding-sidebar'
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === '@qilin/coding-sidebar' && e.options.id !== 'coding-sidebar' && !e.disabled)"

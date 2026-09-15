@@ -21,6 +21,7 @@ import { registerOpenPathInterception, registerTurnTailInterception } from './in
 import { registerLinkInterception } from './link-intercept.ts'
 import { registerImeGuard } from './ime-guard.ts'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
+import { REPLACE_STOCK_SIDEBAR_SETTINGS, SETTINGS_SECTION_ID } from './channel-policy.ts'
 import { loadExternalDisable, loadPrefs } from './prefs.ts'
 import { SideCardSection } from './SideCardSection.tsx'
 import { api } from './api.ts'
@@ -39,7 +40,7 @@ import './layout.css'
  *  clears the first hop, then `cannot get property "remote.session" without
  *  inject` on the second). Cordis inject is all-required, so a carrier
  *  without these never mounts this plugin — same policy as `modules`. */
-export const inject = ['slots', 'sessions', 'connection', 'workspaces', 'locale', 'modules', 'remote', 'remote.session']
+export const inject = ['slots', 'sessions', 'connection', 'locale', 'modules', 'remote', 'remote.session']
 
 /**
  * Error boundary over the sidebar tree (root scope): a render error in the
@@ -425,10 +426,15 @@ export function apply(ctx: Context): void {
     // it); the section reads/writes the prefs through the plugin's own
     // fenced settings route, keeps the shared store in sync, and renders the
     // declarative enable/disable inventory from the tab/viewer registry.
+    // Channel policy (see channel-policy.ts): under QiLin the registration
+    // takes over the stock `sidebar-right` settings cell instead of adding a
+    // second row — same id at priority -1 wins the cell, so the stock page
+    // and its nav row are replaced by this one.
     ctx.slots.inject('settings.section', () => ctx.slots.register({
       name: 'settings.section',
-      id: 'dsh-coding-sidebar',
+      id: SETTINGS_SECTION_ID,
       order: 100,
+      priority: REPLACE_STOCK_SIDEBAR_SETTINGS ? -1 : 0,
       label: () => t('settingsNav'),
       inject: () => ({ store: sidebarStore, service }),
     }, SideCardSection))

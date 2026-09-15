@@ -1,5 +1,6 @@
 allowBuilds:
   node-pty: true
+  protobufjs: true
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-invariants@0.1.5-rc.2'
   - '@deepseek-ai/cosmokit@1.8.3'

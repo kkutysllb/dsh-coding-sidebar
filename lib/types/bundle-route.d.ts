@@ -1,6 +1,6 @@
 import type { Context, SidebarHttpRequest, SidebarHttpResponse } from './context-types.ts';
 /** The chunk names the client may request (mirror of src/client/chunk-loader.ts). */
-export declare const CHUNK_NAMES: readonly ["terminal", "editor", "locale", "trajectory", "mermaid"];
+export declare const CHUNK_NAMES: readonly ["terminal", "editor", "locale", "trajectory", "mermaid", "office"];
 export type ChunkName = (typeof CHUNK_NAMES)[number];
 /**
  * Build the /sidebar/bundle route handler. `fence` is the shared browser-

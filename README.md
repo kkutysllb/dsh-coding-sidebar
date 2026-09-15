@@ -37,7 +37,7 @@
 ## ✨ 功能一览
 
 - **🗂️ 文件工作台**：资源管理器（懒加载目录树；文件 / 文件夹图标直接用 DSH 官方 `FileTypeIcon` 全彩画稿——48 类代码与配置图形 + markdown / 图片 / PDF / Office / 视频等类目色，分类交给宿主 `classifyFileType`，插件不自带扩展名表、也没有图标懒加载分包；软链接按目标类型展示——目录软链接可展开、失效链接标红）+ CodeMirror 编辑器（行号 / 自动换行 / 语法高亮 / Ctrl+S 保存）
-- **🖼️ 文件预览**：打开文件按类型自动选预览器（内置 6 个：图片 / PDF / Markdown / HTML / 代码 / 二进制下载），匹配规则是「扩展名 + 优先级 + NUL 探测 + `detect` 嗅探」，第三方插件可用 `ctx.betterSidebar.registerFileViewer` 覆盖或新增，设置页可按 viewer 逐个开关。Markdown 走预览 / 编辑双模（预览渲染 GFM 表格、KaTeX、shiki 高亮与**内嵌 HTML** 消毒渲染，≥3 标题出现浮动**目录大纲**，本地 / 相对图片改写为会话媒体路由），含 mermaid fence 时按需拉取约 7MB 的 `client-mermaid.js` 分包（无 mermaid 文件零加载），图表走 `securityLevel: 'strict'` + SVG 二次清洗并可点开放大；HTML 预览默认跑在**不透明源沙箱 iframe**（状态行可临时解锁，设置页有全局开关，均带警示）；文本越界 / 二进制文件走下载兜底
+- **🖼️ 文件预览**：打开文件按类型自动选预览器（内置 10 个：图片 / PDF / Word / Excel / PPT / 视频 / Markdown / HTML / 代码 / 二进制下载），匹配规则是「扩展名 + 优先级 + NUL 探测 + `detect` 嗅探」，第三方插件可用 `ctx.betterSidebar.registerFileViewer` 覆盖或新增，设置页可按 viewer 逐个开关。Markdown 走预览 / 编辑双模（预览渲染 GFM 表格、KaTeX、shiki 高亮与**内嵌 HTML** 消毒渲染，≥3 标题出现浮动**目录大纲**，本地 / 相对图片改写为会话媒体路由），含 mermaid fence 时按需拉取约 7MB 的 `client-mermaid.js` 分包（无 mermaid 文件零加载），图表走 `securityLevel: 'strict'` + SVG 二次清洗并可点开放大；HTML 预览默认跑在**不透明源沙箱 iframe**（状态行可临时解锁，设置页有全局开关，均带警示）；Office 三件套与视频自 **v1.0.15 起内置**（docx-preview / Univer+SheetJS / pptx-renderer 约 22MB 走 `client-office.js` 按需分包，首次打开 Office 文件才拉取；视频走媒体路由的 HTTP Range 流式响应，可拖进度条且不受 20MB `mediaLimit` 限制）；文本越界 / 二进制文件走下载兜底
 - **🎨 彩色 Tab 图标**：文件 / 源代码管理 / 任务管理 / 任务计划 / 轨迹图 / 侧边对话 / 终端 / 浏览器八个内置类型与 diff 视图的图形换成彩色版本，颜色全部取自 `--dsw-alias-*` 令牌（皮肤可整体接管，无颜色字面量）
 - **🕸️ 轨迹图（Graph）**：把 DSH 自己的**轨迹账本**画成实时流动的节点 / 边图——三列泳道（输入 / 模型·助手 / 工具）× 时间向下；边全部是账本里真实的引用关系（`resultSeq` 请求→产出、`callId` 助手→工具结果、`subCalls` 父调用→子调用、工具结果→下一次请求的 **agent loop 回边**）。活跃链路（进行中的请求 / 未落地的工具调用 / 流式助手）持续流动：虚线上游走 + 数据包沿**真实弧线**飞行；「回放」按记录的真实时间戳（1×/2×/4×）逐跳点亮；节点可点开详情（序号 / 时间 / 耗时 / 令牌 / 参数与结果）。数据不是自己解析事件流——直接订阅宿主 `@deepseek-ai/dsh-client-ui-trajectory` 的 `trajectory` view target，宿主缺失时退化为「轨迹数据不可用」空态。视图走懒加载分包（约 112KB / gzip 33KB），首屏核心包只增 4.7KB
 - **🌐 内嵌浏览器**：多开网页 tab，后退 / 前进 / 刷新；内容运行在沙箱 iframe；外链默认按协议分流——HTTP 在侧边栏打开、HTTPS 走系统浏览器（设置页可分别调整）
@@ -56,7 +56,7 @@
 - **⚡ 按需加载**：启动只拉 ~325KB 核心，终端 / 编辑器等重依赖用到才按需拉取（[设计文档](docs/plans/2026-08-12-lazy-chunks-design.md)）
 - **🌏 多语言**：界面文案跟随 DSH 语言（zh / en）实时切换；安装 `@huanlin/dsh-plugin-better-locale` 后支持日语（ja）等第三语言覆盖（见下方「🌏 第三语言覆盖」）
 
-> 🔌 **核心理念**：服务优先——内置的 8 tab 与第三方插件通过同一套 `ctx.betterSidebar` API 注册，能力完全对等；官方不再内置、可由生态提供的功能，交由生态插件实现（已有 **28+ 生态插件**，见下方「🌐 插件生态」）；文件预览同样走注册表（内置 6 个 viewer，第三方可 `registerFileViewer` 覆盖或新增，见下方「🖼️ 文件预览插件」）。接入文档见「🔌 服务化扩展」。
+> 🔌 **核心理念**：服务优先——内置的 8 tab 与第三方插件通过同一套 `ctx.betterSidebar` API 注册，能力完全对等；官方不再内置、可由生态提供的功能，交由生态插件实现（已有 **28+ 生态插件**，见下方「🌐 插件生态」）；文件预览同样走注册表（内置 10 个 viewer，第三方可 `registerFileViewer` 覆盖或新增，见下方「🖼️ 文件预览插件」）。接入文档见「🔌 服务化扩展」。
 
 ## 🚀 安装
 
@@ -107,6 +107,25 @@ dsh plugin --profile web add dsh-coding-sidebar@latest
 | Windows 下终端无法使用 | `node-pty` 依赖预编译二进制；若当前 Node 版本没有对应产物，需装编译工具链（VS Build Tools）。主流 Node 版本一般已有预编译。 |
 | 终端提示「node-pty 加载失败」 | `node-pty` 安装缺失/损坏（如 pnpm 拦截了构建脚本）。终端横幅会给出修复命令：复制到 DSH 所在环境的终端/cmd 执行（在 `~/.dsh/profiles/web` 下 `pnpm approve-builds --all && pnpm rebuild node-pty`），完成后重启 DSH 并点重试。插件与 DSH 核心使用同一 `node-pty@^1.1.0`，修复后两者同步恢复。 |
 | 提示 `dsh: command not found` | 先安装 DSH；或直接用 `npx -y --package @deepseek-ai/dsh dsh plugin --profile web add dsh-coding-sidebar@latest`。 |
+
+</details>
+
+<details>
+<summary><b>安装到 QiLin（qilin 分发通道，内置 + 在线升级）</b></summary>
+
+QiLin（`@qilin/*` 命名空间的本仓姊妹项目）以 **`@qilin/coding-sidebar`** 内置本插件：其仓 `vendor/coding-sidebar` 是本仓经 `scripts/sync-to-qilin.mjs` 生成的第一方副本，`web` / `qilin` profile 模板默认挂载，并禁用原生右侧栏的四个标签行（文件树 / 文档预览 / 任务 / 计划）——`ui-sidebar-right` 控制器保留，其 `openResource` 被本插件接管。QiLin 通道同时接管**设置页**：设置节以原生 `sidebar-right` 单元格的 id、priority -1 注册（槽位遮蔽语义：同单元格低优先级者胜出），原生「侧边栏」设置页与导航行被本插件的「侧边卡片」页取代；文件地址 scheme 跟随 QiLin 改名为 `qilin-resource://file/`。这些通道差异集中在 `src/client/channel-policy.ts` 与 sync 重写表。
+
+**在线升级**（profile 副本覆盖内置种子，`PROFILE_OWNED_BUNDLES` 反转解析顺序）：
+
+```sh
+qilin plugin --profile web add @qilin/coding-sidebar@latest   # npm 通道（@qilin scope 就绪后）
+# 或 git 通道（发布分支携带同包名构建产物）：
+qilin plugin --profile web add 'github:kkutysllb/dsh-coding-sidebar#qilin-channel'
+```
+
+装完**硬刷新浏览器**。升级/卸载走同一命令族（`add` 新 spec / `remove`）；profile 目录在 `~/.qilin/profiles/web`（`$QILIN_HOME`）。终端依赖的 node-pty 由 QiLin 安装闭包提供（optional peer，无需在 profile 里批准构建脚本）。
+
+**从本仓同步内置副本**（维护者）：`node scripts/sync-to-qilin.mjs`（重算 vendor 形态并重建 `../QiLin/vendor/coding-sidebar`；`--check` 对账零差异）。
 
 </details>
 
@@ -169,7 +188,7 @@ dsh registry enable dsh-external/dsh-coding-sidebar
 
 ## 🌐 插件生态
 
-`ctx.betterSidebar` 服务向所有插件开放扩展点：**`registerTab`（注册侧边栏页面）**、**`registerFileIcon`（注册文件 / 目录图标）**、**`registerFileViewer`（注册文件预览器）**。内置 8 tab、6 viewer 与第三方插件走同一套 API，能力完全对等。
+`ctx.betterSidebar` 服务向所有插件开放扩展点：**`registerTab`（注册侧边栏页面）**、**`registerFileIcon`（注册文件 / 目录图标）**、**`registerFileViewer`（注册文件预览器）**。内置 8 tab、10 viewer 与第三方插件走同一套 API，能力完全对等。
 
 `registerFileIcon`（能力 `'fileIcons'`）按扩展名（`exts`）、精确文件名（`names`）、目录名（`folderNames`）注册自己的图形，优先级降序、同级按注册序，注销即回退；内置图形是宿主 ui-primitives 的 `FileTypeIcon`（分类器 `classifyFileType`）。注意语义：宿主分类器覆盖任意路径，因此 `exts: []` 的 catch-all 会接管所有未被具体命中的行。
 
@@ -238,7 +257,7 @@ GitHub topic [`dsh-coding-sidebar`](https://github.com/topics/dsh-coding-sidebar
 
 ### 🖼️ 文件预览插件（推荐预览插件目录）
 
-侧边栏的预览线由 `registerFileViewer` 承载（内置 6 个 viewer），生态可注册新的文件类型预览器：设置页「侧边卡片 → 文件预览」网格末尾的虚线卡片打开预览插件弹窗（含 [GitHub topic](https://github.com/topics/dsh-coding-sidebar) 入口与推荐目录）。Office 三件套 / 视频等重型预览仍走生态插件——它们把重型渲染库拆出主包、按需安装，注册进同一套 viewer 注册表。
+侧边栏的预览线由 `registerFileViewer` 承载（内置 10 个 viewer：图片 / PDF / Word / Excel / PPT / 视频 / Markdown / HTML / 代码 / 二进制下载），生态可注册新的文件类型预览器：设置页「侧边卡片 → 文件预览」网格末尾的虚线卡片打开预览插件弹窗（含 [GitHub topic](https://github.com/topics/dsh-coding-sidebar) 入口与推荐目录）。**v1.0.15 起推荐目录为空**——原先推荐的两个重型预览插件（Office 三件套、视频）已收编为本包内置 viewer，继续安装会与内置 id 冲突；生态仍可注册其他文件类型的预览器。
 
 ### 🧰 增强与工具
 
@@ -449,7 +468,7 @@ GitHub topic [`dsh-coding-sidebar`](https://github.com/topics/dsh-coding-sidebar
 
 ## 🔌 服务化扩展
 
-从 v0.4.0 起暴露 `ctx.betterSidebar` 服务，其他插件可注册侧边栏页面与文件预览器（内置 8 tab、6 viewer 亦通过同一服务注册）。v0.12.1 补齐基座能力（完整类型导出、能力探测、状态订阅、tab 角标、生命周期回调、定向打开、插件自有设置等）；此后新增 `registerFileIcon` 扩展点与 `'fileIcons'` 能力（文件 / 目录图标注册，内置图形为宿主 `FileTypeIcon` 官方画稿）。v1.0.4 曾随 DSH 内置预览成熟而裁掉预览线，**v1.0.14 起按上游实现恢复**（viewer 注册表 / Markdown·Mermaid·HTML 渲染面 / `/sidebar/html` 路由 / `viewersEnabled` 与 HTML 沙箱设置项全部回归）。
+从 v0.4.0 起暴露 `ctx.betterSidebar` 服务，其他插件可注册侧边栏页面与文件预览器（内置 8 tab、10 viewer 亦通过同一服务注册）。v0.12.1 补齐基座能力（完整类型导出、能力探测、状态订阅、tab 角标、生命周期回调、定向打开、插件自有设置等）；此后新增 `registerFileIcon` 扩展点与 `'fileIcons'` 能力（文件 / 目录图标注册，内置图形为宿主 `FileTypeIcon` 官方画稿）。v1.0.4 曾随 DSH 内置预览成熟而裁掉预览线，**v1.0.14 起按上游实现恢复**（viewer 注册表 / Markdown·Mermaid·HTML 渲染面 / `/sidebar/html` 路由 / `viewersEnabled` 与 HTML 沙箱设置项全部回归），**v1.0.15 起把 Office 三件套与视频预览收编为内置 viewer**（原两个衍生插件不再需要，详见 [release/v1.0.15.md](./release/v1.0.15.md)）。
 
 完整接入文档：
 - **[`AGENTS.md`](./AGENTS.md)**——仓库内维护的接入文档（全字段、匹配算法、HMR 陷阱、声明式设置、版本探测）；
@@ -483,7 +502,8 @@ pnpm watch        # tsdown --watch
 
 - Git 无 push/pull/fetch；无文件 watcher/自动轮询；工具行内文件打开按钮不可拦截
 - 终端 Tab 拖到另一分栏会重挂载（shell 重开）
-- **文件预览线 v1.0.14 起恢复**：图片 / PDF / Markdown / HTML / 代码 / 二进制下载六个内置 viewer 与 `registerFileViewer` 扩展点回归（v1.0.4 曾裁掉）；含 mermaid fence 的 markdown 首次预览会按需拉取约 7MB 的 `client-mermaid.js` 分包（无 mermaid 文件不加载），HTML 预览默认沙箱、可在设置页或状态行解锁（均带警示）
+- **文件预览线 v1.0.14 起恢复、v1.0.15 起内置 Office 与视频**：图片 / PDF / Word / Excel / PPT / 视频 / Markdown / HTML / 代码 / 二进制下载十个内置 viewer 与 `registerFileViewer` 扩展点（v1.0.4 曾裁掉）；含 mermaid fence 的 markdown 首次预览会按需拉取约 7MB 的 `client-mermaid.js` 分包（无 mermaid 文件不加载），**首次打开 .docx/.xlsx/.pptx 会按需拉取约 22MB 的 `client-office.js` 分包**；HTML 预览默认沙箱、可在设置页或状态行解锁（均带警示）
+- **升级到 v1.0.15 前请卸载两个已收编的衍生插件**：`@huanlin/dsh-plugin-better-sidebar-plugin-office` 与 `dsh-video-preview`——它们注册的 viewer id（`docx`/`xlsx`/`pptx`/`video`）现已由本包内置，同时安装会在插件激活时报 `already registered`
 - 浏览器沙箱无登录态/第三方 Cookie 受限，部分站点登录需走弹窗；被 `X-Frame-Options`/`frame-ancestors` 拒绝嵌入的站点（如 arxiv.org）显示原因面板（含「在浏览器中打开」）；iframe 内部跳转不进后退栈
 - 移动端（<768px）自动合并为全宽抽屉：窄屏进入时全部标签页并入右侧栏，回桌面仍保留在右侧栏；未选中会话时点按开关会显示选择会话提示。
 

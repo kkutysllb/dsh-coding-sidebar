@@ -28,7 +28,7 @@
  *   factory}) with the (require) => exports CJS closure shape.
  *
  * Lazy chunks (lib/client-<name>.js): the heavy preview/terminal libraries
- * (CodeMirror, xterm) build as two standalone chunk bundles
+ * (CodeMirror, xterm, the Office stack) build as standalone chunk bundles
  * (src/client/chunks/<name>.tsx), shared by both channels. Each script
  * assigns its factory to the plugin-owned global registry
  * (globalThis.__dshChunks__) and is fetched by
@@ -227,6 +227,7 @@ function chunkBundle(name: string): UserConfig {
       purityGatePlugin(),
       makeCssPlugin('dsh-coding-sidebar'),
       ...(name === 'mermaid' ? [mermaidChunkAliases()] : []),
+      ...(name === 'office' ? [officeChunkAliases()] : []),
     ],
     outputOptions: {
       entryFileNames: `client-${name}.js`,
@@ -260,6 +261,37 @@ function mermaidChunkAliases(): BuildPlugin {
     name: 'dsh-mermaid-uuid-browser-alias',
     resolveId(source: string) {
       if (source === 'uuid') return uuidBrowserEntry
+      return null
+    },
+  }
+}
+
+/**
+ * Office-chunk-only aliases: pin the BROWSER entry of the two packages whose
+ * package `browser` remaps Rolldown does not honour after CJS lowering.
+ *
+ * - `xlsx` (SheetJS) resolves its Node entry, whose `fs`/`crypto` requires
+ *   trip the client purity gate — the browser build in `dist/` has none.
+ * - `jszip` arrives through docx-preview and has the same problem; its
+ *   browser bundle is resolved relative to docx-preview's own dependency
+ *   tree (pnpm/npm layout agnostic).
+ *
+ * Mirrors the alias set the upstream office preview shipped (and the
+ * derivative plugin's tsdown config documents): changing either library
+ * version means re-verifying that the office chunk contains no Node builtin
+ * references (the purity gate below fails the build if one appears).
+ */
+function officeChunkAliases(): BuildPlugin {
+  const xlsxBrowserEntry = join(dirname(require.resolve('xlsx/package.json')), 'dist/xlsx.full.min.js')
+  const jszipBrowserEntry = join(
+    dirname(require.resolve('jszip/package.json', { paths: [dirname(require.resolve('docx-preview'))] })),
+    'dist/jszip.min.js',
+  )
+  return {
+    name: 'dsh-office-browser-aliases',
+    resolveId(source: string) {
+      if (source === 'xlsx') return xlsxBrowserEntry
+      if (source === 'jszip') return jszipBrowserEntry
       return null
     },
   }
@@ -340,7 +372,7 @@ function makeCssPlugin(pluginId: string): BuildPlugin {
 }
 
 /** The lazy chunk names (keep in sync with src/bundle-route.ts CHUNK_NAMES). */
-const CHUNKS = ['terminal', 'editor', 'locale', 'trajectory', 'mermaid']
+const CHUNKS = ['terminal', 'editor', 'locale', 'trajectory', 'mermaid', 'office']
 
 export default [
   {
