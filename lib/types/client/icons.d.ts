@@ -65,3 +65,12 @@ export declare const IconSaveOutline16: ({ size, className }: IconProps) => impo
  * rendered monochrome via currentColor to follow the active skin.
  */
 export declare const IconVscode16: ({ size, className }: IconProps) => import("react").JSX.Element;
+/**
+ * Send glyph for the side-chat composer. Vendored from
+ * @deepseek-ai/dsh-client-ui-primitives 0.1.5-rc.2 (IconSendOutline16, a
+ * filled up-arrow): upstream DELETED that export in 0.1.6-alpha.1, which left
+ * the imported binding undefined and crashed the side-chat panel with React
+ * "Element type is invalid". Kept in this module (like the history / save
+ * glyphs above) so a future upstream icon-table change cannot reach us.
+ */
+export declare const IconSendOutline16: ({ size, className }: IconProps) => import("react").JSX.Element;

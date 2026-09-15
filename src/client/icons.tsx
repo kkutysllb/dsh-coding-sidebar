@@ -185,3 +185,20 @@ export const IconVscode16 = ({ size = 16, className }: IconProps) => (
     <path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z" />
   </svg>
 )
+
+/**
+ * Send glyph for the side-chat composer. Vendored from
+ * @deepseek-ai/dsh-client-ui-primitives 0.1.5-rc.2 (IconSendOutline16, a
+ * filled up-arrow): upstream DELETED that export in 0.1.6-alpha.1, which left
+ * the imported binding undefined and crashed the side-chat panel with React
+ * "Element type is invalid". Kept in this module (like the history / save
+ * glyphs above) so a future upstream icon-table change cannot reach us.
+ */
+export const IconSendOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M8.3125 0.981587C8.66767 1.0545 8.97902 1.20558 9.2627 1.43374C9.48724 1.61438 9.73029 1.85933 9.97949 2.10854L14.707 6.83608L13.293 8.25014L9 3.95717V15.0431H7V3.95717L2.70703 8.25014L1.29297 6.83608L6.02051 2.10854C6.26971 1.85933 6.51277 1.61438 6.7373 1.43374C6.97662 1.24126 7.28445 1.04542 7.6875 0.981587C7.8973 0.94841 8.1031 0.956564 8.3125 0.981587Z"
+      fill="currentColor"
+    />
+  </svg>
+)

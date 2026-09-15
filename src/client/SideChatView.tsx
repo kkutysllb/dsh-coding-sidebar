@@ -27,7 +27,6 @@ import {
   IconChevronRightOutline14,
   IconNewChatOutline16,
   IconPlusOutline16,
-  IconSendOutline16,
   IconStopFill16,
   MarkdownText,
   Menu,
@@ -35,7 +34,7 @@ import {
   type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { markdownTextProps } from './markdown-labels.tsx'
-import { IconHistoryOutline16, IconSaveOutline16 } from './icons.tsx'
+import { IconHistoryOutline16, IconSaveOutline16, IconSendOutline16 } from './icons.tsx'
 import type { Context, SidebarHistoryEntry } from '../context-types.ts'
 import {
   SIDE_LABEL_PREFIX,
