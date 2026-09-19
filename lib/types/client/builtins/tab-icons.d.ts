@@ -44,6 +44,11 @@ export declare const terminalTabIcon: TabIcon;
 /** Browser — the same secondary accent as the side chat's sibling surfaces. */
 export declare const browserTabIcon: TabIcon;
 /**
+ * Agent Teams — the roster glyph, in the side-chat family: both are the
+ * collaboration surfaces beside the lead conversation.
+ */
+export declare const teamTabIcon: TabIcon;
+/**
  * Trajectory — the flow glyph, in the model/request accent: this page and the
  * green request chips of the graph it draws are the same subject.
  */

@@ -70,6 +70,11 @@ import { BrowserNavigation, MAX_BROWSER_HISTORY } from './browser-nav.mjs'
 import { normalizeBrowserUrl } from './browser-url.mjs'
 import { registerLinkInterception, shouldInterceptLink } from './link-intercept.mjs'
 import { readScopeOf } from './editor-read-scope.mjs'
+import {
+  EMPTY_TEAM_DRAFT, isTeamDraftCommittable, isTeamMemberAssignable, isTeamMemberOpenable,
+  sameTeamDependencies, teamDraftOfTask, teamFailureText, teamItems, teamMemberStatusKey,
+  teamMemberTone, teamMutationOutcome, teamTaskIds, teamTaskStatusKey,
+} from './team-model.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
 import { createFileIconRegistry } from './file-icon-registry.mjs'
 import { buildTrajectoryGraph, windowTrajectoryGraph } from './trajectory-graph.mjs'
@@ -1629,6 +1634,46 @@ console.log('[readScopeOf]')
   ok(readScopeOf(rendered, { readSessionId: 42, readCwd: '/w/owner' }) === rendered, '非字符串 sessionId → 回落')
   const same = readScopeOf(rendered, { readSessionId: 'active', readCwd: '/w/active' })
   ok(same.sessionId === 'active' && same.cwd === '/w/active', '同会话记录与页签会话等价')
+}
+
+/* ───────────────────── 智能体团队：纯模型（草稿/状态/变更结果） ───────────────────── */
+console.log('[team-model]')
+{
+  ok(teamItems('a, b ,a,,  c ').join('|') === 'a|b|c', '逗号列表去空去重保序')
+  ok(teamItems('').length === 0, '空串 → 空列表')
+  ok(teamTaskIds('T1, T2').join(',') === 'T1,T2', '任务 ID 列表解析')
+  ok(!isTeamDraftCommittable(EMPTY_TEAM_DRAFT), '空草稿不可提交')
+  ok(!isTeamDraftCommittable({ ...EMPTY_TEAM_DRAFT, subject: ' x ' }), '只有标题不可提交（描述必填，与服务一致）')
+  ok(isTeamDraftCommittable({ subject: ' x ', description: ' y ', blockers: '', scopes: '' }), '标题+描述齐备可提交')
+
+  const task = {
+    id: 'T1', revision: 3, subject: 's', description: 'd', status: 'pending',
+    blockedBy: ['T0'], writeScopes: ['src/a'], ready: false, writeScopeWarnings: [],
+  }
+  const draft = teamDraftOfTask(task)
+  ok(draft.subject === 's' && draft.description === 'd' && draft.blockers === 'T0' && draft.scopes === 'src/a', '编辑草稿由任务行播种')
+  ok(sameTeamDependencies(['T0'], ['T0']) && !sameTeamDependencies(['T0'], ['T1']) && !sameTeamDependencies(['T0'], []), '依赖比较：等长且逐项相等')
+
+  ok(teamMutationOutcome({ ok: true, value: task }).kind === 'ok', '成功 → ok')
+  ok(teamMutationOutcome({ ok: false, error: { code: 'team-task-conflict', message: 'stale' } }).kind === 'conflict', '旧 revision → conflict（重载并提示）')
+  const rejected = teamMutationOutcome({ ok: false, error: { code: 'team-rejected', message: 'nope' } })
+  ok(rejected.kind === 'rejected' && rejected.code === 'team-rejected' && rejected.message === 'nope', '业务拒绝原样带出')
+
+  ok(teamFailureText({ code: 'c', message: 'm' }) === 'm (c)', '失败文案沿用上游格式')
+  ok(teamTaskStatusKey('pending') === 'statusPending' && teamTaskStatusKey('in_progress') === 'statusInProgress'
+    && teamTaskStatusKey('completed') === 'statusCompleted' && teamTaskStatusKey('deleted') === 'statusCompleted', '任务状态 → 文案键')
+  ok(teamMemberStatusKey('running') === 'memberRunning' && teamMemberStatusKey('idle') === 'memberIdle'
+    && teamMemberStatusKey('inactive') === 'memberInactive' && teamMemberStatusKey('provisioning') === 'memberProvisioning'
+    && teamMemberStatusKey('failed') === 'memberFailed', '成员状态 → 文案键')
+  ok(teamMemberTone('running') === 'ongoing' && teamMemberTone('failed') === 'error' && teamMemberTone('idle') === 'done', '状态点色阶')
+
+  const lead = { id: 'L', name: 'lead', role: 'lead', status: 'running', diagnostics: [] }
+  const mate = { id: 'M', name: 'mate', role: 'teammate', status: 'idle', diagnostics: [] }
+  const provisioning = { id: 'P', name: 'p', role: 'teammate', status: 'provisioning', diagnostics: [] }
+  const failed = { id: 'F', name: 'f', role: 'teammate', status: 'failed', diagnostics: [] }
+  ok(!isTeamMemberOpenable(lead) && isTeamMemberOpenable(mate), '只有队友可打开（lead 不可点）')
+  ok(!isTeamMemberOpenable(provisioning) && !isTeamMemberOpenable(failed), '创建中/失败的队友不可打开')
+  ok(isTeamMemberAssignable(mate) && isTeamMemberAssignable(lead) && !isTeamMemberAssignable(failed), '可视成员可被指派')
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

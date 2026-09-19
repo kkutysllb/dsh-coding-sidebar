@@ -22,6 +22,7 @@ import {
   VscGlobe,
   VscGraph,
   VscLayers,
+  VscOrganization,
   VscTasklist,
   VscTerminal,
 } from 'react-icons/vsc'
@@ -29,7 +30,7 @@ import styles from './tab-icons.module.css'
 
 /** The styled wrapper classes; typed so a renamed rule fails the build. */
 const css = styles as Record<
-  'files' | 'changes' | 'tasks' | 'plans' | 'sidechat' | 'terminal' | 'browser' | 'trajectory',
+  'files' | 'changes' | 'tasks' | 'plans' | 'sidechat' | 'terminal' | 'browser' | 'trajectory' | 'team',
   string
 >
 
@@ -83,6 +84,13 @@ export const terminalTabIcon: TabIcon = (size) =>
 /** Browser — the same secondary accent as the side chat's sibling surfaces. */
 export const browserTabIcon: TabIcon = (size) =>
   themed(css.browser, <VscGlobe size={size} />)
+
+/**
+ * Agent Teams — the roster glyph, in the side-chat family: both are the
+ * collaboration surfaces beside the lead conversation.
+ */
+export const teamTabIcon: TabIcon = (size) =>
+  themed(css.team, <VscOrganization size={size} />)
 
 /**
  * Trajectory — the flow glyph, in the model/request accent: this page and the

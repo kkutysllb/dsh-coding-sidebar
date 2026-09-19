@@ -11,7 +11,7 @@ import { IconCodeOutline16, IconPanelLeftOutline16 } from '@deepseek-ai/dsh-clie
 import type { Context } from '../../context-types.ts'
 import {
   browserTabIcon, changesTabIcon, filesTabIcon, plansTabIcon, sidechatTabIcon, tasksTabIcon,
-  terminalTabIcon, trajectoryTabIcon,
+  teamTabIcon, terminalTabIcon, trajectoryTabIcon,
 } from './tab-icons.tsx'
 import { allLeaves, isAgentTabId, type SidebarState } from '../state.ts'
 import { t } from '../locales.ts'
@@ -23,6 +23,7 @@ import { GitView } from '../GitView.tsx'
 import { PlansView } from '../PlansView.tsx'
 import { DiffTab } from '../DiffTab.tsx'
 import { SubagentView } from '../SubagentView.tsx'
+import { TeamView } from '../TeamView.tsx'
 import { consumeSidechatSeed, SideChatView, sidechatThreadIdOf } from '../SideChatView.tsx'
 import { api } from '../api.ts'
 import { BrowserView } from '../BrowserView.tsx'
@@ -196,6 +197,20 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
           active={visible}
           onOpenChild={(address) => { onSubagentJump?.(address.childSessionId) }}
         />
+      ),
+    },
+    {
+      // Agent Teams（2026-09-19）：把上游「智能体团队」的名册与任务看板做进自家
+      // 侧栏（产品铁律 1：不用上游 UI，只用它的数据面 ctx.agentTeams）。官方
+      // bundle 是 opt-in 且会替换 subagent 工具，故本 tab 不自动挂载它：未启用
+      // 时渲染「去启用」空态。
+      id: 'team',
+      title: () => t('teamTitle'),
+      icon: teamTabIcon,
+      order: 31,
+      single: true,
+      component: ({ ctx, store, scope, tab, visible }) => (
+        <TeamView ctx={ctx} store={store} scope={scope} tab={tab} visible={visible} />
       ),
     },
     {

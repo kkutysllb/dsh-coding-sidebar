@@ -56,6 +56,7 @@ import { registerTools } from './tools.ts'
 import { AgentOpenRegistry, registerOpenTool, type AgentOpenRequest } from './agent-opens.ts'
 import { buildJobsApi, type SidebarJobsRoutes } from './jobs-routes.ts'
 import { buildSubagentLiveApi, type SidebarSubagentLiveRoutes } from './subagent-live-route.ts'
+import { buildTeamApi, type SidebarTeamRoutes } from './team-routes.ts'
 import { buildSidechatApi } from './sidechat-routes.ts'
 import { readJsonBody, requireString, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
 
@@ -332,7 +333,12 @@ function buildApi(
   // `subagents.history` calls. The route degrades to a 503 when the host
   // subagent runtime is absent (the page has no topology to show anyway).
   const subagentLiveApi: SidebarSubagentLiveRoutes = buildSubagentLiveApi(ctx)
+  // Agent Teams bridge（2026-09-19）：读上游 ctx.agentTeams 的名册/任务看板并
+  // 转发 CAS 变更。上游「智能体团队」插件未启用时返回 service-missing——侧栏
+  // 的团队 tab 据此渲染"去启用"空态（不自动挂载该服务：它会替换 subagent 工具）。
+  const teamApi: SidebarTeamRoutes = buildTeamApi(ctx)
   return {
+    ...teamApi,
     'session.cwd': async (payload) => {
       const { sessionId, cwd } = await cwdOf(payload)
       return { sessionId, cwd, root: rootLabel(cwd), parent: parentOf(cwd) ?? null }

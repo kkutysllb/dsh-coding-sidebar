@@ -10,6 +10,9 @@ import { encodeHtmlUrl } from '../html-route.ts'
 import type { LastActivity } from '../subagent-activity.ts'
 import type { SidechatThreadInfo } from '../sidechat-core.ts'
 import type { BrowserProbeResult } from './browser.ts'
+import type {
+  CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest,
+} from '../team-types.ts'
 
 /** One wire failure. */
 export class SidebarApiError extends Error {
@@ -311,6 +314,20 @@ function gitPayload(scope: SessionScope, worktree: string | undefined, extra: Re
 export const api = {
   sessionCwd: (scope: SessionScope, signal?: AbortSignal) =>
     call<{ sessionId: string; cwd: string; root: string; parent: string | null }>('session.cwd', scopePayload(scope, {}), signal),
+  /**
+   * Agent Teams: the roster + task board the upstream `ctx.agentTeams` service
+   * reports for this Session's team. `available: false` is an ordinary answer
+   * (the official 「智能体团队」 bundle is opt-in) — the tab renders it as an
+   * enable-me empty state.
+   */
+  teamView: (scope: SessionScope, signal?: AbortSignal) =>
+    call<TeamViewResult>('team.view', scopePayload(scope, {}), signal),
+  /** Create one shared task (subject + description are required by the service). */
+  teamCreateTask: (scope: SessionScope, input: CreateTeamTaskRequest, signal?: AbortSignal) =>
+    call<TeamMutationEnvelope>('team.createTask', scopePayload(scope, { ...input }), signal),
+  /** Apply one compare-and-set task mutation (`expectedRevision` guards the row). */
+  teamUpdateTask: (scope: SessionScope, input: UpdateTeamTaskRequest, signal?: AbortSignal) =>
+    call<TeamMutationEnvelope>('team.updateTask', scopePayload(scope, { ...input }), signal),
   fsTree: (scope: SessionScope, path: string, signal?: AbortSignal) =>
     call<{ path: string; entries: FsEntry[]; truncated: boolean }>('fs.tree', scopePayload(scope, { path }), signal),
   /** Global recursive file-name search rooted at the session cwd (the editor
