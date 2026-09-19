@@ -32,6 +32,15 @@ export declare function SidebarProducedFiles(props: {
  */
 export declare function registerTurnTailInterception(ctx: Context, store: SidebarStore): () => void;
 /**
+ * Whether the turn carries a `workspace/changes` announcement — the built-in
+ * changed-files card renders its own row for such turns. Read through the
+ * same structural turn-data face as {@link hasDeclaredDeliveries}; an older
+ * carrier without the `deliverables` key publishes no announcement.
+ * @param owner - the turn-tail owner currency ({turn, seq}).
+ * @returns true when the built-in card will claim this turn.
+ */
+export declare function hasChangesAnnouncement(owner: unknown): boolean;
+/**
  * Register the chat file-open interception: wraps THREE file-open doors so
  * opens land in the sidebar editor instead of the Host OS (or DSH's own right
  * Sidebar) — the folder-reveal gesture ("Show in folder" passes `'.'`, and so

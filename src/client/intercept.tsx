@@ -1,18 +1,29 @@
 /**
- * Interception of the chat's produced-files row: the turn-tail chain entry
- * that replaces ui-deliverables' row when the closing turn produced files.
- * The takeover looks identical (same chip row); the chips open the file in
- * the sidebar instead of the host OS. Priority -1 runs before the default-0
- * deliverables entry; when nothing was produced the selector returns null
- * and the original row renders unchanged.
+ * The chat's produced-files row: a turn-tail LIST entry (dsh 0.1.6-alpha.2
+ * semantics) coexisting with ui-deliverables' own entries — the chips open
+ * the file in the sidebar editor instead of the host OS.
  *
- * The slot is a CHAIN — the first selector that returns non-null renders, and
- * that entry alone owns the whole row — so this takeover must never claim a
- * turn it cannot render completely. dsh 0.1.5-alpha.2 added explicit
- * deliveries to the same row (`present` cards); this code renders only changed
- * files, so a turn carrying deliveries is DECLINED and left to the built-in
- * row. See {@link registerTurnTailInterception}.
+ * History: through dsh 0.1.6-alpha.1 the slot was a CHAIN — this entry
+ * elected with select/priority -1 and REPLACED the built-in row for the
+ * whole turn. 0.1.6-alpha.2 turned it into a list (every entry renders its
+ * own row; registration requires an id; select/priority are gone), so
+ * preemption is no longer expressible. Coexistence rules replace it — the
+ * component declines (renders null) whenever the BUILT-IN surfaces already
+ * show this turn's files, so the two never duplicate a list:
+ *
+ * - a `workspace/changes` announcement means the built-in changed-files card
+ *   renders (its chips still reach this sidebar through the openResource
+ *   interception below);
+ * - declared `present` deliveries are the built-in row's business (unchanged
+ *   from the chain era);
+ * - nothing produced, the editor tab disabled, or the sidebar suspended all
+ *   decline as before.
+ *
+ * The produced row therefore covers exactly the gap the built-ins leave:
+ * tool-mutation turns in workspaces without a served changes summary.
+ * See {@link registerTurnTailInterception}.
  */
+import type { ReactElement } from 'react'
 import { IconCodeOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarRemoteService } from '../context-types.ts'
 import { firstLeaf, revealPaths, togglePanel, type SidebarStore } from './state.ts'
@@ -137,33 +148,64 @@ export function SidebarProducedFiles(props: {
  * @deepseek-ai/dsh-client-ui-deliverables' registration of the same slot.
  */
 export function registerTurnTailInterception(ctx: Context, store: SidebarStore): () => void {
+  /**
+   * The turn-tail list entry's render: decline (null) on every coexistence
+   * rule, otherwise the produced-files chip row. Defined inside the
+   * registration so the store/ctx closure is reachable; the structural
+   * props face keeps the build independent of the type releases' chain-era
+   * shapes (same recipe as {@link hasDeclaredDeliveries}).
+   */
+  function SidebarTurnTail(props: {
+    readonly turn?: { readonly data?: { get?(key: string): unknown } }
+    readonly seq?: unknown
+    readonly nodes?: readonly unknown[]
+    readonly sessionId?: string
+  } & Record<string, unknown>): ReactElement | null {
+    if (store.getSuspended()) return null
+    if (store.getPrefs().tabsEnabled['editor'] === false) return null
+    if (hasDeclaredDeliveries(props)) return null
+    // The built-in changed-files card claims announced turns (list semantics:
+    // it renders its own row). Decline so the same files never list twice —
+    // its chips still land in this sidebar via the openResource interception.
+    if (hasChangesAnnouncement(props)) return null
+    const matched = selectProducedFiles(props)
+    if (matched === null) return null
+    lastProduced = matched
+    const { openInSidebar, onShowInFolder } = props as {
+      openInSidebar: (path: string) => void
+      onShowInFolder: (files: readonly string[]) => void
+    }
+    return <SidebarProducedFiles matched={matched} openInSidebar={openInSidebar} onShowInFolder={onShowInFolder} />
+  }
   return ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
     name: 'conversation.chat.turnTail',
-    // Decline the takeover while the editor tab type is disabled in the side
-    // card settings: the produced-files row falls back to the default
-    // deliverables behavior instead of offering chips that cannot open. Also
-    // while the sidebar is externally disabled (aionui-panel chosen).
-    select: (owner) => {
-      if (store.getSuspended()) return null
-      if (store.getPrefs().tabsEnabled['editor'] === false) return null
-      // Declared deliveries are the built-in row's business: it renders the
-      // `present` cards, and this takeover renders changed files only. The
-      // chain elects ONE entry for the whole row, so claiming here would hide
-      // the cards entirely (dsh 0.1.5-alpha.2). Declining hands the turn to the
-      // built-in row; its chips and card previews still reach this sidebar
-      // through the openResource interception.
-      if (hasDeclaredDeliveries(owner)) return null
-      const matched = selectProducedFiles(owner)
-      if (matched !== null) lastProduced = matched
-      return matched
-    },
-    priority: -1,
+    // dsh 0.1.6-alpha.2: the slot became a list — id is required, and
+    // select/priority no longer exist. The match/decline decision moved into
+    // the component (SidebarTurnTail) so it re-runs on every render.
+    id: 'dsh-coding-sidebar',
     registrant: 'dsh-coding-sidebar',
     inject: (sessionId: string) => ({
       openInSidebar: (path: string) => { openSidebarFile(ctx, store, sessionId, path) },
       onShowInFolder: (files: readonly string[]) => { revealInExplorer(ctx, store, sessionId, files) },
     }),
-  }, SidebarProducedFiles))
+  }, SidebarTurnTail))
+}
+
+/**
+ * Whether the turn carries a `workspace/changes` announcement — the built-in
+ * changed-files card renders its own row for such turns. Read through the
+ * same structural turn-data face as {@link hasDeclaredDeliveries}; an older
+ * carrier without the `deliverables` key publishes no announcement.
+ * @param owner - the turn-tail owner currency ({turn, seq}).
+ * @returns true when the built-in card will claim this turn.
+ */
+export function hasChangesAnnouncement(owner: unknown): boolean {
+  const record = owner as { turn?: { data?: { get?(key: string): unknown } } } | null
+  if (record === null || typeof record !== 'object') return false
+  const data = record.turn?.data?.get?.('deliverables') as { changes?: unknown } | null | undefined
+  if (data === null || typeof data !== 'object') return false
+  const changes = data.changes
+  return changes !== null && typeof changes === 'object' && typeof (changes as { seq?: unknown }).seq === 'number'
 }
 
 /**
