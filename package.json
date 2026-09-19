@@ -1,6 +1,6 @@
 {
   "name": "dsh-coding-sidebar",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "description": "DSH web plugin: a VSCode-like right sidebar (explorer / editor / terminal / git / browser), isolated per conversation session. Exposes the betterSidebar service for other plugins to register sidebar tabs and file viewers. KCoder-maintained fork of DSH-better-sidebar 0.17.2 (bottom panel removed, upstream-decoupled release line).",
   "type": "module",
   "repository": {
@@ -34,7 +34,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
   },
   "engines": {
     "node": ">=20"
@@ -103,7 +104,8 @@
     "@deepseek-ai/dsh-tools": "^0.1.5-rc.2 || ^0.1.6-alpha.1 || ^0.1.6-alpha.2",
     "@huanlin/dsh-plugin-better-locale": "^0.1.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "ws": "^8.18.0"
   },
   "peerDependenciesMeta": {
     "@huanlin/dsh-plugin-better-locale": {
@@ -144,7 +146,6 @@
     "react-icons": "5.7.0",
     "rxjs": "^7.8.2",
     "schemastery": "^3.18.0",
-    "ws": "^8.18.0",
     "xlsx": "0.18.5"
   },
   "devDependencies": {

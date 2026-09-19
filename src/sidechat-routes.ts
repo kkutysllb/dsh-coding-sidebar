@@ -78,6 +78,15 @@ const threadDisposers = new Map<string, () => Promise<void>>()
  *  prompt is then delivered alone, a logged degradation). */
 const pendingSnapshots = new Map<string, string>()
 
+/** 释放全部活跃线程（teardown 收口）：逐个 await 释放并清空两张表。
+ *  与 sidechat.dispose 路由同语义；失败（agent 已随重启消失）不阻断卸载。 */
+async function releaseAllThreads(): Promise<void> {
+  const pending = [...threadDisposers.values()]
+  threadDisposers.clear()
+  pendingSnapshots.clear()
+  await Promise.allSettled(pending.map((dispose) => dispose()))
+}
+
 /** Resolve the parent's preset and build the child's composition setup
  *  (mirror of api-proxy's composeAgent minus the model-selection install —
  *  the child carries the parent's provider/model in agentOptions). */
@@ -159,6 +168,11 @@ function liveThreadAgent(ctx: Context, childId: string): Agent | undefined {
  *  error the tab surfaces inline). The record keys are the FULL wire method
  *  names the /sidebar/api dispatcher looks up (`api[method]`). */
 export function buildSidechatApi(ctx: Context): SidechatRoutes {
+  // 插件停用/卸载（HMR）收口：释放本 activation 仍存活的 sidechat 子 agent。
+  // 插件管理器「等已移除插件释放资源及 Loader 树稳定」后才继续 pnpm remove，
+  // 活跃子 agent 不能留在宿主 AgentRegistry 里继续跑（会话与历史保持持久化，
+  // 与 sidechat.dispose 路由同语义：只释放 live agent）。
+  ctx.effect(() => () => releaseAllThreads(), 'dsh-coding-sidebar: sidechat threads')
   return {
     'sidechat.start': async (payload: unknown) => {
       const sessionId = requireString(payload, 'sessionId')
