@@ -259,6 +259,9 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
   // unwrapped there instead of failing the whole registration.
   const workspaces = ctx.get('workspaces') as OpenPathService | undefined
   const disposeOld = workspaces === undefined ? () => {} : wrapOpenPath(workspaces, deps)
+  if (workspaces === undefined && ctx.get('sidebarRight') === undefined) {
+    console.log('[dsh-coding-sidebar] open-path interception: sidebarRight 未就绪，等待 inject 装配')
+  }
   // Optional probe: the Remote carrier is absent on pre-migration baselines
   // (and the wrap itself no-ops when the method is missing). Read via
   // ctx.get like every other optional service (same recipe as the
@@ -269,16 +272,40 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
   const disposeRemote = remote === undefined
     ? () => {}
     : wrapRemoteOpenPath(remote.session, deps)
-  // The 0.1.5 door. Same optional-probe recipe: the right Sidebar is composed
-  // by the shipped Web patch, not by this plugin, so a carrier without it just
-  // leaves this door unwrapped.
-  const sidebarRight = ctx.get('sidebarRight') as SidebarRightStub | undefined
-  const disposeRight = sidebarRight === undefined
-    ? () => {}
-    : wrapSidebarRight(sidebarRight, deps)
+  // The 0.1.5 door — the one the CURRENT ui-chat actually calls
+  // (`apply.ts`: ctx.sidebarRight.openResource(fileAddressFor(...))). Its
+  // service is composed by the shipped Web patch, NOT by this plugin, so
+  // availability depends on the client module activation order.
+  //
+  // 现场（2026-09-19，alpha.2 + 该组合）：一次性 `ctx.get('sidebarRight')`
+  // 探针在提供方之前执行 → 返回 undefined → 这道门**永久未装配**：点文件
+  // 落回原生通道（原生外壳被产品侧压制，表现为一片空白/无预览）。alpha.1
+  // 时代没暴露，是因为那时 ui-chat 走 `remote.session.openWorkspacePath`，
+  // 而 `remote.session` 在本插件的 inject 清单里、天然等到服务就绪。
+  //
+  // 改为 `ctx.inject` 延迟装配：服务就绪即装（已在则同步回调），载具永不
+  // 提供时回调不触发、门保持未装（与旧行为的降级面一致，不阻塞插件激活）。
+  let disposed = false
+  let disposeRight = () => {}
+  // ctx.inject 返回 Fiber（`dispose(): Promise<void>`；本仓 cordis 版本无
+  // 可调用的 disposer 返回值），清理时显式 dispose。
+  const injectFiber = ctx.inject(['sidebarRight'], () => {
+    if (disposed) return
+    const sidebarRight = ctx.get('sidebarRight') as SidebarRightStub | undefined
+    if (sidebarRight === undefined) return
+    disposeRight = wrapSidebarRight(sidebarRight, deps)
+    // 安装期诊断（每激活一次一行）：哪个门装上了、哪个没有——现场排查
+    // 「点文件走了原生侧边栏」这类"静默未装配"只需看这一行。
+    console.log('[dsh-coding-sidebar] open-path interception: doors'
+      + ' workspaces=' + (workspaces !== undefined)
+      + ' remote.session=' + (remote !== undefined)
+      + ' sidebarRight=true')
+  })
   return () => {
+    disposed = true
     disposeOld()
     disposeRemote()
     disposeRight()
+    void injectFiber.dispose()
   }
 }
