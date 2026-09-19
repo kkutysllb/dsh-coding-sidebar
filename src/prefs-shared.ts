@@ -259,7 +259,12 @@ export const SIDEBAR_PREFS_DEFAULTS: SidebarPrefs = {
   browserNoSandbox: false,
   browserInterceptLinks: true,
   browserInterceptHttp: true,
-  browserInterceptHttps: false,
+  // 2026-09-19 由 false 翻为 true：当年默认关的理由是"多数 https 站点拒绝被
+  // iframe 嵌入"，而现在（a）browser 页签已按上游原生的做法给了
+  // allow-same-origin，（b）嵌入被拒的站点有探测 + 说明面板（可直接跳真实
+  // 浏览器），（c）产品铁律 1 下**任何**落回原生右栏的打开都是空白——链接
+  // 必须由我们接住。用户仍可在设置里单独关掉 https 接管。
+  browserInterceptHttps: true,
   browserAllowedLoopback: '',
   tabsEnabled: {},
   viewersEnabled: {},

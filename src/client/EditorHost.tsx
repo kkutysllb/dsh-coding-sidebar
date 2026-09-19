@@ -30,6 +30,7 @@ import type { Context } from '../context-types.ts'
 import { api, mediaUrl, type SessionScope } from './api.ts'
 import { BinaryDownload } from './binary-download.tsx'
 import { planFirstMatch, planFsReadOutcome, type EditorLoadAction } from './editor-load.ts'
+import { readScopeOf } from './editor-read-scope.ts'
 import { baseName } from './FileTree.tsx'
 import { createFrameBatcher } from './frame-batcher.ts'
 import { openSidebarFile } from './intercept.tsx'
@@ -105,6 +106,11 @@ export function EditorHost(props: {
   onPathRemoved?: (path: string) => void
 }) {
   const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile, onPathRenamed, onPathRemoved } = props
+  // 读取作用域（2026-09-19）：跨工作区打开的页签按 meta 里记的**文件所属会话**
+  // 读盘——页签本身落在当前会话的状态里（可见），但它指向的文件可能属于另一个
+  // 会话的另一个工作区；用页签所在会话的 cwd 去读会被宿主侧的 containment 守卫
+  // 拒掉（`path "…" is outside workspace`）。meta 缺席（同会话/老页签）时行为不变。
+  const readScope: SessionScope = readScopeOf(scope, metaOf(tab))
   const path = tab.path ?? ''
   const title = tab.title
   // A folder window: the model's `sidebar_open` (or any caller) opens a
@@ -163,13 +169,13 @@ export function EditorHost(props: {
     if (inPlace) {
       ctx.get('betterSidebar')?.updateTab(tab.id, { path: absolute, title: baseName(absolute) })
     } else {
-      openSidebarFile(ctx, store, scope.sessionId, absolute)
+      openSidebarFile(ctx, store, readScope.sessionId, absolute)
     }
   }
 
   /** The context menu's explicit "new tab" escape (per-path dedupe). */
   const openFileNewTab = (absolute: string): void => {
-    openSidebarFile(ctx, store, scope.sessionId, absolute)
+    openSidebarFile(ctx, store, readScope.sessionId, absolute)
   }
 
   /**
@@ -293,7 +299,7 @@ export function EditorHost(props: {
     // closed, path changed, session switched) or re-matches the viewer.
     const controller = new AbortController()
     setLoad({ status: 'loading' })
-    const mediaUrlOf = (): string => mediaUrl(scope, path)
+    const mediaUrlOf = (): string => mediaUrl(readScope, path)
     const apply = (action: EditorLoadAction): void => {
       if (cancelled) return
       switch (action.kind) {
@@ -311,7 +317,7 @@ export function EditorHost(props: {
           })
           return
         case 'customLoad':
-          void action.viewer.load?.(path, scope, controller.signal).then((data) => {
+          void action.viewer.load?.(path, readScope, controller.signal).then((data) => {
             if (cancelled) return
             setLoad({ status: 'ready', viewer: action.viewer, customData: data })
           }).catch((error: unknown) => {
@@ -320,7 +326,7 @@ export function EditorHost(props: {
           })
           return
         case 'fetchFsRead':
-          api.fsRead(scope, path).then((result) => {
+          api.fsRead(readScope, path).then((result) => {
             if (cancelled) return
             // Binary reads carry the head bytes for the detect re-match.
             const outcome = planFsReadOutcome(action.viewer, {
@@ -339,7 +345,7 @@ export function EditorHost(props: {
     }
     apply(planFirstMatch(ctx.get('betterSidebar')?.matchFileViewer(path), mediaUrlOf))
     return () => { cancelled = true; controller.abort() }
-  }, [scope.sessionId, scope.cwd, path, ctx, showEmpty, isDir, reloadSeq])
+  }, [readScope.sessionId, readScope.cwd, path, ctx, showEmpty, isDir, reloadSeq])
 
   // Save-then-refresh in preview mode (issue #167 part C): the edge into
   // 'saved' (never a lingering 'saved' state) triggers exactly one reload, so
@@ -372,8 +378,8 @@ export function EditorHost(props: {
       <div className={css.editor}>
         <TreePanel
           full
-          sessionId={scope.sessionId}
-          cwd={folderRoot ?? scope.cwd}
+          sessionId={readScope.sessionId}
+          cwd={folderRoot ?? readScope.cwd}
           expanded={expanded}
           revealed={revealed}
           onToggle={onToggleDir}
@@ -397,7 +403,7 @@ export function EditorHost(props: {
   return (
     <div className={css.editor}>
       <div className={css.editorHeader}>
-        <EditorPathInput key={path} path={path} cwd={scope.cwd} onOpen={openFile} />
+        <EditorPathInput key={path} path={path} cwd={readScope.cwd} onOpen={openFile} />
         {toolbar?.modes === true && (
           <div className={css.editorModeToggle}>
             <button
@@ -467,9 +473,9 @@ export function EditorHost(props: {
           {showEmpty && <div className={css.editorPlaceholder}>{t('editorEmptyHint')}</div>}
           {!showEmpty && load.status === 'loading' && <div className={css.editorPlaceholder}>{t('loading')}</div>}
           {!showEmpty && load.status === 'error' && <div className={css.editorError}>{load.message}</div>}
-          {!showEmpty && load.status === 'binary' && <BinaryDownload scope={scope} path={path} />}
+          {!showEmpty && load.status === 'binary' && <BinaryDownload scope={readScope} path={path} />}
           {!showEmpty && load.status === 'ready' && createElement(load.viewer.component, {
-            ctx, store, scope, path, title,
+            ctx, store, scope: readScope, path, title,
             viewerId: load.viewer.id,
             content: load.content,
             truncated: load.truncated,
@@ -494,8 +500,8 @@ export function EditorHost(props: {
               onPointerCancel={onResizeEnd}
             />
             <TreePanel
-              sessionId={scope.sessionId}
-              cwd={scope.cwd}
+              sessionId={readScope.sessionId}
+              cwd={readScope.cwd}
               expanded={expanded}
               revealed={revealed}
               onToggle={onToggleDir}

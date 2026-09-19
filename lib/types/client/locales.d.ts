@@ -298,7 +298,13 @@ export declare const zh: {
     browserLiveFollowLatest: string;
     browserBlockedScheme: string;
     browserBlockedLoopback: string;
+    browserBlockedCredentials: string;
+    browserBlockedAppOrigin: string;
     browserInvalid: string;
+    browserEmpty: string;
+    browserAddressChanged: string;
+    browserLimitUnknown: string;
+    browserLoadFailed: string;
     browserNoSandboxWarning: string;
     htmlNoSandboxWarning: string;
     sandboxStatusOn: string;

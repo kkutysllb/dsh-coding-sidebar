@@ -1,28 +1,28 @@
 /**
  * Pure URL policy for the built-in browser tab: normalize user input into
- * an http(s) URL, and refuse destinations that would be dangerous to embed
- * in the sidebar iframe. Kept dependency-free so it is unit-testable.
+ * an http(s) URL, and refuse destinations that must never reach the frame.
+ * Kept dependency-free so it is unit-testable.
  *
- * The iframe sandbox (opaque origin, no allow-same-origin / top-navigation)
- * is the primary security boundary; this module is the address-bar gate on
- * top of it: only http/https may be navigated, and loopback addresses are
- * refused so a browsed page cannot probe local services by user action.
- * The GUI's OWN origin is explicitly ALLOWED — the user may open the GUI
- * itself in the sidebar (debugging, mirroring); the sandbox still renders
- * it in an opaque origin with no same-origin privileges, exactly like any
- * other site.
+ * Policy (2026-09-19, aligned with the upstream native side bar's browser):
+ * only http/https; no embedded credentials; the GUI's own origin is refused
+ * (the frame carries `allow-same-origin` for every site, so a document from
+ * the GUI's origin would be same-origin with its parent and could take over
+ * the session); loopback addresses need an explicit allowlist entry
+ * (`browserAllowedLoopback`) because a browsed page must not probe local
+ * services by user action.
  */
-/** Why a navigation attempt was refused. */
-export type BrowserBlockReason = 'scheme' | 'loopback';
+/** Why a navigation attempt was refused (surfaced verbatim under the toolbar). */
+export type BrowserFailureReason = 'empty' | 'invalid' | 'scheme' | 'loopback' | 'credentials' | 'app-origin';
+/** Maximum accepted address length; bounds the persisted navigation state. */
+export declare const MAX_BROWSER_URL_LENGTH: number;
 /** Result of normalizing one address-bar input. */
 export type BrowserNavigateResult = {
-    kind: 'ok';
-    url: string;
+    readonly kind: 'ok';
+    readonly url: string;
+    readonly title: string;
 } | {
-    kind: 'blocked';
-    reason: BrowserBlockReason;
-} | {
-    kind: 'invalid';
+    readonly kind: 'blocked';
+    readonly reason: BrowserFailureReason;
 };
 /** One browser.probe wire result (host fetch of the target's headers). */
 export interface BrowserProbeResult {

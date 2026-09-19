@@ -1,26 +1,27 @@
 /**
  * Pure URL policy for the built-in browser tab: normalize user input into
- * an http(s) URL, and refuse destinations that would be dangerous to embed
- * in the sidebar iframe. Kept dependency-free so it is unit-testable.
+ * an http(s) URL, and refuse destinations that must never reach the frame.
+ * Kept dependency-free so it is unit-testable.
  *
- * The iframe sandbox (opaque origin, no allow-same-origin / top-navigation)
- * is the primary security boundary; this module is the address-bar gate on
- * top of it: only http/https may be navigated, and loopback addresses are
- * refused so a browsed page cannot probe local services by user action.
- * The GUI's OWN origin is explicitly ALLOWED — the user may open the GUI
- * itself in the sidebar (debugging, mirroring); the sandbox still renders
- * it in an opaque origin with no same-origin privileges, exactly like any
- * other site.
+ * Policy (2026-09-19, aligned with the upstream native side bar's browser):
+ * only http/https; no embedded credentials; the GUI's own origin is refused
+ * (the frame carries `allow-same-origin` for every site, so a document from
+ * the GUI's origin would be same-origin with its parent and could take over
+ * the session); loopback addresses need an explicit allowlist entry
+ * (`browserAllowedLoopback`) because a browsed page must not probe local
+ * services by user action.
  */
 
-/** Why a navigation attempt was refused. */
-export type BrowserBlockReason = 'scheme' | 'loopback'
+/** Why a navigation attempt was refused (surfaced verbatim under the toolbar). */
+export type BrowserFailureReason = 'empty' | 'invalid' | 'scheme' | 'loopback' | 'credentials' | 'app-origin'
+
+/** Maximum accepted address length; bounds the persisted navigation state. */
+export const MAX_BROWSER_URL_LENGTH = 16 * 1024
 
 /** Result of normalizing one address-bar input. */
 export type BrowserNavigateResult =
-  | { kind: 'ok'; url: string }
-  | { kind: 'blocked'; reason: BrowserBlockReason }
-  | { kind: 'invalid' }
+  | { readonly kind: 'ok'; readonly url: string; readonly title: string }
+  | { readonly kind: 'blocked'; readonly reason: BrowserFailureReason }
 
 /** One browser.probe wire result (host fetch of the target's headers). */
 export interface BrowserProbeResult {
@@ -119,7 +120,8 @@ export function isAllowedLoopbackUrl(url: string, allowlist: string): boolean {
 
 export function normalizeBrowserUrl(input: string, selfOrigin: string, allowedLoopback = ''): BrowserNavigateResult {
   const trimmed = input.trim()
-  if (trimmed === '') return { kind: 'invalid' }
+  if (trimmed === '') return { kind: 'blocked', reason: 'empty' }
+  if (trimmed.length > MAX_BROWSER_URL_LENGTH) return { kind: 'blocked', reason: 'invalid' }
   // Distinguish an explicit scheme from a bare host:port. "example.com:8080"
   // would match a naive scheme regex (dots are legal in schemes), so a
   // scheme prefix is only honored when it is http(s) or a known-forbidden
@@ -138,30 +140,34 @@ export function normalizeBrowserUrl(input: string, selfOrigin: string, allowedLo
   try {
     url = new URL(withScheme)
   } catch {
-    return { kind: 'invalid' }
+    return { kind: 'blocked', reason: 'invalid' }
   }
   // The protocol backstop: any URL that still parses to a non-http(s)
   // scheme (e.g. ftp://, ws:// — which carry `//` and skip the list) is
   // refused here.
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return { kind: 'blocked', reason: 'scheme' }
-  // The GUI's own origin is ALLOWED (the user may browse the GUI itself in
-  // the sidebar; the sandbox renders it in an opaque origin like any other
-  // site). It must be checked before the loopback gate because its host is
-  // normally loopback.
+  // Embedded credentials are refused before anything else: they leak into the
+  // rendered frame's URL bar and into every subsequent request (upstream's
+  // side bar refuses them for the same reason).
+  if (url.username !== '' || url.password !== '') return { kind: 'blocked', reason: 'credentials' }
+  // The GUI's OWN origin is refused (2026-09-19, aligning with upstream's side
+  // bar): the browser iframe now carries `allow-same-origin` for every site
+  // (without it real sites cannot run at all), so a document served from the
+  // GUI's origin would be same-origin with its PARENT — it could read the
+  // GUI's storage, call /api with the session cookie, and drop its own
+  // sandbox. Browsing the GUI inside itself is therefore no longer offered.
   try {
-    if (url.origin === new URL(selfOrigin).origin) return { kind: 'ok', url: url.href }
+    if (url.origin === new URL(selfOrigin).origin) return { kind: 'blocked', reason: 'app-origin' }
   } catch {
     // Unparsable selfOrigin (never in practice): fall through to the loopback gate.
   }
   if (isLoopbackHostname(url.hostname)) {
     // An explicit user allowlist (browserAllowedLoopback) can lift the
-    // loopback block for trusted local dev servers. The sandbox still
-    // renders them in an opaque origin — no GUI access, exactly like any
-    // other browsed site.
+    // loopback block for trusted local dev servers.
     if (allowedLoopback.trim() !== '' && parseLoopbackAllowlist(allowedLoopback)(url.hostname, url.port)) {
-      return { kind: 'ok', url: url.href }
+      return { kind: 'ok', url: url.href, title: url.hostname }
     }
     return { kind: 'blocked', reason: 'loopback' }
   }
-  return { kind: 'ok', url: url.href }
+  return { kind: 'ok', url: url.href, title: url.hostname }
 }

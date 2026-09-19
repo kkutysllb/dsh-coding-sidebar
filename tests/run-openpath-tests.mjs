@@ -54,11 +54,22 @@
  *   cp /tmp/csb-preview/client/paths.js tests/paths.mjs
  *   sed -i '' "s|from './mermaid-blocks.ts'|from './mermaid-blocks.mjs'|" tests/markdown-html.mjs
  *   sed -i '' "s|from './paths.ts'|from './paths.mjs'|" tests/markdown-images.mjs
+ *   ./node_modules/.bin/tsc src/client/browser.ts src/client/browser-nav.ts \
+ *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-browser
+ *   cp /tmp/csb-browser/browser.js tests/browser-url.mjs
+ *   cp /tmp/csb-browser/browser-nav.js tests/browser-nav.mjs
+ *   ./node_modules/.bin/tsc src/client/link-intercept.ts --target es2022 --module esnext \
+ *     --skipLibCheck --noCheck --outDir /tmp/csb-li
+ *   cp /tmp/csb-li/link-intercept.js tests/link-intercept.mjs
  * （不用 Node 的类型擦除直读 .ts：package.json 声明 engines.node >= 20，
  *   而 .ts 直读要 22.6+。github.ts 的夹具要改一处 import 说明符，
  *   因为它运行时依赖同目录的 git 模块。）
  */
-import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight } from './openpath-intercept.mjs'
+import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, wrapNativeBrowserOpen, browserUrlOfOpen } from './openpath-intercept.mjs'
+import { BrowserNavigation, MAX_BROWSER_HISTORY } from './browser-nav.mjs'
+import { normalizeBrowserUrl } from './browser-url.mjs'
+import { registerLinkInterception, shouldInterceptLink } from './link-intercept.mjs'
+import { readScopeOf } from './editor-read-scope.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
 import { createFileIconRegistry } from './file-icon-registry.mjs'
 import { buildTrajectoryGraph, windowTrajectoryGraph } from './trajectory-graph.mjs'
@@ -1449,6 +1460,175 @@ console.log('\n[media range]')
   for (const bad of ['bytes=', 'bytes=abc', 'items=0-1', 'bytes=1.5-3', 'bytes=5-3', 'bytes=-0', 'bytes=-abc', 'bytes=--']) {
     ok(parseRange(bad, SIZE) === null, `无效/倒置区间被忽略：${bad}`)
   }
+}
+
+/* ───────────────────────── 原生 browser 页打开的认领 ─────────────────────────
+ * 现场（2026-09-19）：点聊天里的 http(s) 链接弹出原生右栏空白区——上游
+ * ui-chat 的 openExternalLink 直接发
+ * `ctx.sidebarRight.openTab('browser', { params: { url } })`，不经我们的
+ * openResource 门。wrapNativeBrowserOpen 认领该 kind，其余 kind 原样透传。 */
+console.log('[browserUrlOfOpen / wrapNativeBrowserOpen]')
+{
+  ok(browserUrlOfOpen({ params: { url: 'https://example.com/a' } }) === 'https://example.com/a', 'http(s) url 被取用')
+  ok(browserUrlOfOpen({ params: { url: 'http://localhost:3000/' } }) === 'http://localhost:3000/', 'http url 也取用（能否浏览由地址策略决定）')
+  ok(browserUrlOfOpen({ params: { url: 'dsh-resource://file/session/s/a.ts' } }) === undefined, '非 http(s) 的 url 不认领')
+  ok(browserUrlOfOpen({ params: { url: '' } }) === undefined, '空 url 不认领')
+  ok(browserUrlOfOpen({ params: { url: 42 } }) === undefined, '非字符串 url 不认领')
+  ok(browserUrlOfOpen({ params: null }) === undefined && browserUrlOfOpen({}) === undefined && browserUrlOfOpen(undefined) === undefined, '无 params / params 非对象时不认领')
+
+  const calls = []
+  const right = { openResource() {}, openTab(kind, options) { calls.push([kind, options]) } }
+  const opened = []
+  const dispose = wrapNativeBrowserOpen(right, (url) => { opened.push(url) })
+  right.openTab('browser', { params: { url: 'https://example.com/x' } })
+  ok(opened.length === 1 && opened[0] === 'https://example.com/x' && calls.length === 0, 'browser 类型被认领：不再进原生右栏')
+  right.openTab('terminal', { params: {} })
+  right.openTab('browser', { params: {} })
+  ok(calls.length === 2 && calls[0][0] === 'terminal' && calls[1][0] === 'browser', '其它 kind / 无 url 的 browser 打开原样透传')
+  dispose()
+  right.openTab('browser', { params: { url: 'https://example.com/y' } })
+  ok(calls.length === 3 && opened.length === 1, 'dispose 还原原方法（HMR / 停用后不留劫持）')
+  ok(typeof wrapNativeBrowserOpen({ openResource() {} }, () => {}) === 'function', '服务无 openTab 时安全空转')
+}
+
+/* ───────────────────────── 文档级链接接管必须独占事件 ─────────────────────────
+ * 同一个 bug 的另一半：capture 阶段只 preventDefault 时，React 根监听仍会跑
+ * 上游的 openExternalLink，于是"我们开一个 tab + 原生开一个空面板"同时发生。
+ * stopPropagation / stopImmediatePropagation 是让接管独占的必要条件。 */
+console.log('[registerLinkInterception 独占性]')
+{
+  const listeners = []
+  const originalDocument = globalThis.document
+  globalThis.document = {
+    addEventListener(type, fn, capture) { listeners.push([type, fn, capture]) },
+    removeEventListener() {},
+  }
+  try {
+    ok(shouldInterceptLink('https://example.com/x', 'http://127.0.0.1:1') === 'https://example.com/x', '外链命中')
+    ok(shouldInterceptLink('http://127.0.0.1:1/settings', 'http://127.0.0.1:1') === null, '同源（GUI 内部）链接不接管')
+    ok(shouldInterceptLink('mailto:a@b.c', 'http://127.0.0.1:1') === null, '非 http(s) 不接管')
+
+    const opened = []
+    let stopped = 0
+    let immediate = 0
+    let prevented = 0
+    const dispose = registerLinkInterception({
+      takeoverEnabled: () => true,
+      openInSidebar: (url) => { opened.push(url) },
+      selfOrigin: 'http://127.0.0.1:1',
+    })
+    ok(listeners.length === 1 && listeners[0][2] === true, 'capture 阶段注册在 document 上')
+    const anchor = { href: 'https://example.com/deep' }
+    listeners[0][1]({
+      button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false,
+      target: { closest: () => anchor },
+      preventDefault() { prevented++ },
+      stopPropagation() { stopped++ },
+      stopImmediatePropagation() { immediate++ },
+    })
+    ok(opened.length === 1 && opened[0] === 'https://example.com/deep', '接管后开进侧边栏')
+    ok(prevented === 1 && stopped === 1 && immediate === 1, 'preventDefault + stopPropagation + stopImmediatePropagation 三连（缺一即双开）')
+    // 改键点击永远透传（用户要用真实浏览器打开）
+    const before = opened.length
+    listeners[0][1]({
+      button: 0, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false,
+      target: { closest: () => anchor },
+      preventDefault() { prevented++ }, stopPropagation() { stopped++ }, stopImmediatePropagation() { immediate++ },
+    })
+    ok(opened.length === before && prevented === 1, 'Ctrl/Cmd 点击不接管、不吞事件')
+    dispose()
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document
+    else globalThis.document = originalDocument
+  }
+}
+
+/* ───────────────────────── 地址策略（对齐上游原生侧栏浏览器） ───────────────────────── */
+console.log('[normalizeBrowserUrl 政策]')
+{
+  const origin = 'http://127.0.0.1:62301'
+  ok(normalizeBrowserUrl('', origin).reason === 'empty', '空输入 → empty')
+  ok(normalizeBrowserUrl('   ', origin).reason === 'empty', '纯空白 → empty')
+  const bare = normalizeBrowserUrl('example.com', origin)
+  ok(bare.kind === 'ok' && bare.url === 'https://example.com/' && bare.title === 'example.com', '裸主机补 https，标题取主机名')
+  ok(normalizeBrowserUrl('javascript:alert(1)', origin).reason === 'scheme', 'javascript: 被拒')
+  ok(normalizeBrowserUrl('ftp://example.com/', origin).reason === 'scheme', 'ftp: 被拒')
+  ok(normalizeBrowserUrl('https://user:pw@example.com/', origin).reason === 'credentials', '带账号密码被拒')
+  ok(normalizeBrowserUrl('http://127.0.0.1:62301/', origin).reason === 'app-origin', 'GUI 自身来源被拒（帧带 allow-same-origin，同源即危险）')
+  ok(normalizeBrowserUrl('http://127.0.0.1:8080/', origin).reason === 'loopback', '本机地址默认被拒')
+  const allowed = normalizeBrowserUrl('http://127.0.0.1:8080/', origin, '127.0.0.1:8080')
+  ok(allowed.kind === 'ok' && allowed.url === 'http://127.0.0.1:8080/', '白名单内的本机地址放行')
+  ok(normalizeBrowserUrl('https://example.com/', origin, '127.0.0.1').kind === 'ok', '白名单不影响外网地址')
+}
+
+/* ───────────────────────── 导航状态机（上游 BrowserNavigation 同语义） ───────────────────────── */
+console.log('[BrowserNavigation]')
+{
+  const nav = new BrowserNavigation()
+  ok(nav.snapshot.navigation.status === 'empty' && nav.snapshot.index === -1, '初始 empty')
+  ok(!BrowserNavigation.canGoBack(nav.snapshot) && !BrowserNavigation.canGoForward(nav.snapshot), 'empty 下前后退均不可用')
+  ok(nav.reload() === undefined && nav.back() === undefined && nav.forward() === undefined, 'empty 下三条命令都不产生请求')
+
+  const first = nav.navigate({ url: 'https://a.test/', title: 'a.test' })
+  ok(first.revision === 1 && nav.snapshot.navigation.status === 'loading', '导航 → loading + revision 1')
+  ok(BrowserNavigation.current(nav.snapshot)?.url === 'https://a.test/', '当前项 = 导航目标')
+  ok(!BrowserNavigation.canGoBack(nav.snapshot), '仅一项时不可后退')
+
+  nav.frameLoaded(1)
+  ok(nav.snapshot.navigation.status === 'known', '首次 load → known')
+  nav.frameLoaded(999)
+  ok(nav.snapshot.navigation.status === 'known', 'revision 不匹配的 load 被忽略')
+  nav.frameLoaded(1)
+  ok(nav.snapshot.navigation.status === 'unknown', '同一 revision 第二次 load → unknown（页面内跳转）')
+  ok(!BrowserNavigation.canGoBack(nav.snapshot) && !BrowserNavigation.canGoForward(nav.snapshot), 'unknown 下前后退门控关闭')
+  ok(nav.back() === undefined && nav.forward() === undefined, 'unknown 下 back/forward 不产生请求')
+
+  const second = nav.navigate({ url: 'https://b.test/', title: 'b.test' })
+  ok(second.revision === 2 && nav.snapshot.entries.length === 2 && nav.snapshot.index === 1, '第二次导航追加历史')
+  ok(nav.snapshot.navigation.status === 'loading', '新导航回到 loading（unknown 解除）')
+  ok(BrowserNavigation.canGoBack(nav.snapshot), '有前项 → 可后退')
+  nav.back()
+  ok(nav.snapshot.index === 0 && BrowserNavigation.current(nav.snapshot)?.url === 'https://a.test/', 'back 选中前一项')
+  ok(BrowserNavigation.canGoForward(nav.snapshot), 'back 后可前进')
+  nav.forward()
+  ok(nav.snapshot.index === 1 && BrowserNavigation.current(nav.snapshot)?.url === 'https://b.test/', 'forward 选中后一项')
+  const reloads = nav.snapshot.entries.length
+  nav.reload()
+  ok(nav.snapshot.entries.length === reloads && nav.snapshot.index === 1, 'reload 不新增历史项')
+  nav.back()
+  nav.navigate({ url: 'https://c.test/', title: 'c.test' })
+  ok(nav.snapshot.entries.length === 2 && BrowserNavigation.current(nav.snapshot)?.url === 'https://c.test/', '在中段导航截断前向分支')
+
+  nav.addressFailed('loopback')
+  ok(nav.snapshot.failure?.reason === 'loopback' && BrowserNavigation.current(nav.snapshot)?.url === 'https://c.test/', 'addressFailed 只记失败、不动当前文档')
+  nav.navigate({ url: 'https://d.test/', title: 'd.test' })
+  ok(nav.snapshot.failure === undefined, '下一次成功导航清掉失败提示')
+
+  const big = new BrowserNavigation()
+  for (let i = 0; i < MAX_BROWSER_HISTORY + 5; i++) big.navigate({ url: `https://h${String(i)}.test/`, title: `h${String(i)}` })
+  ok(big.snapshot.entries.length === MAX_BROWSER_HISTORY, `历史上限 ${String(MAX_BROWSER_HISTORY)} 条`)
+  ok(BrowserNavigation.current(big.snapshot)?.url === `https://h${String(MAX_BROWSER_HISTORY + 4)}.test/`, '淘汰的是最旧项')
+}
+
+/* ───────────────────── 编辑器读取作用域（跨工作区预览） ─────────────────────
+ * 现场（2026-09-19）：跨工作区预览报 `path "…" is outside workspace`。页签落在
+ * 当前会话状态里（可见），文件却属于另一个会话的另一个工作区；读取若用页签所在
+ * 会话的 cwd，就被宿主侧 containment 守卫拒绝。meta 记的读取作用域优先。 */
+console.log('[readScopeOf]')
+{
+  const rendered = { sessionId: 'active', cwd: '/w/active' }
+  const own = readScopeOf(rendered, { readSessionId: 'owner', readCwd: '/w/owner' })
+  ok(own.sessionId === 'owner' && own.cwd === '/w/owner', 'meta 记的所属会话优先（跨工作区读自家工作区）')
+  ok(readScopeOf(rendered, undefined) === rendered, '无 meta → 回落页签所在会话（旧行为）')
+  ok(readScopeOf(rendered, null) === rendered, 'meta=null → 回落')
+  ok(readScopeOf(rendered, []) === rendered, 'meta 为数组 → 回落')
+  ok(readScopeOf(rendered, {}) === rendered, 'meta 缺字段 → 回落')
+  ok(readScopeOf(rendered, { readSessionId: 'owner' }) === rendered, '只记了 sessionId、没有 cwd → 回落（半截记录不采信）')
+  ok(readScopeOf(rendered, { readCwd: '/w/owner' }) === rendered, '只记了 cwd → 回落')
+  ok(readScopeOf(rendered, { readSessionId: '', readCwd: '/w/owner' }) === rendered, '空 sessionId → 回落')
+  ok(readScopeOf(rendered, { readSessionId: 42, readCwd: '/w/owner' }) === rendered, '非字符串 sessionId → 回落')
+  const same = readScopeOf(rendered, { readSessionId: 'active', readCwd: '/w/active' })
+  ok(same.sessionId === 'active' && same.cwd === '/w/active', '同会话记录与页签会话等价')
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

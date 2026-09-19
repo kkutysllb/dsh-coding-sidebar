@@ -31,19 +31,54 @@ import { t } from './locales.ts'
 import { resolveSidebarPath, selectProducedFiles } from './produced-files.ts'
 import { hasDeclaredDeliveries } from './deliveries.ts'
 import {
-  wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, type OpenPathService, type SidebarRightStub,
+  wrapNativeBrowserOpen, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight,
+  type OpenPathService, type SidebarRightStub,
 } from './openpath-intercept.ts'
 import css from './sidebar.module.css'
 
+/**
+ * Open one http(s) URL in this plugin's own browser tab — the landing spot for
+ * every native `openTab('browser', …)` the claim below takes over, and for the
+ * document-level link interception.
+ *
+ * The browser tab's own enable switch is honoured: a user who turned the tab
+ * off does not get it reopened behind their back — the URL goes to the system
+ * browser instead (the old pre-sidebar behaviour, and the only remaining
+ * option once the native panel is suppressed by product policy).
+ */
+export function openSidebarBrowser(ctx: Context, store: SidebarStore, url: string): void {
+  if (store.getPrefs().tabsEnabled['browser'] === false) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  let title: string | undefined
+  try { title = new URL(url).hostname } catch { /* keep the descriptor's default title */ }
+  ctx.get('betterSidebar')?.openTab({ type: 'browser', url, ...(title !== undefined ? { title } : {}) })
+}
+
 /** Open a file in the sidebar's editor (used by the intercepted row and the explorer). */
-export function openSidebarFile(ctx: Context, store: SidebarStore, sessionId: string, path: string): void {
+export function openSidebarFile(ctx: Context, store: SidebarStore, sessionId: string, path: string): string {
   const summary = ctx.sessions.list.getSnapshot().byId[sessionId]
-  const absolute = resolveSidebarPath(summary?.cwd, path)
+  const cwd = summary?.cwd
+  const absolute = resolveSidebarPath(cwd, path)
   const at = Math.max(absolute.lastIndexOf('/'), absolute.lastIndexOf('\\'))
   const title = at === -1 ? absolute : absolute.slice(at + 1)
   // Route through the sidebar service so the editor descriptor's dedupeKey
   // (per-path) applies; the id is path-derived so multiple editors coexist.
-  ctx.get('betterSidebar')?.openTab({ type: 'editor', title, path: absolute, id: `editor:${absolute}` })
+  //
+  // 读取作用域随页签带（2026-09-19 现场：跨工作区预览报
+  // `path "…" is outside workspace`）。页签落在**当前会话**的状态里（因此用户
+  // 看得见），但文件可能属于**另一个会话的另一个工作区**（分叉会话、side chat、
+  // 或侧栏当前会话与点击所在会话不同步）。此时编辑器若按"页签所在会话"的 cwd
+  // 去读，就会被宿主侧的 containment 守卫拒掉（path-security.ts 只允许 cwd 之内
+  // 的路径）。原生侧栏按地址里的 session 解析工作区，因此没有这个问题——这里把
+  // 同一个语义显式记进 meta：读取一律用**文件所属会话**的 cwd，页签位置不变。
+  const meta = cwd === undefined ? undefined : { readSessionId: sessionId, readCwd: cwd }
+  ctx.get('betterSidebar')?.openTab({
+    type: 'editor', title, path: absolute, id: `editor:${absolute}`,
+    ...(meta !== undefined ? { meta } : {}),
+  })
+  return absolute
 }
 
 /**
@@ -287,6 +322,7 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
   // 提供时回调不触发、门保持未装（与旧行为的降级面一致，不阻塞插件激活）。
   let disposed = false
   let disposeRight = () => {}
+  let disposeBrowser = () => {}
   // ctx.inject 返回 Fiber（`dispose(): Promise<void>`；本仓 cordis 版本无
   // 可调用的 disposer 返回值），清理时显式 dispose。
   const injectFiber = ctx.inject(['sidebarRight'], () => {
@@ -294,18 +330,27 @@ export function registerOpenPathInterception(ctx: Context, store: SidebarStore):
     const sidebarRight = ctx.get('sidebarRight') as SidebarRightStub | undefined
     if (sidebarRight === undefined) return
     disposeRight = wrapSidebarRight(sidebarRight, deps)
+    // 原生 browser 页类型的认领（2026-09-19 现场：点聊天里的 http(s) 链接弹出
+    // 原生右栏空白区）：上游 ui-chat 的 openExternalLink 直接发
+    // `ctx.sidebarRight.openTab('browser', { params: { url } })`——原生 browser
+    // 类型总是已注册（随包 web 组合里 ui-sidebar-browser 提供），所以链接**不
+    // 经**本插件的 openResource 门，也不会被文档级链接拦截兜住（改键点击、
+    // 协议开关关闭、页签被禁都会走到这里）。认领后一律改开自家 browser 页签。
+    disposeBrowser = wrapNativeBrowserOpen(sidebarRight, (url) => { openSidebarBrowser(ctx, store, url) })
     // 安装期诊断（每激活一次一行）：哪个门装上了、哪个没有——现场排查
-    // 「点文件走了原生侧边栏」这类"静默未装配"只需看这一行。
+    // 「点文件/链接走了原生侧边栏」这类"静默未装配"只需看这一行。
     console.log('[dsh-coding-sidebar] open-path interception: doors'
       + ' workspaces=' + (workspaces !== undefined)
       + ' remote.session=' + (remote !== undefined)
-      + ' sidebarRight=true')
+      + ' sidebarRight=true'
+      + ' browserOpenTab=' + (typeof sidebarRight.openTab === 'function'))
   })
   return () => {
     disposed = true
     disposeOld()
     disposeRemote()
     disposeRight()
+    disposeBrowser()
     void injectFiber.dispose()
   }
 }

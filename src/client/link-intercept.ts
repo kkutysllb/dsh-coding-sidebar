@@ -65,7 +65,17 @@ export function registerLinkInterception(opts: {
     const url = shouldInterceptLink(anchor.href, opts.selfOrigin)
     if (url === null) return
     if (!opts.takeoverEnabled(new URL(url))) return
+    // preventDefault stops the anchor's own navigation; stopPropagation (and
+    // the immediate variant, so no earlier-registered listener on the same
+    // node wins) stops the event from ever reaching React's root listener —
+    // without it the GUI's OWN handler still runs and hands the same link to
+    // the native right Sidebar (`openExternalLink` → `openTab('browser')`),
+    // which product policy suppresses → one blank native panel per click
+    // (2026-09-19 现场). Capture phase on `document` runs before every root
+    // listener, so these two calls are what make the takeover exclusive.
     event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
     opts.openInSidebar(url)
   }
   document.addEventListener('click', onClick, true)

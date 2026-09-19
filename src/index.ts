@@ -32,7 +32,7 @@ import {
 import { parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.ts'
 import { removeWorkspaceEntry, renameWorkspaceEntry, writeWorkspaceUpload } from './fs-operations.ts'
 import { sessionFileOps } from './changes-ops.ts'
-import { ensureWorkspacePath, ensureWorkspaceWritePath } from './path-security.ts'
+import { ensureWorkspacePath, ensureWorkspaceWritePath, resolveReadPath } from './path-security.ts'
 import { searchFiles } from './fs-search.ts'
 import { decodeHtmlUrl } from './html-route.ts'
 import { serveMediaRange } from './media-range.ts'
@@ -358,7 +358,10 @@ function buildApi(
       // child-repo path is relative to the selected repoRoot, not the session
       // cwd; thread it so the path resolves inside the authorized workspace.
       const selected = selectedRepoOf(payload)
-      const path = await ensureWorkspacePath(cwd, await resolveGitPath(cwd, requireString(payload, 'path'), selected))
+      // 读取按上游契约放开 containment（"files outside it are allowed"）：
+      // agent 写到 /tmp 的产物、另一仓库的绝对路径都能打开；相对路径仍按
+      // cwd/git 仓库根解析。写入路径的守卫不变。
+      const path = await resolveReadPath(cwd, await resolveGitPath(cwd, requireString(payload, 'path'), selected))
       const { content, truncated, binary, size, head } = await readText(path, resolved.readLimit)
       if (binary) return { kind: 'binary', size, truncated, head }
       return { kind: 'text', content, truncated }
@@ -1072,7 +1075,10 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         const raw = url.searchParams.get('path')
         if (sessionId === null || raw === null) throw new SidebarError('bad-request', 'sessionId and path are required')
         const cwd = await sessionCwdOf(ctx, sessionId, url.searchParams.get('cwd') ?? undefined)
-        const path = await ensureWorkspacePath(cwd, raw)
+        // 预览（媒体/缩略图）同样按上游契约放开 containment——工作区外的
+        // 绝对路径（/tmp 产物、别仓文件）必须能内联显示，否则编辑器只能显示
+        // 文本、图片/视频一律 403。
+        const path = await resolveReadPath(cwd, raw)
         const info = await stat(path)
         if (!info.isFile()) throw new SidebarError('fs-error', 'not a file or too large', 400)
         const type = mediaTypeForPath(path)
@@ -1151,7 +1157,7 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
         // real-path guard, with the same semantics as the media route's
         // fallback.
         const cwd = await sessionCwdOf(ctx, sessionId)
-        const absolute = await ensureWorkspacePath(cwd, path)
+        const absolute = await resolveReadPath(cwd, path)
         const info = await stat(absolute)
         if (!info.isFile() || info.size > resolved.mediaLimit) {
           throw new SidebarError('fs-error', 'not a file or too large', 400)

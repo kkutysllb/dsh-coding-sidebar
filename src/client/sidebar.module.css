@@ -1678,6 +1678,25 @@ body[data-dsh-sidebar-dragging] .panel {
   background: var(--dsw-alias-state-warn-tertiary);
 }
 
+/* In-frame navigation: the address bar no longer describes the document. */
+.browserChanged {
+  flex: none;
+  padding: 0 6px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* The limit note under the frame while the address is `unknown`. */
+.browserLimit {
+  flex: none;
+  margin: 0;
+  padding: 4px 12px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
 .browserFrame {
   flex: 1;
   min-height: 0;

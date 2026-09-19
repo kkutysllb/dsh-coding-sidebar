@@ -1,22 +1,28 @@
 /**
- * The built-in browser tab: an address bar plus a sandboxed iframe.
+ * The built-in browser tab: a toolbar plus a sandboxed iframe, with the
+ * navigation semantics of the upstream native side bar's browser
+ * (2026-09-19 port — see browser-nav.ts for the state machine and browser.ts
+ * for the address policy).
  *
- * Security model (see browser.ts + the sandbox tokens below): the iframe is
- * ALWAYS sandboxed without `allow-same-origin` (opaque origin — the visited
- * page can never sit on the GUI's origin, read its storage, or reach
- * /sidebar/api) and without `allow-top-navigation` (a page must not hijack
- * the GUI). The address bar only accepts http(s) and refuses loopback /
- * the GUI's own origin. The side card setting "关闭浏览器沙箱" drops the
- * sandbox attribute entirely for fully trusted sites — the visited page then
- * runs with the GUI's own origin and full session access, so a persistent
- * warning bar renders while it is off.
+ * Sandbox (aligned with upstream): the frame carries `allow-same-origin` for
+ * every site — without it the frame gets an opaque origin and real sites break
+ * (no cookies, no storage, no module scripts). It does NOT hand the page
+ * anything of ours: the page keeps its OWN origin and stays cross-origin to
+ * the GUI, and the address policy refuses the GUI's own origin outright. NO
+ * `allow-top-navigation`: a browsed page must not steer the GUI.
+ * The side card setting "关闭浏览器沙箱" (or this surface's temporary unlock)
+ * drops the sandbox attribute entirely for fully trusted sites — the page then
+ * runs with the GUI's own origin and full session access, so a status bar
+ * warns while it is off.
  *
- * The URL is persisted onto the tab (path/title via the patchTab reducer)
- * so a reload restores the visited page; the back/forward stack only tracks
- * address-bar navigations (in-frame link clicks are cross-origin and
- * invisible — a documented limitation).
+ * The URL is persisted onto the tab (path/title via the patchTab reducer) so a
+ * reload restores the visited page. In-frame navigations (link clicks inside
+ * the visited site) are cross-origin and invisible to us: the carrier reports
+ * a second load for the same revision and the tab switches to the `unknown`
+ * state — the address bar says so, Back/Forward disable themselves, and the
+ * body explains the limit, exactly like the upstream browser.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   IconChevronLeftOutline14,
   IconChevronRightOutline14,
@@ -26,7 +32,8 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { VscLinkExternal, VscRemoteExplorer } from 'react-icons/vsc'
 import { api } from './api.ts'
-import { embeddabilityOf, isAllowedLoopbackUrl, normalizeBrowserUrl } from './browser.ts'
+import { embeddabilityOf, normalizeBrowserUrl, type BrowserFailureReason } from './browser.ts'
+import { BrowserNavigation, type BrowserTabState } from './browser-nav.ts'
 import { patchTab } from './state.ts'
 import { SandboxStatusBar } from './SandboxStatusBar.tsx'
 import { t } from './locales.ts'
@@ -35,64 +42,50 @@ import type { TabComponentProps } from './service.ts'
 import css from './sidebar.module.css'
 
 /**
- * The browser iframe sandbox tokens. NO allow-same-origin (opaque origin —
- * no GUI storage/API access), NO allow-top-navigation (a browsed page must
- * not hijack the GUI). allow-forms/allow-popups/allow-downloads/allow-modals
- * keep login flows working; allow-popups-to-escape-sandbox lets OAuth
- * popups open as normal tabs (they are cross-origin to the GUI either way).
+ * The browser iframe sandbox tokens. `allow-same-origin` is REQUIRED for real
+ * sites (opaque-origin frames cannot keep a session, store anything, or run
+ * module pipelines); it gives the page nothing of ours — it keeps its own
+ * origin and stays cross-origin to the GUI, whose own origin the address
+ * policy refuses. No `allow-top-navigation` (a browsed page must not hijack
+ * the GUI). allow-forms/popups/downloads/modals keep login and download flows
+ * working; allow-popups-to-escape-sandbox lets OAuth popups open as normal
+ * tabs (they are cross-origin to the GUI either way).
  */
 export const BROWSER_IFRAME_SANDBOX =
-  'allow-scripts allow-forms allow-popups allow-downloads allow-modals allow-popups-to-escape-sandbox'
+  'allow-scripts allow-forms allow-same-origin allow-popups allow-downloads allow-modals allow-popups-to-escape-sandbox'
 
-/** allow-same-origin appended for explicitly allowlisted local addresses. */
-const BROWSER_IFRAME_SANDBOX_SAME_ORIGIN =
-  `${BROWSER_IFRAME_SANDBOX} allow-same-origin`
-
-/**
- * The sandbox tokens for one URL: allowlisted loopback addresses (local dev
- * servers the user explicitly trusts) additionally get `allow-same-origin`
- * so Vite/module/HMR pipelines that need a real origin work; every other
- * site keeps the opaque-origin sandbox. `allow-same-origin` does NOT give
- * the page access to the GUI — it stays cross-origin to it and to every
- * other site — but it does give it its OWN origin privileges (localStorage,
- * fetch without CORS), so it is only granted for the explicit allowlist.
- *
- * The GUI itself is the one hard exception: even when its own host is
- * allowlisted (a bare-host entry covers every port, so the GUI origin
- * matches), a page at the GUI's exact origin must never get
- * `allow-same-origin` — that would make it same-origin with its parent and
- * hand it the GUI's storage/API (and the ability to shed the sandbox). The
- * GUI keeps the opaque-origin sandbox no matter what the allowlist says.
- */
-export function iframeSandboxFor(url: string | undefined, allowedLoopback: string, selfOrigin?: string): string | undefined {
-  if (url === undefined) return undefined
-  if (selfOrigin !== undefined) {
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      return BROWSER_IFRAME_SANDBOX
-    }
-    if (parsed.origin === selfOrigin) return BROWSER_IFRAME_SANDBOX
+/** One refusal reason → the copy shown under the toolbar. */
+function failureText(reason: BrowserFailureReason): string {
+  switch (reason) {
+    case 'empty': return t('browserEmpty')
+    case 'invalid': return t('browserInvalid')
+    case 'scheme': return t('browserBlockedScheme')
+    case 'loopback': return t('browserBlockedLoopback')
+    case 'credentials': return t('browserBlockedCredentials')
+    case 'app-origin': return t('browserBlockedAppOrigin')
   }
-  return isAllowedLoopbackUrl(url, allowedLoopback)
-    ? BROWSER_IFRAME_SANDBOX_SAME_ORIGIN
-    : BROWSER_IFRAME_SANDBOX
 }
 
 export function BrowserView(props: TabComponentProps) {
   const { store, tab, ctx } = props
-  // The current address (initialized from the persisted tab.path so a
-  // reload restores the visited page).
-  const [url, setUrl] = useState<string | undefined>(tab.path)
-  const [input, setInput] = useState<string>(tab.path ?? '')
-  /** Blocked/invalid hint shown under the address bar (null = none). */
-  const [message, setMessage] = useState<string | null>(null)
-  /** Address-bar navigation history (in-frame clicks are not tracked). */
-  const [history, setHistory] = useState<string[]>(tab.path !== undefined ? [tab.path] : [])
-  const [cursor, setCursor] = useState<number>(tab.path !== undefined ? 0 : -1)
-  /** Bumped on reload to remount the iframe (also remounts on sandbox flip). */
-  const [reloadKey, setReloadKey] = useState(0)
+  /** The URL restored from the persisted tab (undefined = fresh tab). */
+  const restoredUrl = tab.path
+  // The navigation state machine (history + load lifecycle). Mutations are
+  // synchronous and imperative, so it lives in a ref and its immutable
+  // snapshot is mirrored into React state after every command.
+  const navRef = useRef<BrowserNavigation>()
+  if (navRef.current === undefined) navRef.current = new BrowserNavigation()
+  const navigation = navRef.current
+  const [nav, setNav] = useState<BrowserTabState>(() => navigation.snapshot)
+  const sync = useCallback((): void => { setNav(navigation.snapshot) }, [navigation])
+
+  const current = BrowserNavigation.current(nav)
+  const request = nav.request
+  /** A document the carrier navigated away from on its own (in-frame clicks). */
+  const unknown = nav.navigation.status === 'unknown'
+  /** Blocked/invalid hint shown under the address bar (undefined = none). */
+  const message = nav.failure === undefined ? undefined : failureText(nav.failure.reason)
+  const [input, setInput] = useState<string>(restoredUrl ?? '')
   /** TEMPORARY sandbox unlock for THIS surface only (never writes the global
    *  side card setting; lasts until the tab unmounts or the user restores). */
   const [localUnlock, setLocalUnlock] = useState(false)
@@ -102,24 +95,75 @@ export function BrowserView(props: TabComponentProps) {
   const [embedBlocked, setEmbedBlocked] = useState<string | null>(null)
   /** The user asked to load the refused site anyway (keeps the plain iframe). */
   const [forceEmbed, setForceEmbed] = useState(false)
+  /** Revision whose frame reported a load error (banner for that document). */
+  const [failedRevision, setFailedRevision] = useState<number | null>(null)
   /** Agent 实况模式（CDP screencast）：开启后本 tab 只显示 agent 无头
    *  浏览器的实况画面，地址栏/iframe 暂停。会话态开关，不持久化。 */
   const [live, setLive] = useState(false)
+
+  const persist = useCallback((nextUrl: string, title: string): void => {
+    store.reduce(state => patchTab(state, tab.id, { path: nextUrl, title }))
+  }, [store, tab.id])
+
+  /** Validate one address and load it (or record the refusal). */
+  const loadUrl = useCallback((raw: string): void => {
+    const result = normalizeBrowserUrl(raw, window.location.origin, store.getPrefs().browserAllowedLoopback)
+    if (result.kind === 'blocked') {
+      navigation.addressFailed(result.reason)
+      sync()
+      return
+    }
+    // Re-submitting the same address reloads it instead of stacking a
+    // duplicate history entry (upstream semantics).
+    if (current?.url === result.url) {
+      navigation.reload()
+      sync()
+      return
+    }
+    navigation.navigate({ url: result.url, title: result.title })
+    setInput(result.url)
+    setFailedRevision(null)
+    persist(result.url, result.title)
+    sync()
+  }, [current?.url, navigation, persist, store, sync])
+
+  const goBack = useCallback((): void => { navigation.back(); sync() }, [navigation, sync])
+  const goForward = useCallback((): void => { navigation.forward(); sync() }, [navigation, sync])
+  const reload = useCallback((): void => {
+    navigation.reload()
+    setFailedRevision(null)
+    sync()
+  }, [navigation, sync])
+
+  /** Report one rendered frame back to the state machine (loading → known,
+   *  a second load for the same revision → unknown). */
+  const reportLoaded = useCallback((revision: number): void => {
+    navigation.frameLoaded(revision)
+    sync()
+  }, [navigation, sync])
+
+  // Load the restored address once per mount (a fresh tab has none).
+  const bootstrapped = useRef(false)
+  useEffect(() => {
+    if (bootstrapped.current || restoredUrl === undefined) return
+    bootstrapped.current = true
+    loadUrl(restoredUrl)
+  }, [loadUrl, restoredUrl])
 
   // Probe every navigation (address bar, history, restored path): when the
   // target forbids embedding, show the reason + open-in-browser instead of
   // the browser's cryptic "refused to connect" blank frame. A failed probe
   // (unreachable) keeps the plain iframe.
   useEffect(() => {
-    if (url === undefined) return
+    if (request === undefined) return
     let cancelled = false
     setEmbedBlocked(null)
     setForceEmbed(false)
-    void api.browserProbe(url).then((probe) => {
-      if (!cancelled && embeddabilityOf(probe) === 'blocked') setEmbedBlocked(url)
+    void api.browserProbe(request.target.url).then((probe) => {
+      if (!cancelled && embeddabilityOf(probe) === 'blocked') setEmbedBlocked(request.target.url)
     }).catch(() => { /* unreachable: keep the plain iframe */ })
     return () => { cancelled = true }
-  }, [url])
+  }, [request])
 
   // Agent 实况自动切换(2026-09-12 边沿触发重构):非实况态轮询浏览器宿主
   // 的 page target——agent 页面(非 about: 空页)从「无」到「有」的那一拍
@@ -155,49 +199,8 @@ export function BrowserView(props: TabComponentProps) {
     return () => { clearInterval(timer) }
   }, [live, ctx, tab.id])
 
-  const persist = (nextUrl: string): void => {
-    let host = nextUrl
-    try { host = new URL(nextUrl).hostname } catch { /* keep the URL as title */ }
-    store.reduce(state => patchTab(state, tab.id, { path: nextUrl, title: host }))
-  }
-
-  const navigateTo = (raw: string): void => {
-    const result = normalizeBrowserUrl(raw, window.location.origin, store.getPrefs().browserAllowedLoopback)
-    if (result.kind === 'ok') {
-      const next = result.url
-      setUrl(next)
-      setInput(next)
-      setMessage(null)
-      // Push onto the stack, dropping any stale forward entries.
-      setHistory(previous => [...previous.slice(0, cursor + 1), next])
-      setCursor(previous => previous + 1)
-      setReloadKey(key => key + 1)
-      persist(next)
-      return
-    }
-    setMessage(result.kind === 'invalid'
-      ? t('browserInvalid')
-      : result.reason === 'scheme' ? t('browserBlockedScheme')
-      : t('browserBlockedLoopback'))
-  }
-
-  const goBack = (): void => {
-    if (cursor <= 0) return
-    const next = history[cursor - 1]!
-    setCursor(cursor - 1)
-    setUrl(next)
-    setInput(next)
-    setReloadKey(key => key + 1)
-  }
-
-  const goForward = (): void => {
-    if (cursor >= history.length - 1) return
-    const next = history[cursor + 1]!
-    setCursor(cursor + 1)
-    setUrl(next)
-    setInput(next)
-    setReloadKey(key => key + 1)
-  }
+  const externalUrl = unknown ? undefined : current?.url
+  const loadFailed = failedRevision !== null && failedRevision === request?.revision
 
   return (
     <div className={css.browser}>
@@ -207,7 +210,7 @@ export function BrowserView(props: TabComponentProps) {
           className={css.iconButton}
           aria-label={t('browserBack')}
           title={t('browserBack')}
-          disabled={cursor <= 0}
+          disabled={!BrowserNavigation.canGoBack(nav)}
           onClick={goBack}
         >
           <IconChevronLeftOutline14 />
@@ -217,7 +220,7 @@ export function BrowserView(props: TabComponentProps) {
           className={css.iconButton}
           aria-label={t('browserForward')}
           title={t('browserForward')}
-          disabled={cursor >= history.length - 1}
+          disabled={!BrowserNavigation.canGoForward(nav)}
           onClick={goForward}
         >
           <IconChevronRightOutline14 />
@@ -227,7 +230,8 @@ export function BrowserView(props: TabComponentProps) {
           className={css.iconButton}
           aria-label={t('refresh')}
           title={t('refresh')}
-          onClick={() => { setReloadKey(key => key + 1) }}
+          disabled={!navigation.canReload}
+          onClick={reload}
         >
           <IconRefreshOutline14 />
         </button>
@@ -238,15 +242,16 @@ export function BrowserView(props: TabComponentProps) {
           spellCheck={false}
           onChange={event => { setInput(event.target.value) }}
           onKeyDown={event => {
-            if (event.key === 'Enter') navigateTo(input)
+            if (event.key === 'Enter') loadUrl(input)
           }}
         />
+        {unknown && <span className={css.browserChanged} title={t('browserLimitUnknown')}>{t('browserAddressChanged')}</span>}
         <button
           type="button"
           className={css.iconButton}
           aria-label={t('browserGo')}
           title={t('browserGo')}
-          onClick={() => { navigateTo(input) }}
+          onClick={() => { loadUrl(input) }}
         >
           <IconLinkOutline14 />
         </button>
@@ -265,15 +270,16 @@ export function BrowserView(props: TabComponentProps) {
           className={css.iconButton}
           aria-label={t('browserOpenExternal')}
           title={t('browserOpenExternal')}
-          disabled={url === undefined}
+          disabled={externalUrl === undefined}
           onClick={() => {
-            if (url !== undefined) window.open(url, '_blank', 'noopener')
+            if (externalUrl !== undefined) window.open(externalUrl, '_blank', 'noopener')
           }}
         >
           <VscLinkExternal size={15} />
         </button>
       </div>
-      {message !== null && <div className={css.browserMessage}>{message}</div>}
+      {message !== undefined && <div className={css.browserMessage}>{message}</div>}
+      {loadFailed && <div className={css.browserMessage}>{t('browserLoadFailed')}</div>}
       <SandboxStatusBar
         sandboxed={!noSandbox}
         local={localUnlock}
@@ -283,7 +289,7 @@ export function BrowserView(props: TabComponentProps) {
       />
       {live ? (
         <LiveView />
-      ) : url === undefined ? (
+      ) : request === undefined ? (
         <div className={css.browserStart}>{t('browserStart')}</div>
       ) : embedBlocked !== null && !forceEmbed ? (
         <BrowserEmbedBlocked
@@ -293,15 +299,19 @@ export function BrowserView(props: TabComponentProps) {
         />
       ) : (
         <iframe
-          key={`${reloadKey}:${noSandbox ? 'ns' : 'sb'}`}
+          key={`${request.target.url}:${String(request.revision)}:${noSandbox ? 'ns' : 'sb'}`}
           className={css.browserFrame}
-          src={url}
-          sandbox={noSandbox ? undefined : iframeSandboxFor(url, store.getPrefs().browserAllowedLoopback, window.location.origin)}
+          src={request.target.url}
+          sandbox={noSandbox ? undefined : BROWSER_IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
           allow=""
-          title={url}
+          title={request.target.title}
+          onLoad={() => { reportLoaded(request.revision) }}
+          onError={() => { setFailedRevision(request.revision) }}
+          data-sidebar-browser-frame
         />
       )}
+      {unknown && !live && <p className={css.browserLimit}>{t('browserLimitUnknown')}</p>}
     </div>
   )
 }

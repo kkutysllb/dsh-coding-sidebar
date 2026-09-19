@@ -93,7 +93,52 @@ export declare function wrapRemoteOpenPath(session: RemoteSessionStub, deps: Ope
 /** The right-Sidebar face the 0.1.5 file-open funnel is wrapped through. */
 export interface SidebarRightStub {
     openResource(address: string, options?: SidebarRightOpenOptions): void;
+    /**
+     * Page-kind opens (the NATIVE right Sidebar's tab registry). Upstream
+     * ui-chat's `openExternalLink` funnels every http(s) link through
+     * `openTab('browser', { params: { url } })` whenever the native browser
+     * type is registered — which it always is in the shipped web composition.
+     * Optional here: older/newer carriers without the method simply stay
+     * unwrapped.
+     */
+    openTab?(kind: string, options?: SidebarRightOpenTabOptions): void;
 }
+/** How a caller wants a native page type opened (the face we claim from). */
+export interface SidebarRightOpenTabOptions {
+    /** That kind's navigation parameters (the browser kind carries `url`). */
+    readonly params?: {
+        readonly url?: unknown;
+    } | unknown;
+}
+/** The native page kind whose opens this plugin claims (its own browser tab type). */
+export declare const NATIVE_BROWSER_TAB_KIND = "browser";
+/**
+ * Read the `url` a native browser-tab open carries, if any.
+ * @param options - the caller's open options.
+ * @returns the http(s) URL, or undefined when this open is not a browsable URL.
+ */
+export declare function browserUrlOfOpen(options: SidebarRightOpenTabOptions | undefined): string | undefined;
+/**
+ * Wrap the NATIVE side bar's `openTab` so a browser-kind open lands in THIS
+ * plugin's own browser tab instead of the native right Sidebar.
+ *
+ * Why this exists: KCoder suppresses the native right-Sidebar shell on purpose
+ * (产品铁律 1, docs/ARCHITECTURE.md §12). Upstream's link funnel calls
+ * `ctx.sidebarRight.openTab('browser', …)` directly, so without this claim a
+ * clicked http(s) link opens the native panel and the user sees a blank area
+ * (2026-09-19 现场). The claim is the safety net under every caller — the
+ * plugin's own document-level link interception handles plain clicks, but
+ * modified clicks, programmatic opens, and links the interception declines
+ * (protocol flags, disabled tab) all reach this method.
+ *
+ * Every other kind falls through untouched (the native pane registries own
+ * them; claiming them would break their pages).
+ *
+ * @param right - the `ctx.sidebarRight` face.
+ * @param open - routes one browsable URL into this plugin's browser tab.
+ * @returns the disposer restoring the original method (HMR-safe).
+ */
+export declare function wrapNativeBrowserOpen(right: SidebarRightStub, open: (url: string) => void): () => void;
 /** Placement/typing options a caller may attach to an address. */
 export interface SidebarRightOpenOptions {
     /** The page type the caller demands; present means "not ours to reroute". */
