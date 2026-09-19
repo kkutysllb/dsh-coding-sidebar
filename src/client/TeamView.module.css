@@ -227,13 +227,21 @@
   padding: 4px 10px;
   border: none;
   border-radius: 6px;
+  /* 与仓库其它主按钮同一口径（sidebar.module.css .gitCommitButton）：文字色
+     必须是 label-primary-inverted —— 此前写成 label-inverse 这个不存在的
+     token，回退成白字，而 button-primary-fill 在暗色档是浅底 → 整个按钮成了
+     一个白块（2026-09-19 现场）。 */
   background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-inverse, #fff);
-  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-primary-inverted);
+  font: var(--dsw-font-xxs-strong-12);
   cursor: pointer;
 }
 
-.primary:disabled { opacity: 0.55; cursor: default; }
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.primary:disabled { opacity: 0.45; cursor: default; }
 
 .form {
   display: flex;
