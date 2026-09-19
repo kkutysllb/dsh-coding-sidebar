@@ -392,17 +392,6 @@ export declare const zh: {
     jobKill: string;
     jobKillConfirm: string;
     jobKillError: string;
-    addPluginsTabCard: string;
-    addPluginsTabCardDesc: string;
-    addPluginsViewerCard: string;
-    addPluginsViewerCardDesc: string;
-    addPluginsTabDesc: string;
-    addPluginsViewerDesc: string;
-    addPluginsBrowseMore: string;
-    addPluginsSearch: string;
-    addPluginsNoMatch: string;
-    addPluginsRecommended: string;
-    addPluginsEmpty: string;
     openPlugin: string;
     copyInstall: string;
     pluginFlowglassDesc: string;

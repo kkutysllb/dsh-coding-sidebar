@@ -245,37 +245,9 @@
   text-overflow: ellipsis;
 }
 
-/* The "add plugin" card: same grid cell / chrome as the inventory cards
-   (it shares .card), but a DASHED border — the repo's first dashed surface;
-   the hover accent follows the existing drag-drop dashed outlines
-   (sidebar.module.css .dropCenter / .tabBarDrop). */
-.addCard {
-  align-items: flex-start;
-  padding: 12px;
-  border-style: dashed;
-  border-color: var(--dsw-alias-border-l2);
-  text-align: left;
-}
-
-.addCard:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  border-color: var(--dsw-alias-interactive-bg-hover-accent);
-  color: var(--dsw-alias-label-primary);
-}
-
-.addCard:hover .cardTitle {
-  color: var(--dsw-alias-label-primary);
-}
-
-.addCard:hover .cardIconChip {
-  border-color: color-mix(in srgb, var(--dsw-alias-button-primary-fill) 35%, transparent);
-  color: var(--dsw-alias-button-primary-fill);
-}
-
-.addCard:focus-visible {
-  outline: 2px solid var(--dsw-alias-border-l4);
-  outline-offset: 2px;
-}
+/* The "add plugin" dashed card style was removed in 1.0.24 together with its
+   two entry cards (Tab / 预览): 用户不再能自行添加 tab 与预览器，后续新增由
+   我们在插件里直接注册。 */
 
 .cardOn .cardDesc {
   color: var(--dsw-alias-label-secondary);
