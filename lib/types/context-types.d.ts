@@ -131,6 +131,15 @@ export interface SidebarSessionSummary {
     parentId?: string;
     /** Whether the session's agent is currently running. */
     running?: boolean;
+    /**
+     * Local reference-source counts (dsh 0.1.6-alpha.2 起）。alpha.2 移除了
+     * 列表级 `current`（navigation belongs to view owners），"主视图正在看
+     * 的会话"改由 `retainedBy.mainView > 0` 表达——见 Sidebar.tsx 的当前
+     * 会话推导。旧引擎不带该字段（可选，结构面读取）。
+     */
+    retainedBy?: {
+        readonly mainView?: number;
+    };
 }
 /** One healthy subagent catalog child row (structural mirror of the runtime). */
 export interface SidebarSubagentChildEntry {

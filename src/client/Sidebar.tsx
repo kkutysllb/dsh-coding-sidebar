@@ -274,7 +274,19 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     useMemo(() => (callback: () => void) => ctx.sessions.list.subscribe(callback), [ctx]),
     useCallback(() => ctx.sessions.list.getSnapshot(), [ctx]),
   )
-  const current = sessionList.current
+  // dsh 0.1.6-alpha.2 契约适配（2026-09-19）：SessionListState 不再有
+  // current 字段（契约注释：navigation belongs to view owners——"当前会话"
+  // 从服务状态挪给视图所有者）。旧读法在新引擎恒 undefined，插件永远走
+  // 「无会话」占位分支（按钮置灰、点不动——即便主视图里开着会话）。
+  // 新的公开判据：会话摘要的 retainedBy.mainView > 0 即"主视图正在保留"
+  // = 当前正在看的会话（上游 UiSession.publishMain 同款推导）。
+  // 结构面读取（旧类型基线里没有 retainedBy 字段，不引新类型）。
+  const current = sessionList.current ?? (() => {
+    for (const [id, summary] of Object.entries(sessionList.byId)) {
+      if ((summary.retainedBy?.mainView ?? 0) > 0) return id
+    }
+    return undefined
+  })()
 
   // Per-session sidebar state.
   const snapshot = useSyncExternalStore(
