@@ -168,6 +168,11 @@ export function registerTurnTailInterception(ctx: Context, store: SidebarStore):
     // it renders its own row). Decline so the same files never list twice —
     // its chips still land in this sidebar via the openResource interception.
     if (hasChangesAnnouncement(props)) return null
+    // dsh-file-review-kcoder's enhanced card claims produced turns through
+    // its own fileReviewChanges turn data (present whenever that plugin is
+    // composed in, git or not). Decline under it the same way — the old
+    // chain coordination had its priority -2 win over this row's -1.
+    if (hasFileReviewData(props)) return null
     const matched = selectProducedFiles(props)
     if (matched === null) return null
     lastProduced = matched
@@ -189,6 +194,23 @@ export function registerTurnTailInterception(ctx: Context, store: SidebarStore):
       onShowInFolder: (files: readonly string[]) => { revealInExplorer(ctx, store, sessionId, files) },
     }),
   }, SidebarTurnTail))
+}
+
+/**
+ * Whether the turn carries dsh-file-review-kcoder's own turn data — its
+ * enhanced card (hunks/stats/undo, produced + presented sections) renders
+ * its own row for such turns regardless of git availability. Structural
+ * face, same recipe as {@link hasChangesAnnouncement}; absent data simply
+ * means the plugin is not composed in and this row keeps its gap role.
+ * @param owner - the turn-tail owner currency ({turn, seq}).
+ * @returns true when the file-review card will claim this turn.
+ */
+export function hasFileReviewData(owner: unknown): boolean {
+  const record = owner as { turn?: { data?: { get?(key: string): unknown } } } | null
+  if (record === null || typeof record !== 'object') return false
+  const data = record.turn?.data?.get?.('fileReviewChanges') as { files?: unknown } | null | undefined
+  if (data === null || typeof data !== 'object') return false
+  return Array.isArray(data.files) && data.files.length > 0
 }
 
 /**

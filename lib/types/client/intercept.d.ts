@@ -32,6 +32,16 @@ export declare function SidebarProducedFiles(props: {
  */
 export declare function registerTurnTailInterception(ctx: Context, store: SidebarStore): () => void;
 /**
+ * Whether the turn carries dsh-file-review-kcoder's own turn data — its
+ * enhanced card (hunks/stats/undo, produced + presented sections) renders
+ * its own row for such turns regardless of git availability. Structural
+ * face, same recipe as {@link hasChangesAnnouncement}; absent data simply
+ * means the plugin is not composed in and this row keeps its gap role.
+ * @param owner - the turn-tail owner currency ({turn, seq}).
+ * @returns true when the file-review card will claim this turn.
+ */
+export declare function hasFileReviewData(owner: unknown): boolean;
+/**
  * Whether the turn carries a `workspace/changes` announcement — the built-in
  * changed-files card renders its own row for such turns. Read through the
  * same structural turn-data face as {@link hasDeclaredDeliveries}; an older
