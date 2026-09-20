@@ -80,6 +80,7 @@ import { createFileIconRegistry } from './file-icon-registry.mjs'
 import { buildTrajectoryGraph, searchTrajectoryNodes, slowestTools, windowTrajectoryGraph } from './trajectory-graph.mjs'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.mjs'
 import { resolveTrajectorySource } from './trajectory-source.mjs'
+import { loadChunk, resetChunks, setChunkModuleSystem, setChunkRetryDelaysForTests, setChunkScriptLoaderForTests } from './chunk-loader.mjs'
 import {
   isValidBranchName, parseAheadBehind, parseBranchRows, parseNumstat, unquoteGitPath,
 } from './git-helpers.mjs'
@@ -1889,6 +1890,59 @@ console.log('[team-model]')
   ok(!isTeamMemberOpenable(lead) && isTeamMemberOpenable(mate), '只有队友可打开（lead 不可点）')
   ok(!isTeamMemberOpenable(provisioning) && !isTeamMemberOpenable(failed), '创建中/失败的队友不可打开')
   ok(isTeamMemberAssignable(mate) && isTeamMemberAssignable(lead) && !isTeamMemberAssignable(failed), '可视成员可被指派')
+}
+
+// ── chunk 加载重试（瞬时路由失败不冒泡成死 tab）────────────────
+console.log('[chunk-loader retry]')
+{
+  const registry = globalThis.__dshChunks__ ?? (globalThis.__dshChunks__ = {})
+  setChunkRetryDelaysForTests([1, 1])
+  setChunkModuleSystem({ import: async () => ({}) })
+
+  // 1) 前两次 404 窗口、第三次成功：loadChunk 最终拿到工厂产物
+  let attempts = 0
+  setChunkScriptLoaderForTests(async () => {
+    attempts += 1
+    if (attempts < 3) throw new Error('script error event')
+    registry.terminal = () => ({ ok: 'terminal-chunk' })
+  })
+  resetChunks()
+  const recovered = await loadChunk('terminal')
+  ok(recovered.ok === 'terminal-chunk' && attempts === 3, '瞬时失败自动重试后成功（3 次尝试）')
+
+  // 2) 重试耗尽后失败上抛，且缓存已清——下一次打开从零重试即可恢复
+  let always = 0
+  setChunkScriptLoaderForTests(async () => {
+    always += 1
+    throw new Error('script error event')
+  })
+  resetChunks()
+  let rejected = false
+  try { await loadChunk('editor') } catch { rejected = true }
+  ok(rejected && always === 3, '重试耗尽（1+2 次）后失败上抛')
+  let fixed = 0
+  setChunkScriptLoaderForTests(async () => {
+    fixed += 1
+    registry.editor = () => ({ ok: 'editor-chunk' })
+  })
+  const revived = await loadChunk('editor')
+  ok(revived.ok === 'editor-chunk' && fixed === 1, '失败清缓存，下次打开从零重试成功')
+
+  // 3) 成功路径不重试
+  let once = 0
+  setChunkScriptLoaderForTests(async () => {
+    once += 1
+    registry.locale = () => ({ ok: 'locale-chunk' })
+  })
+  resetChunks()
+  const direct = await loadChunk('locale')
+  ok(direct.ok === 'locale-chunk' && once === 1, '一次成功不多打')
+
+  // 还原测试钩子
+  setChunkScriptLoaderForTests(null)
+  setChunkRetryDelaysForTests(null)
+  setChunkModuleSystem(undefined)
+  resetChunks()
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

@@ -91,6 +91,8 @@ export declare function setChunkModuleSystem(system: ChunkModuleSystem | undefin
 export type ChunkScriptLoader = (src: string) => Promise<void>;
 /** Test hook: replace the chunk-script loader (pass null to restore the default). */
 export declare function setChunkScriptLoaderForTests(loader: ChunkScriptLoader | null): void;
+/** Test hook: shrink the script retry delays (pass null to restore). */
+export declare function setChunkRetryDelaysForTests(delays: readonly number[] | null): void;
 export declare function registerChunkForTests(name: ChunkName, loader: () => Promise<ChunkExports>): void;
 /**
  * Load (once) and materialize a lazy chunk, returning its module exports.

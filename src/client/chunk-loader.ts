@@ -173,6 +173,41 @@ export function setChunkScriptLoaderForTests(loader: ChunkScriptLoader | null): 
   scriptLoader = loader ?? defaultScriptLoader
 }
 
+/**
+ * Script-load retry backoff (ms per retry, then the failure surfaces).
+ * DEFAULT is module state so tests can shrink it; production never changes it.
+ */
+let scriptRetryDelaysMs: readonly number[] = [400, 1200]
+
+/** Test hook: shrink the script retry delays (pass null to restore). */
+export function setChunkRetryDelaysForTests(delays: readonly number[] | null): void {
+  scriptRetryDelaysMs = delays ?? [400, 1200]
+}
+
+/**
+ * Load one chunk script, retrying transient failures. A script-tag `error`
+ * event is NETWORK-level (404/403/aborted transfer): the classic producer is
+ * a route that momentarily cannot serve — an in-place plugin upgrade's
+ * rm/cp window, a server restart mid-fetch, a dropped connection. Those
+ * clear on their own within a beat, and re-execution is idempotent (the
+ * registry slot is overwritten by assignment), so retrying is safe. Only a
+ * failure that survives every retry surfaces to the caller.
+ */
+async function loadScriptWithRetry(src: string): Promise<void> {
+  let attempt = 0
+  for (;;) {
+    try {
+      await scriptLoader(src)
+      return
+    } catch (cause) {
+      const delay = scriptRetryDelaysMs[attempt]
+      if (delay === undefined) throw cause
+      attempt += 1
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+}
+
 /** Test/dev hook: resolve a chunk without fetching a script (e.g. vitest). */
 const testLoaders = new Map<ChunkName, () => Promise<ChunkExports>>()
 export function registerChunkForTests(name: ChunkName, loader: () => Promise<ChunkExports>): void {
@@ -259,7 +294,7 @@ export async function loadChunk(name: ChunkName): Promise<ChunkExports> {
     if (modules === undefined) {
       throw new Error(`[dsh-coding-sidebar] chunk "${name}": client module system unavailable`)
     }
-    await scriptLoader(CHUNK_URL(name))
+    await loadScriptWithRetry(CHUNK_URL(name))
     const factory = chunkRegistry()[name]
     if (typeof factory !== 'function') {
       throw new Error(`[dsh-coding-sidebar] chunk "${name}" script did not register its factory`)
