@@ -33,12 +33,14 @@ import {
   IconPauseOutline16, IconPlayOutline16, IconStopFill16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { VscFile, VscFileMedia } from 'react-icons/vsc'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { markdownTextProps } from './markdown-labels.tsx'
 import type { Context } from '../context-types.ts'
 import type { SessionScope } from './api.ts'
 import {
   buildTrajectoryGraph, windowTrajectoryGraph,
-  type TrajectoryAttachment, type TrajectoryEdgeKind, type TrajectoryLane, type TrajectoryNodeKind,
-  type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
+  type TrajectoryAttachment, type TrajectoryEdgeKind, type TrajectoryGraphNode, type TrajectoryLane,
+  type TrajectoryNodeKind, type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
 } from './trajectory-graph.ts'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.ts'
 import { resolveTrajectorySource } from './trajectory-source.ts'
@@ -731,13 +733,61 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
               })}
             </div>
           )}
-          {selected.detail !== undefined && selected.detail !== '' && (
+          {selected.toolDetail !== undefined ? (
+            <ToolInspectorBody node={selected} />
+          ) : selected.detail !== undefined && selected.detail !== '' && selected.kind === 'assistant' ? (
+            <div className={css.inspectorMarkdown}>
+              <MarkdownText {...markdownTextProps(selected.detail, { copyLabel: t('copy'), copiedLabel: t('copied') })} />
+            </div>
+          ) : selected.detail !== undefined && selected.detail !== '' ? (
             <pre className={css.inspectorBody}>{selected.detail}</pre>
-          )}
+          ) : null}
         </div>
       )}
       {lightbox !== null && (
         <AttachmentLightbox url={lightbox.url} name={lightbox.name} onClose={() => { setLightbox(null) }} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The structured tool inspector: a header line (name · call id · error
+ * state), the call arguments as a collapsible pretty-printed JSON block,
+ * and the settled result as plain text — instead of one pre-joined blob.
+ */
+function ToolInspectorBody({ node }: { node: TrajectoryGraphNode }): ReactNode {
+  const tool = node.toolDetail
+  if (tool === undefined) return null
+  const prettyArgs = useMemo((): string => {
+    if (tool.argsRaw === undefined) return ''
+    try {
+      return JSON.stringify(JSON.parse(tool.argsRaw), null, 2)
+    } catch {
+      return tool.argsRaw
+    }
+  }, [tool.argsRaw])
+  return (
+    <div className={css.toolBody}>
+      <div className={css.toolHead}>
+        <span className={css.toolName}>{tool.name}</span>
+        {tool.callId !== undefined && <span className={css.toolCallId}>{tool.callId}</span>}
+        {tool.isError === true && <span className={css.toolError}>{t('trajStatusError')}</span>}
+        {tool.resultText === undefined && <span className={css.toolPending}>{t('trajToolPending')}</span>}
+      </div>
+      {prettyArgs !== '' && (
+        <details className={css.toolArgs}>
+          <summary>{t('trajToolArgs')}</summary>
+          <pre className={css.inspectorBody}>{prettyArgs}</pre>
+        </details>
+      )}
+      {tool.resultText !== undefined && tool.resultText !== '' && (
+        <div className={css.toolResult}>
+          <div className={css.toolResultLabel}>{t('trajToolResult')}</div>
+          <pre className={cx(css.inspectorBody, tool.isError === true && css.toolResultError)}>
+            {tool.resultText}
+          </pre>
+        </div>
       )}
     </div>
   )

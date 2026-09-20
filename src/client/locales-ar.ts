@@ -417,6 +417,9 @@ export const ar: Record<string, string> = {
   trajAttachFile: 'ملف',
   trajAttachOffloaded: 'مُفرَّغة',
   trajAttachView: 'عرض الصورة',
+  trajToolArgs: 'وسائط الاستدعاء',
+  trajToolResult: 'النتيجة',
+  trajToolPending: 'في انتظار النتيجة',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "تأكيد",

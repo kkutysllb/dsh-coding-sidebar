@@ -414,6 +414,9 @@ export const id: Record<string, string> = {
   trajAttachFile: 'Berkas',
   trajAttachOffloaded: 'Dioffload',
   trajAttachView: 'Lihat gambar',
+  trajToolArgs: 'Argumen panggilan',
+  trajToolResult: 'Hasil',
+  trajToolPending: 'Menunggu hasil',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Konfirmasi",

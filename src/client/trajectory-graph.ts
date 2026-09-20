@@ -128,6 +128,8 @@ export interface TrajectoryGraphNode {
   detail?: string
   /** Ordered attachments carried by this record's content blocks. */
   attachments?: readonly TrajectoryAttachment[]
+  /** Structured tool-call facts (tool/waiting/running-call records). */
+  toolDetail?: TrajectoryToolDetail
   tokens?: TrajectoryTokens
   durationMs?: number | null
   /** Whether this node is still moving (drives the flow animation). */
@@ -144,6 +146,19 @@ export interface TrajectoryGraphEdge {
   kind: TrajectoryEdgeKind
   /** Whether data is currently moving across this edge. */
   live: boolean
+}
+
+/**
+ * Structured tool-call facts for the refined inspector: the call header
+ * (name, id, duration), the raw JSON arguments, and the settled result text
+ * as separate fields instead of one pre-joined blob.
+ */
+export interface TrajectoryToolDetail {
+  name: string
+  callId?: string
+  argsRaw?: string
+  resultText?: string
+  isError?: boolean
 }
 
 /** One replay step: light a node, animate the edge that delivered it. */
@@ -418,6 +433,22 @@ function squash(text: string, limit: number): string {
   return flat.length > limit ? `${flat.slice(0, Math.max(0, limit - 1))}…` : flat
 }
 
+/**
+ * Raw multiline body of one assistant record (markdown-ready): text-bearing
+ * blocks joined with blank lines, newlines preserved, capped hard. The chip
+ * label stays a squashed single line; the inspector body renders markdown.
+ */
+function blocksRawText(blocks: readonly TrajectoryBlockLike[] | undefined, limit: number): string {
+  if (blocks === undefined) return ''
+  const parts: string[] = []
+  for (const block of blocks) {
+    if (block.kind === 'image') continue // attachments render as thumbnails
+    if (typeof block.text === 'string' && block.text !== '') parts.push(block.text)
+  }
+  const joined = parts.join('\n\n')
+  return joined.length > limit ? `${joined.slice(0, Math.max(0, limit - 1))}…` : joined
+}
+
 function firstLine(text: string | null | undefined, limit: number): string {
   return typeof text === 'string' ? squash(text, limit) : ''
 }
@@ -465,7 +496,7 @@ function classifyEventNode(node: TrajectoryEventNodeLike): { kind: TrajectoryNod
 }
 
 /** Chip label and inspector body of one durable ledger record. */
-function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKind): { label: string; badge?: string; detail?: string; attachments?: TrajectoryAttachment[] } {
+function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKind): { label: string; badge?: string; detail?: string; attachments?: TrajectoryAttachment[]; toolDetail?: TrajectoryToolDetail } {
   switch (kind) {
     case 'user':
     case 'steering': {
@@ -506,7 +537,8 @@ function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKi
       return {
         label,
         badge: calls.length > 0 ? `${calls.length}×` : undefined,
-        detail: blocksText(node.blocks, 4000),
+        // The inspector renders markdown: keep the raw multiline body.
+        detail: blocksRawText(node.blocks, 20000),
         ...(attachments.length === 0 ? {} : { attachments }),
       }
     }
@@ -518,6 +550,13 @@ function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKi
         badge: node.isError === true ? 'error' : callTail(node.callId ?? ''),
         detail: [node.call?.argsRaw ?? '', contentText(node.content, 4000)].filter(part => part !== '').join('\n'),
         ...(attachments.length === 0 ? {} : { attachments }),
+        toolDetail: {
+          name,
+          ...(typeof node.callId === 'string' && node.callId !== '' ? { callId: node.callId } : {}),
+          ...(node.call?.argsRaw !== undefined && node.call.argsRaw !== '' ? { argsRaw: node.call.argsRaw } : {}),
+          ...(node.isError === true ? { isError: true } : {}),
+          resultText: contentText(node.content, 8000),
+        },
       }
     }
     case 'compaction': {
@@ -617,6 +656,7 @@ export function buildTrajectoryGraph(snapshot: TrajectorySnapshotLike | null | u
       ...(described.badge === undefined ? {} : { badge: described.badge }),
       ...(described.detail === undefined || described.detail === '' ? {} : { detail: described.detail }),
       ...(described.attachments === undefined ? {} : { attachments: described.attachments }),
+      ...(described.toolDetail === undefined ? {} : { toolDetail: described.toolDetail }),
       ...(usage === undefined ? {} : { tokens: usage }),
       ...(completed === undefined || started === undefined ? {} : { durationMs: Math.max(0, completed - started) }),
       live: false,
@@ -705,6 +745,15 @@ export function buildTrajectoryGraph(snapshot: TrajectorySnapshotLike | null | u
       label: call.name ?? 'tool',
       badge: 'live',
       ...(call.argsRaw === undefined || call.argsRaw === '' ? {} : { detail: call.argsRaw }),
+      ...(call.argsRaw === undefined || call.argsRaw === ''
+        ? {}
+        : {
+          toolDetail: {
+            name: call.name ?? 'tool',
+            ...(callId === '' ? {} : { callId }),
+            argsRaw: call.argsRaw,
+          },
+        }),
       live: true,
     })
     if (callId !== '') callNodes.set(callId, id)
@@ -741,6 +790,7 @@ export function buildTrajectoryGraph(snapshot: TrajectorySnapshotLike | null | u
         label: call.name,
         badge: callTail(call.callId),
         ...(call.argsRaw === '' ? {} : { detail: call.argsRaw }),
+        ...(call.argsRaw === '' ? {} : { toolDetail: { name: call.name, callId: call.callId, argsRaw: call.argsRaw } }),
         live: false,
       }
       pending.push({ node, order: seq + 0.5 })

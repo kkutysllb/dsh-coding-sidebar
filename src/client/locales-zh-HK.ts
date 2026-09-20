@@ -431,6 +431,9 @@ export const zhHK: Record<string, string> = {
   trajAttachFile: '檔案',
   trajAttachOffloaded: '已卸載',
   trajAttachView: '檢視大圖',
+  trajToolArgs: '呼叫參數',
+  trajToolResult: '結果',
+  trajToolPending: '等待結果',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確定",

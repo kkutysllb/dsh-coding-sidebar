@@ -416,6 +416,9 @@ export const hi: Record<string, string> = {
   trajAttachFile: 'फ़ाइल',
   trajAttachOffloaded: 'ऑफ़लोडेड',
   trajAttachView: 'चित्र देखें',
+  trajToolArgs: 'कॉल तर्क',
+  trajToolResult: 'परिणाम',
+  trajToolPending: 'परिणाम प्रतीक्षित',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "पुष्टि करें",

@@ -472,6 +472,9 @@ export const zh = {
   trajAttachFile: '文件',
   trajAttachOffloaded: '已卸载',
   trajAttachView: '查看大图',
+  trajToolArgs: '调用参数',
+  trajToolResult: '结果',
+  trajToolPending: '等待结果',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "确定",
@@ -991,6 +994,9 @@ export const en: Record<keyof typeof zh, string> = {
   trajAttachFile: 'File',
   trajAttachOffloaded: 'Offloaded',
   trajAttachView: 'View image',
+  trajToolArgs: 'Arguments',
+  trajToolResult: 'Result',
+  trajToolPending: 'Pending',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirm",

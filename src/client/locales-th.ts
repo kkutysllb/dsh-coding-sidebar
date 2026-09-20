@@ -416,6 +416,9 @@ export const th: Record<string, string> = {
   trajAttachFile: 'ไฟล์',
   trajAttachOffloaded: 'ถูกย้ายออก',
   trajAttachView: 'ดูรูปภาพ',
+  trajToolArgs: 'อาร์กิวเมนต์การเรียก',
+  trajToolResult: 'ผลลัพธ์',
+  trajToolPending: 'รอผลลัพธ์',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "ยืนยัน",

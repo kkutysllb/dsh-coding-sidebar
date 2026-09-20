@@ -117,6 +117,8 @@ export interface TrajectoryGraphNode {
     detail?: string;
     /** Ordered attachments carried by this record's content blocks. */
     attachments?: readonly TrajectoryAttachment[];
+    /** Structured tool-call facts (tool/waiting/running-call records). */
+    toolDetail?: TrajectoryToolDetail;
     tokens?: TrajectoryTokens;
     durationMs?: number | null;
     /** Whether this node is still moving (drives the flow animation). */
@@ -132,6 +134,18 @@ export interface TrajectoryGraphEdge {
     kind: TrajectoryEdgeKind;
     /** Whether data is currently moving across this edge. */
     live: boolean;
+}
+/**
+ * Structured tool-call facts for the refined inspector: the call header
+ * (name, id, duration), the raw JSON arguments, and the settled result text
+ * as separate fields instead of one pre-joined blob.
+ */
+export interface TrajectoryToolDetail {
+    name: string;
+    callId?: string;
+    argsRaw?: string;
+    resultText?: string;
+    isError?: boolean;
 }
 /** One replay step: light a node, animate the edge that delivered it. */
 export interface TrajectoryTimelineStep {

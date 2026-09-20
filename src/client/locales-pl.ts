@@ -418,6 +418,9 @@ export const pl: Record<string, string> = {
   trajAttachFile: 'Plik',
   trajAttachOffloaded: 'Odciążony',
   trajAttachView: 'Wyświetl obraz',
+  trajToolArgs: 'Argumenty wywołania',
+  trajToolResult: 'Wynik',
+  trajToolPending: 'Oczekiwanie na wynik',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Potwierdź",

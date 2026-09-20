@@ -416,6 +416,9 @@ export const ja: Record<string, string> = {
   trajAttachFile: 'ファイル',
   trajAttachOffloaded: 'オフロード済み',
   trajAttachView: '画像を表示',
+  trajToolArgs: '呼び出し引数',
+  trajToolResult: '結果',
+  trajToolPending: '結果待ち',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確認",

@@ -798,6 +798,50 @@ console.log('[buildTrajectoryGraph attachments]')
   ok(assistant?.label === '收到', 'assistant 标签只剩文本')
 }
 
+// ── 检查器细化投影（assistant 原始多行 + toolDetail 结构化）────────
+console.log('[buildTrajectoryGraph inspector detail]')
+{
+  const snapshot = {
+    eventNodes: [
+      {
+        kind: 'user', seq: 2, time: 1100,
+        content: [{ type: 'text', text: '分析一下' }],
+      },
+      {
+        kind: 'assistant', seq: 20, time: 1300, turn: 1, step: 1,
+        blocks: [
+          { kind: 'reasoning', text: '先想想' },
+          { kind: 'text', text: '## 结论\n\n- 第一条\n- 第二条\n\n```js\nconst x = 1\n```' },
+          { kind: 'tool-call', callId: 'c1', name: 'fs_read', argsRaw: '{"path":"a"}' },
+        ],
+      },
+      {
+        kind: 'tool-result', seq: 30, time: 1400, callId: 'c1', isError: true,
+        call: { name: 'fs_read', argsRaw: '{"path":"a","trim":true}' },
+        content: [{ type: 'text', text: 'boom 失败了' }],
+      },
+    ],
+    requests: [{ purpose: 'assistant', startSeq: 10, startedAt: 1200, completedAt: 1300, status: 'complete', turn: 1, step: 1, resultSeq: 20 }],
+  }
+  const graph = buildTrajectoryGraph(snapshot)
+  const byId = (id) => graph.nodes.find(node => node.id === id)
+
+  // assistant detail：保留原始多行（markdown 可渲染），不再压成单行
+  const assistant = byId('ev:assistant:20')
+  ok(assistant?.detail.includes('\n') && assistant.detail.includes('## 结论') && assistant.detail.includes('```js'), 'assistant detail 保留原始多行 markdown')
+  ok(assistant?.detail.includes('先想想'), 'reasoning 块并入正文段落')
+  ok(!assistant?.detail.includes('fs_read'), 'tool-call 块不进正文')
+
+  // toolDetail：名称/callId/参数/结果/错误位各自成字段
+  const tool = byId('ev:tool-result:30')
+  ok(tool?.toolDetail?.name === 'fs_read' && tool.toolDetail.callId === 'c1', 'toolDetail 带名称与 callId')
+  ok(tool?.toolDetail?.argsRaw === '{"path":"a","trim":true}', 'toolDetail 带原始参数')
+  ok(tool?.toolDetail?.resultText === 'boom 失败了' && tool.toolDetail.isError === true, 'toolDetail 带结果文本与错误位')
+
+  // user 记录不带 toolDetail；assistant 不带 toolDetail
+  ok(byId('ev:user:2')?.toolDetail === undefined && byId('ev:assistant:20')?.toolDetail === undefined, '非工具记录不带 toolDetail')
+}
+
 console.log('[layoutTrajectoryGraph]')
 {
   const graph = buildTrajectoryGraph({

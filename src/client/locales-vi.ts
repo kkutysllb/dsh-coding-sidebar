@@ -416,6 +416,9 @@ export const vi: Record<string, string> = {
   trajAttachFile: 'Tệp',
   trajAttachOffloaded: 'Đã giảm tải',
   trajAttachView: 'Xem hình ảnh',
+  trajToolArgs: 'Tham số gọi',
+  trajToolResult: 'Kết quả',
+  trajToolPending: 'Đang chờ kết quả',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Xác nhận",

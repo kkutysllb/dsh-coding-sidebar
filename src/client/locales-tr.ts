@@ -416,6 +416,9 @@ export const tr: Record<string, string> = {
   trajAttachFile: 'Dosya',
   trajAttachOffloaded: 'Boşaltıldı',
   trajAttachView: 'Görseli görüntüle',
+  trajToolArgs: 'Çağrı argümanları',
+  trajToolResult: 'Sonuç',
+  trajToolPending: 'Sonuç bekleniyor',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Onayla",

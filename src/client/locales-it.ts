@@ -407,6 +407,9 @@ export const it: Record<string, string> = {
   trajAttachFile: 'File',
   trajAttachOffloaded: 'Sostituita',
   trajAttachView: 'Visualizza immagine',
+  trajToolArgs: 'Argomenti della chiamata',
+  trajToolResult: 'Risultato',
+  trajToolPending: 'Risultato in attesa',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Conferma",

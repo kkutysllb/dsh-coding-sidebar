@@ -408,6 +408,9 @@ export const ko: Record<string, string> = {
   trajAttachFile: '파일',
   trajAttachOffloaded: '오프로드됨',
   trajAttachView: '이미지 보기',
+  trajToolArgs: '호출 인자',
+  trajToolResult: '결과',
+  trajToolPending: '결과 대기 중',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "확인",

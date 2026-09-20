@@ -414,6 +414,9 @@ export const ru: Record<string, string> = {
   trajAttachFile: 'Файл',
   trajAttachOffloaded: 'Выгружено',
   trajAttachView: 'Открыть изображение',
+  trajToolArgs: 'Аргументы вызова',
+  trajToolResult: 'Результат',
+  trajToolPending: 'Ожидание результата',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Подтвердить",

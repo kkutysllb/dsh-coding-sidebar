@@ -414,6 +414,9 @@ export const nl: Record<string, string> = {
   trajAttachFile: 'Bestand',
   trajAttachOffloaded: 'Uitgeladen',
   trajAttachView: 'Afbeelding bekijken',
+  trajToolArgs: 'Aanroepargumenten',
+  trajToolResult: 'Resultaat',
+  trajToolPending: 'Resultaat in behandeling',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bevestigen",

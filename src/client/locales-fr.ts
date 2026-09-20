@@ -409,6 +409,9 @@ export const fr: Record<string, string> = {
   trajAttachFile: 'Fichier',
   trajAttachOffloaded: 'Déchargée',
   trajAttachView: "Voir l'image",
+  trajToolArgs: "Arguments d'appel",
+  trajToolResult: 'Résultat',
+  trajToolPending: 'Résultat en attente',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirmer",

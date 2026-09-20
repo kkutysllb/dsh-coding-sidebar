@@ -399,6 +399,9 @@ export const sv: Record<string, string> = {
   trajAttachFile: 'Fil',
   trajAttachOffloaded: 'Urlagd',
   trajAttachView: 'Visa bild',
+  trajToolArgs: 'Anropsargument',
+  trajToolResult: 'Resultat',
+  trajToolPending: 'Väntar på resultat',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bekräfta",
