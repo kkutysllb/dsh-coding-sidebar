@@ -412,6 +412,11 @@ export const ar: Record<string, string> = {
   trajStatusRunning: "قيد التنفيذ",
   trajStatusError: "فشل",
   trajStatusInterrupted: "متوقف",
+  trajAttachCounts: '{i} صور · {f} ملفات',
+  trajAttachImageN: 'صورة {n}',
+  trajAttachFile: 'ملف',
+  trajAttachOffloaded: 'مُفرَّغة',
+  trajAttachView: 'عرض الصورة',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "تأكيد",

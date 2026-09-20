@@ -32,11 +32,12 @@ import {
   IconChevronDownOutline14, IconCloseOutline16, IconFullscreenOutline16,
   IconPauseOutline16, IconPlayOutline16, IconStopFill16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { VscFile, VscFileMedia } from 'react-icons/vsc'
 import type { Context } from '../context-types.ts'
 import type { SessionScope } from './api.ts'
 import {
   buildTrajectoryGraph, windowTrajectoryGraph,
-  type TrajectoryEdgeKind, type TrajectoryLane, type TrajectoryNodeKind,
+  type TrajectoryAttachment, type TrajectoryEdgeKind, type TrajectoryLane, type TrajectoryNodeKind,
   type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
 } from './trajectory-graph.ts'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.ts'
@@ -134,6 +135,86 @@ function hopDelay(timeline: readonly TrajectoryTimelineStep[], index: number, sp
   const at = timeline[index]?.at ?? 0
   const before = index === 0 ? at : timeline[index - 1]?.at ?? at
   return clamp(at - before, 90, 1100) / speed
+}
+
+/** Image/file counts of one node's attachment list. */
+function attachmentCounts(attachments: readonly TrajectoryAttachment[] | undefined): { images: number; files: number } {
+  let images = 0
+  let files = 0
+  for (const attachment of attachments ?? []) {
+    if (attachment.kind === 'image') images++
+    else files++
+  }
+  return { images, files }
+}
+
+/** Human byte size (`0 B` preserved, per the upstream attachment list). */
+function formatBytes(bytes: number | undefined): string | undefined {
+  if (bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return undefined
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Rebuild the structural ImageAttachmentRef the host image loader keys on. */
+function imageRefOf(attachment: TrajectoryAttachment): Record<string, unknown> {
+  return {
+    attachmentId: attachment.attachmentId,
+    ...(attachment.mediaType === undefined ? {} : { mediaType: attachment.mediaType }),
+    ...(attachment.bytes === undefined ? {} : { bytes: attachment.bytes }),
+    ...(attachment.width === undefined ? {} : { width: attachment.width }),
+    ...(attachment.height === undefined ? {} : { height: attachment.height }),
+    ...(attachment.name === undefined ? {} : { name: attachment.name }),
+  }
+}
+
+/** Display name of one attachment (unnamed images get a localized ordinal). */
+function attachmentName(attachment: TrajectoryAttachment, ordinal: number): string {
+  if (attachment.name !== undefined && attachment.name !== '') return attachment.name
+  return attachment.kind === 'image' ? t('trajAttachImageN', { n: ordinal }) : t('trajAttachFile')
+}
+
+/** One line of recorded metadata under an attachment name. */
+function attachmentMeta(attachment: TrajectoryAttachment): string {
+  const parts: string[] = []
+  const bytes = formatBytes(attachment.bytes)
+  if (bytes !== undefined) parts.push(bytes)
+  if (attachment.mediaType !== undefined) parts.push(attachment.mediaType)
+  if (attachment.width !== undefined && attachment.height !== undefined) parts.push(`${attachment.width}×${attachment.height}`)
+  if (attachment.offloaded === true) parts.push(t('trajAttachOffloaded'))
+  return parts.join(' · ')
+}
+
+/**
+ * The chip's attachment count pills: one per non-zero kind (images tinted,
+ * files neutral), tucked into the chip's top-right corner. The pill width
+ * tracks the digit count; the tooltip carries the kind breakdown.
+ */
+function attachmentCountPills(attachments: readonly TrajectoryAttachment[], chipWidth: number): ReactNode {
+  const { images, files } = attachmentCounts(attachments)
+  const pills: { key: string; count: number; className: string | undefined }[] = []
+  if (images > 0) pills.push({ key: 'img', count: images, className: css.nodeCountImg })
+  if (files > 0) pills.push({ key: 'file', count: files, className: css.nodeCountFile })
+  if (pills.length === 0) return null
+  const widths = pills.map(pill => 9 + String(pill.count).length * 5.5)
+  const total = widths.reduce((sum, width) => sum + width, 0) + (pills.length - 1) * 3
+  let x = chipWidth - total - 4
+  return (
+    <g>
+      {pills.map((pill, index) => {
+        const width = widths[index] as number
+        const left = x
+        x += width + 3
+        return (
+          <g key={pill.key}>
+            <rect className={pill.className} x={left} y={2} width={width} height={9} rx={4.5} />
+            <text className={css.nodeCountText} x={left + width / 2} y={9.2} textAnchor="middle">{pill.count}</text>
+          </g>
+        )
+      })}
+      <title>{t('trajAttachCounts', { i: images, f: files })}</title>
+    </g>
+  )
 }
 
 /** Props of the trajectory graph tab. */
@@ -315,6 +396,41 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
   const activeStep = replay === null || replay.index === 0 ? undefined : timeline[replay.index - 1]
   const activeEdgeId = activeStep?.edgeId
   const activeEdge = activeEdgeId === null || activeEdgeId === undefined ? undefined : edgeById.get(activeEdgeId)
+
+  // Authorized thumbnails: resolved per attachment id through the host's
+  // session-scoped image face (peek first — Chat and Trajectory share one
+  // cached read), then the async resolve; a host without the face keeps the
+  // icon-only rows. The cache is a ref so re-renders never re-request.
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
+  const urlCacheRef = useRef<Record<string, string>>({})
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null)
+
+  useEffect(() => {
+    const images = selected?.attachments?.filter(attachment => attachment.kind === 'image') ?? []
+    if (images.length === 0) return
+    const ui = ctx.uiConversation
+    if (ui === undefined || (ui.imageUrl === undefined && ui.peekImageUrl === undefined)) return
+    let cancelled = false
+    const publish = (id: string, url: string): void => {
+      if (cancelled || url === '' || urlCacheRef.current[id] === url) return
+      urlCacheRef.current[id] = url
+      setImageUrls(current => (current[id] === url ? current : { ...current, [id]: url }))
+    }
+    for (const attachment of images) {
+      if (urlCacheRef.current[attachment.attachmentId] !== undefined) continue
+      const ref = imageRefOf(attachment)
+      const peeked = ui.peekImageUrl?.(scope.sessionId, ref)
+      if (peeked !== undefined && peeked !== '') {
+        publish(attachment.attachmentId, peeked)
+        continue
+      }
+      if (ui.imageUrl === undefined) continue
+      void ui.imageUrl(scope.sessionId, ref)
+        .then(url => { publish(attachment.attachmentId, url) })
+        .catch(() => { /* icon-only degradation for this one image */ })
+    }
+    return () => { cancelled = true }
+  }, [selected, ctx, scope.sessionId])
 
   if (source === null || windowed.graph.nodes.length === 0) {
     return (
@@ -538,6 +654,8 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
                     {ellipsize(`${badge} · ${clockOf(model.time)}`, node.w - 18, 9)}
                   </text>
                 )}
+                {model.attachments !== undefined && model.attachments.length > 0
+                  && attachmentCountPills(model.attachments, node.w)}
               </g>
             )
           })}
@@ -582,11 +700,141 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
                 : t('trajUsage', { input: selected.tokens.input ?? 0, output: selected.tokens.output ?? 0 }),
             ].filter((part): part is string => part !== null).join(' · ')}
           </div>
+          {selected.attachments !== undefined && selected.attachments.length > 0 && (
+            <div className={css.attachments}>
+              {selected.attachments.map((attachment, index) => {
+                const url = attachment.kind === 'image' ? imageUrls[attachment.attachmentId] : undefined
+                const name = attachmentName(attachment, index + 1)
+                const meta = attachmentMeta(attachment)
+                return (
+                  <div key={`${attachment.attachmentId}:${index}`} className={css.attachment}>
+                    {attachment.kind === 'image'
+                      ? (url !== undefined
+                        ? (
+                          <button
+                            type="button"
+                            className={css.attachmentThumb}
+                            title={t('trajAttachView')}
+                            onClick={() => { setLightbox({ url, name }) }}
+                          >
+                            <img src={url} alt={name} loading="lazy" />
+                          </button>
+                        )
+                        : <span className={css.attachmentIcon} aria-hidden="true"><VscFileMedia size={16} /></span>)
+                      : <span className={css.attachmentIcon} aria-hidden="true"><VscFile size={16} /></span>}
+                    <span className={css.attachmentText}>
+                      <span className={css.attachmentName} title={name}>{name}</span>
+                      {meta !== '' && <span className={css.attachmentMeta}>{meta}</span>}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           {selected.detail !== undefined && selected.detail !== '' && (
             <pre className={css.inspectorBody}>{selected.detail}</pre>
           )}
         </div>
       )}
+      {lightbox !== null && (
+        <AttachmentLightbox url={lightbox.url} name={lightbox.name} onClose={() => { setLightbox(null) }} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The image lightbox: an overlay with the authorized image at natural size,
+ * wheel-zoom / drag-pan / Escape-close (the interaction design of the
+ * mermaid zoom modal, carried over to raster attachments).
+ */
+function AttachmentLightbox({ url, name, onClose }: { url: string; name: string; onClose: () => void }): ReactNode {
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  const dragRef = useRef({ active: false, startX: 0, startY: 0 })
+  const zoomRef = useRef({ scale: 1, tx: 0, ty: 0 })
+
+  const applyTransform = (): void => {
+    const node = imgRef.current
+    if (node === null) return
+    const { scale, tx, ty } = zoomRef.current
+    node.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`
+  }
+
+  /** Zoom by `delta` keeping the stage point under the pointer fixed. */
+  const zoom = useCallback((delta: number, centerX?: number, centerY?: number): void => {
+    const stage = stageRef.current
+    if (stage === null) return
+    const rect = stage.getBoundingClientRect()
+    const cx = centerX ?? rect.width / 2
+    const cy = centerY ?? rect.height / 2
+    const current = zoomRef.current
+    const newScale = clamp(current.scale * delta, 0.2, 8)
+    const sx = rect.width / 2
+    const sy = rect.height / 2
+    const ratio = newScale / current.scale
+    current.tx = cx - sx - (cx - sx - current.tx) * ratio
+    current.ty = cy - sy - (cy - sy - current.ty) * ratio
+    current.scale = newScale
+    applyTransform()
+  }, [])
+
+  const close = useCallback((): void => { onClose() }, [onClose])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    const overlay = overlayRef.current
+    if (stage === null || overlay === null) return
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault()
+      const rect = stage.getBoundingClientRect()
+      zoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX - rect.left, event.clientY - rect.top)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') close()
+      else if (event.key === '+' || event.key === '=') zoom(1.2)
+      else if (event.key === '-') zoom(1 / 1.2)
+      else if (event.key === '0') { zoomRef.current = { scale: 1, tx: 0, ty: 0 }; applyTransform() }
+    }
+    const onMouseDown = (event: MouseEvent): void => {
+      event.preventDefault()
+      dragRef.current = { active: true, startX: event.clientX - zoomRef.current.tx, startY: event.clientY - zoomRef.current.ty }
+    }
+    const onMouseMove = (event: MouseEvent): void => {
+      if (!dragRef.current.active) return
+      zoomRef.current.tx = event.clientX - dragRef.current.startX
+      zoomRef.current.ty = event.clientY - dragRef.current.startY
+      applyTransform()
+    }
+    const onMouseUp = (): void => { dragRef.current.active = false }
+    const onOverlayClick = (event: MouseEvent): void => {
+      if (event.target === overlay) close()
+    }
+    // React's synthetic wheel is passive; a native listener is required to
+    // preventDefault (the canvas must not scroll while zooming the lightbox).
+    stage.addEventListener('wheel', onWheel, { passive: false })
+    if (imgRef.current !== null) imgRef.current.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', onOverlayClick)
+    return () => {
+      stage.removeEventListener('wheel', onWheel)
+      imgRef.current?.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('keydown', onKey)
+      overlay.removeEventListener('click', onOverlayClick)
+    }
+  }, [close, zoom])
+
+  return (
+    <div ref={overlayRef} className={css.lightboxOverlay} role="dialog" aria-modal="true" aria-label={name}>
+      <div ref={stageRef} className={css.lightboxStage}>
+        <img ref={imgRef} className={css.lightboxImg} src={url} alt={name} draggable={false} />
+      </div>
+      <div className={css.lightboxTitle}>{name}</div>
     </div>
   )
 }

@@ -411,6 +411,11 @@ export const tr: Record<string, string> = {
   trajStatusRunning: "çalışıyor",
   trajStatusError: "başarısız",
   trajStatusInterrupted: "durdu",
+  trajAttachCounts: '{i} görsel · {f} dosya',
+  trajAttachImageN: 'Görsel {n}',
+  trajAttachFile: 'Dosya',
+  trajAttachOffloaded: 'Boşaltıldı',
+  trajAttachView: 'Görseli görüntüle',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Onayla",

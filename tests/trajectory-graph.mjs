@@ -71,12 +71,73 @@ function tokenBuckets(usage) {
     const empty = Object.values(buckets).every(value => value === undefined);
     return empty ? undefined : buckets;
 }
+/**
+ * Extract the ordered attachment list of one record's content blocks.
+ * Both vocabularies are covered: user/tool records key blocks by `type`
+ * ('image' | 'file'), assistant records key them by `kind` ('image' forward
+ * compatibility). Repeated references are preserved, malformed refs are
+ * skipped — the inspector list stays a faithful, bounded projection.
+ */
+export function attachmentsOfContent(content) {
+    if (content === undefined)
+        return [];
+    const out = [];
+    for (const block of content) {
+        const attachment = readAttachment(block.type, block.attachment);
+        if (attachment !== undefined)
+            out.push(attachment);
+    }
+    return out;
+}
+/** Extract the ordered attachment list of one assistant record's blocks. */
+export function attachmentsOfBlocks(blocks) {
+    if (blocks === undefined)
+        return [];
+    const out = [];
+    for (const block of blocks) {
+        if (block.kind !== 'image')
+            continue;
+        const attachment = readAttachment('image', block.attachment);
+        if (attachment !== undefined)
+            out.push(attachment);
+    }
+    return out;
+}
+/** Read one structural attachment ref; undefined when it cannot be trusted. */
+function readAttachment(type, ref) {
+    if (type !== 'image' && type !== 'file')
+        return undefined;
+    const record = asRecord(ref);
+    if (record === null)
+        return undefined;
+    const attachmentId = typeof record.attachmentId === 'string' && record.attachmentId !== ''
+        ? record.attachmentId
+        : undefined;
+    if (attachmentId === undefined)
+        return undefined;
+    return {
+        kind: type,
+        attachmentId,
+        ...(typeof record.name === 'string' && record.name !== '' ? { name: record.name } : {}),
+        ...(num(record.bytes) !== undefined ? { bytes: num(record.bytes) } : {}),
+        ...(type === 'image'
+            ? {
+                ...(typeof record.mediaType === 'string' && record.mediaType !== '' ? { mediaType: record.mediaType } : {}),
+                ...(num(record.width) !== undefined ? { width: num(record.width) } : {}),
+                ...(num(record.height) !== undefined ? { height: num(record.height) } : {}),
+                ...(record.offloaded === true ? { offloaded: true } : {}),
+            }
+            : {}),
+    };
+}
 /** Collapse content blocks to one whitespace-normalized line. */
 function contentText(content, limit) {
     if (content === undefined)
         return '';
     const parts = [];
     for (const block of content) {
+        if (block.type === 'image' || block.type === 'file')
+            continue; // attachments render as counts/thumbnails, not label noise
         if (typeof block.text === 'string' && block.text !== '')
             parts.push(block.text);
         else if (typeof block.name === 'string' && block.name !== '')
@@ -92,6 +153,8 @@ function blocksText(blocks, limit) {
         return '';
     const parts = [];
     for (const block of blocks) {
+        if (block.kind === 'image')
+            continue; // attachment, not label text
         if (block.kind === 'tool-call')
             parts.push(block.name ?? 'tool');
         else if (typeof block.text === 'string' && block.text !== '')
@@ -153,12 +216,25 @@ function classifyEventNode(node) {
 function describeEventNode(node, kind) {
     switch (kind) {
         case 'user':
-            return { label: firstLine(contentText(node.content, 48), 48) || 'user', detail: contentText(node.content, 4000) };
-        case 'steering':
-            return { label: firstLine(contentText(node.content, 48), 48) || 'steering', detail: contentText(node.content, 4000) };
+        case 'steering': {
+            const attachments = attachmentsOfContent(node.content);
+            return {
+                label: firstLine(contentText(node.content, 48), 48)
+                    || firstLine(attachments[0]?.name, 48)
+                    || (kind === 'user' ? 'user' : 'steering'),
+                detail: contentText(node.content, 4000),
+                ...(attachments.length === 0 ? {} : { attachments }),
+            };
+        }
         case 'context': {
             const label = node.provenance?.label ?? node.form ?? 'context';
-            return { label: firstLine(label, 40), badge: node.provenance?.role, detail: contentText(node.content, 4000) };
+            const attachments = attachmentsOfContent(node.content);
+            return {
+                label: firstLine(label, 40),
+                badge: node.provenance?.role,
+                detail: contentText(node.content, 4000),
+                ...(attachments.length === 0 ? {} : { attachments }),
+            };
         }
         case 'command':
             return {
@@ -168,16 +244,28 @@ function describeEventNode(node, kind) {
             };
         case 'assistant': {
             const calls = toolCallBlocks(node);
+            const attachments = attachmentsOfBlocks(node.blocks);
             const text = blocksText(node.blocks, 52);
-            const label = text !== '' ? text : calls.length > 0 ? `${calls.length} tool call` : 'assistant';
-            return { label, badge: calls.length > 0 ? `${calls.length}×` : undefined, detail: blocksText(node.blocks, 4000) };
+            const label = text !== ''
+                ? text
+                : attachments[0]?.name !== undefined
+                    ? firstLine(attachments[0].name, 52)
+                    : calls.length > 0 ? `${calls.length} tool call` : 'assistant';
+            return {
+                label,
+                badge: calls.length > 0 ? `${calls.length}×` : undefined,
+                detail: blocksText(node.blocks, 4000),
+                ...(attachments.length === 0 ? {} : { attachments }),
+            };
         }
         case 'tool': {
             const name = node.call?.name ?? node.callId ?? 'tool';
+            const attachments = attachmentsOfContent(node.content);
             return {
                 label: name,
                 badge: node.isError === true ? 'error' : callTail(node.callId ?? ''),
                 detail: [node.call?.argsRaw ?? '', contentText(node.content, 4000)].filter(part => part !== '').join('\n'),
+                ...(attachments.length === 0 ? {} : { attachments }),
             };
         }
         case 'compaction': {
@@ -268,6 +356,7 @@ export function buildTrajectoryGraph(snapshot) {
             label: described.label,
             ...(described.badge === undefined ? {} : { badge: described.badge }),
             ...(described.detail === undefined || described.detail === '' ? {} : { detail: described.detail }),
+            ...(described.attachments === undefined ? {} : { attachments: described.attachments }),
             ...(usage === undefined ? {} : { tokens: usage }),
             ...(completed === undefined || started === undefined ? {} : { durationMs: Math.max(0, completed - started) }),
             live: false,

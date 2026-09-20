@@ -295,6 +295,26 @@
   stroke-width: 2;
 }
 
+/* Attachment count pills (a record carrying images/files): tucked into the
+ * chip's top-right corner; images tinted, files neutral. The inspector list
+ * and the pill's <title> carry the kind breakdown. */
+.nodeCountImg {
+  fill: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary, rgba(64, 128, 224, 0.85)));
+  opacity: 0.9;
+}
+
+.nodeCountFile {
+  fill: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.55));
+}
+
+.nodeCountText {
+  font: var(--dsw-font-xs-12, 8px/9px system-ui);
+  font-weight: 600;
+  fill: var(--dsw-alias-bg-layer-0, #fff);
+  user-select: none;
+  pointer-events: none;
+}
+
 /* ------------------------------------------------------------- empty/notes */
 
 .note {
@@ -387,6 +407,126 @@
   word-break: break-word;
   font: var(--dsw-font-xs-12, 11px/16px ui-monospace, monospace);
   color: var(--dsw-alias-label-secondary, inherit);
+}
+
+/* ----------------------------------------------------------- attachments */
+
+/* The selected record's ordered attachment list (upstream's unified display):
+ * one row per recorded reference, thumbnails for images (authorized session
+ * URLs), type icons for files, recorded name + size/type/dimensions meta. */
+.attachments {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.attachmentThumb {
+  flex: none;
+  width: 48px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.attachmentThumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.attachmentIcon {
+  flex: none;
+  width: 48px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+}
+
+.attachmentText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.attachmentName {
+  font: var(--dsw-font-xs-12, 11px/14px system-ui);
+  color: var(--dsw-alias-label-primary, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachmentMeta {
+  font: var(--dsw-font-xs-12, 10px/13px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -------------------------------------------------------------- lightbox */
+
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: blur(2px);
+}
+
+.lightboxStage {
+  width: 90vw;
+  height: 80vh;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightboxImg {
+  max-width: 100%;
+  max-height: 100%;
+  user-select: none;
+  cursor: grab;
+  will-change: transform;
+}
+
+.lightboxTitle {
+  max-width: 80vw;
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ------------------------------------------------------------- animations */

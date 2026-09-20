@@ -411,6 +411,11 @@ export const vi: Record<string, string> = {
   trajStatusRunning: "đang chạy",
   trajStatusError: "thất bại",
   trajStatusInterrupted: "đã dừng",
+  trajAttachCounts: '{i} hình ảnh · {f} tệp',
+  trajAttachImageN: 'Hình ảnh {n}',
+  trajAttachFile: 'Tệp',
+  trajAttachOffloaded: 'Đã giảm tải',
+  trajAttachView: 'Xem hình ảnh',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Xác nhận",

@@ -394,6 +394,11 @@ export const pt: Record<string, string> = {
   trajStatusRunning: "em execução",
   trajStatusError: "falhou",
   trajStatusInterrupted: "interrompido",
+  trajAttachCounts: '{i} imagens · {f} arquivos',
+  trajAttachImageN: 'Imagem {n}',
+  trajAttachFile: 'Arquivo',
+  trajAttachOffloaded: 'Descarregada',
+  trajAttachView: 'Ver imagem',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirmar",

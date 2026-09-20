@@ -409,6 +409,11 @@ export const ru: Record<string, string> = {
   trajStatusRunning: "выполняется",
   trajStatusError: "ошибка",
   trajStatusInterrupted: "остановлено",
+  trajAttachCounts: '{i} изображений · {f} файлов',
+  trajAttachImageN: 'Изображение {n}',
+  trajAttachFile: 'Файл',
+  trajAttachOffloaded: 'Выгружено',
+  trajAttachView: 'Открыть изображение',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Подтвердить",

@@ -476,6 +476,15 @@ export interface SidebarConversationBinding {
  */
 export interface SidebarConversationAssembly {
   binding(sessionId: string): SidebarConversationBinding
+  /**
+   * Resolve one session-authorized durable image URL (host `UiConversation`
+   * face, cached per Session so every view shares one read). Optional: a
+   * host without the face leaves trajectory thumbnails as icons.
+   * @param attachment - structural `ImageAttachmentRef` (`attachmentId` + recorded metadata).
+   */
+  imageUrl?(sessionId: string, attachment: unknown): Promise<string>
+  /** Synchronously read one cached durable image URL, when available. */
+  peekImageUrl?(sessionId: string, attachment: unknown): string | undefined
 }
 
 /**

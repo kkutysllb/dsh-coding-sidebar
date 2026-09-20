@@ -85,6 +85,26 @@ export interface TrajectoryTokens {
   reasoning?: number
 }
 
+/**
+ * One attachment carried by a user/assistant/tool content block (upstream
+ * 0.1.6-alpha.2 unified attachment display). Images and files keep their
+ * recorded metadata so the inspector can list them (name, size, type,
+ * dimensions) and the view can request authorized thumbnails.
+ */
+export interface TrajectoryAttachment {
+  kind: 'image' | 'file'
+  /** Opaque storage id; never a filesystem path. */
+  attachmentId: string
+  /** Recorded display name (files always have one; images may not). */
+  name?: string
+  bytes?: number
+  mediaType?: string
+  width?: number
+  height?: number
+  /** An image-offload decision replaced the bytes with placeholder text. */
+  offloaded?: boolean
+}
+
 /** One graph node (a ledger record). */
 export interface TrajectoryGraphNode {
   /** Stable identity (`req:<startSeq>`, `ev:<kind>:<seq>`, `call:<callId>`…). */
@@ -106,6 +126,8 @@ export interface TrajectoryGraphNode {
   badge?: string
   /** Full inspector body. */
   detail?: string
+  /** Ordered attachments carried by this record's content blocks. */
+  attachments?: readonly TrajectoryAttachment[]
   tokens?: TrajectoryTokens
   durationMs?: number | null
   /** Whether this node is still moving (drives the flow animation). */
@@ -169,6 +191,8 @@ export interface TrajectoryBlockLike {
   callId?: string
   name?: string
   argsRaw?: string
+  /** Durable image reference of an `image` block (forward-compat shape). */
+  attachment?: unknown
   [key: string]: unknown
 }
 
@@ -177,6 +201,8 @@ export interface TrajectoryContentBlockLike {
   type?: string
   text?: string
   name?: string
+  /** Durable attachment reference of an `image`/`file` block (structural). */
+  attachment?: unknown
   [key: string]: unknown
 }
 
@@ -306,11 +332,66 @@ function tokenBuckets(usage: unknown): TrajectoryTokens | undefined {
   return empty ? undefined : buckets
 }
 
+/**
+ * Extract the ordered attachment list of one record's content blocks.
+ * Both vocabularies are covered: user/tool records key blocks by `type`
+ * ('image' | 'file'), assistant records key them by `kind` ('image' forward
+ * compatibility). Repeated references are preserved, malformed refs are
+ * skipped — the inspector list stays a faithful, bounded projection.
+ */
+export function attachmentsOfContent(content: readonly TrajectoryContentBlockLike[] | undefined): TrajectoryAttachment[] {
+  if (content === undefined) return []
+  const out: TrajectoryAttachment[] = []
+  for (const block of content) {
+    const attachment = readAttachment(block.type, block.attachment)
+    if (attachment !== undefined) out.push(attachment)
+  }
+  return out
+}
+
+/** Extract the ordered attachment list of one assistant record's blocks. */
+export function attachmentsOfBlocks(blocks: readonly TrajectoryBlockLike[] | undefined): TrajectoryAttachment[] {
+  if (blocks === undefined) return []
+  const out: TrajectoryAttachment[] = []
+  for (const block of blocks) {
+    if (block.kind !== 'image') continue
+    const attachment = readAttachment('image', block.attachment)
+    if (attachment !== undefined) out.push(attachment)
+  }
+  return out
+}
+
+/** Read one structural attachment ref; undefined when it cannot be trusted. */
+function readAttachment(type: unknown, ref: unknown): TrajectoryAttachment | undefined {
+  if (type !== 'image' && type !== 'file') return undefined
+  const record = asRecord(ref)
+  if (record === null) return undefined
+  const attachmentId = typeof record.attachmentId === 'string' && record.attachmentId !== ''
+    ? record.attachmentId
+    : undefined
+  if (attachmentId === undefined) return undefined
+  return {
+    kind: type,
+    attachmentId,
+    ...(typeof record.name === 'string' && record.name !== '' ? { name: record.name } : {}),
+    ...(num(record.bytes) !== undefined ? { bytes: num(record.bytes) } : {}),
+    ...(type === 'image'
+      ? {
+        ...(typeof record.mediaType === 'string' && record.mediaType !== '' ? { mediaType: record.mediaType } : {}),
+        ...(num(record.width) !== undefined ? { width: num(record.width) } : {}),
+        ...(num(record.height) !== undefined ? { height: num(record.height) } : {}),
+        ...(record.offloaded === true ? { offloaded: true } : {}),
+      }
+      : {}),
+  }
+}
+
 /** Collapse content blocks to one whitespace-normalized line. */
 function contentText(content: readonly TrajectoryContentBlockLike[] | undefined, limit: number): string {
   if (content === undefined) return ''
   const parts: string[] = []
   for (const block of content) {
+    if (block.type === 'image' || block.type === 'file') continue // attachments render as counts/thumbnails, not label noise
     if (typeof block.text === 'string' && block.text !== '') parts.push(block.text)
     else if (typeof block.name === 'string' && block.name !== '') parts.push(block.name)
     else if (typeof block.type === 'string' && block.type !== '') parts.push(`[${block.type}]`)
@@ -323,6 +404,7 @@ function blocksText(blocks: readonly TrajectoryBlockLike[] | undefined, limit: n
   if (blocks === undefined) return ''
   const parts: string[] = []
   for (const block of blocks) {
+    if (block.kind === 'image') continue // attachment, not label text
     if (block.kind === 'tool-call') parts.push(block.name ?? 'tool')
     else if (typeof block.text === 'string' && block.text !== '') parts.push(block.text)
     else if (typeof block.kind === 'string' && block.kind !== '' && block.kind !== 'text') parts.push(`[${block.kind}]`)
@@ -383,15 +465,28 @@ function classifyEventNode(node: TrajectoryEventNodeLike): { kind: TrajectoryNod
 }
 
 /** Chip label and inspector body of one durable ledger record. */
-function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKind): { label: string; badge?: string; detail?: string } {
+function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKind): { label: string; badge?: string; detail?: string; attachments?: TrajectoryAttachment[] } {
   switch (kind) {
     case 'user':
-      return { label: firstLine(contentText(node.content, 48), 48) || 'user', detail: contentText(node.content, 4000) }
-    case 'steering':
-      return { label: firstLine(contentText(node.content, 48), 48) || 'steering', detail: contentText(node.content, 4000) }
+    case 'steering': {
+      const attachments = attachmentsOfContent(node.content)
+      return {
+        label: firstLine(contentText(node.content, 48), 48)
+          || firstLine(attachments[0]?.name, 48)
+          || (kind === 'user' ? 'user' : 'steering'),
+        detail: contentText(node.content, 4000),
+        ...(attachments.length === 0 ? {} : { attachments }),
+      }
+    }
     case 'context': {
       const label = node.provenance?.label ?? node.form ?? 'context'
-      return { label: firstLine(label, 40), badge: node.provenance?.role, detail: contentText(node.content, 4000) }
+      const attachments = attachmentsOfContent(node.content)
+      return {
+        label: firstLine(label, 40),
+        badge: node.provenance?.role,
+        detail: contentText(node.content, 4000),
+        ...(attachments.length === 0 ? {} : { attachments }),
+      }
     }
     case 'command':
       return {
@@ -401,16 +496,28 @@ function describeEventNode(node: TrajectoryEventNodeLike, kind: TrajectoryNodeKi
       }
     case 'assistant': {
       const calls = toolCallBlocks(node)
+      const attachments = attachmentsOfBlocks(node.blocks)
       const text = blocksText(node.blocks, 52)
-      const label = text !== '' ? text : calls.length > 0 ? `${calls.length} tool call` : 'assistant'
-      return { label, badge: calls.length > 0 ? `${calls.length}×` : undefined, detail: blocksText(node.blocks, 4000) }
+      const label = text !== ''
+        ? text
+        : attachments[0]?.name !== undefined
+          ? firstLine(attachments[0].name, 52)
+          : calls.length > 0 ? `${calls.length} tool call` : 'assistant'
+      return {
+        label,
+        badge: calls.length > 0 ? `${calls.length}×` : undefined,
+        detail: blocksText(node.blocks, 4000),
+        ...(attachments.length === 0 ? {} : { attachments }),
+      }
     }
     case 'tool': {
       const name = node.call?.name ?? node.callId ?? 'tool'
+      const attachments = attachmentsOfContent(node.content)
       return {
         label: name,
         badge: node.isError === true ? 'error' : callTail(node.callId ?? ''),
         detail: [node.call?.argsRaw ?? '', contentText(node.content, 4000)].filter(part => part !== '').join('\n'),
+        ...(attachments.length === 0 ? {} : { attachments }),
       }
     }
     case 'compaction': {
@@ -509,6 +616,7 @@ export function buildTrajectoryGraph(snapshot: TrajectorySnapshotLike | null | u
       label: described.label,
       ...(described.badge === undefined ? {} : { badge: described.badge }),
       ...(described.detail === undefined || described.detail === '' ? {} : { detail: described.detail }),
+      ...(described.attachments === undefined ? {} : { attachments: described.attachments }),
       ...(usage === undefined ? {} : { tokens: usage }),
       ...(completed === undefined || started === undefined ? {} : { durationMs: Math.max(0, completed - started) }),
       live: false,

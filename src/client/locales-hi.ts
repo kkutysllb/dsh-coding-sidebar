@@ -411,6 +411,11 @@ export const hi: Record<string, string> = {
   trajStatusRunning: "चल रहा",
   trajStatusError: "विफल",
   trajStatusInterrupted: "रुका",
+  trajAttachCounts: '{i} चित्र · {f} फ़ाइलें',
+  trajAttachImageN: 'चित्र {n}',
+  trajAttachFile: 'फ़ाइल',
+  trajAttachOffloaded: 'ऑफ़लोडेड',
+  trajAttachView: 'चित्र देखें',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "पुष्टि करें",

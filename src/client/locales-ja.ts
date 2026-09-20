@@ -411,6 +411,11 @@ export const ja: Record<string, string> = {
   trajStatusRunning: "実行中",
   trajStatusError: "失敗",
   trajStatusInterrupted: "停止",
+  trajAttachCounts: '{i} 枚の画像 · {f} 個のファイル',
+  trajAttachImageN: '画像 {n}',
+  trajAttachFile: 'ファイル',
+  trajAttachOffloaded: 'オフロード済み',
+  trajAttachView: '画像を表示',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確認",

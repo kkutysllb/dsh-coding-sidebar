@@ -409,6 +409,11 @@ export const nl: Record<string, string> = {
   trajStatusRunning: "loopt",
   trajStatusError: "mislukt",
   trajStatusInterrupted: "gestopt",
+  trajAttachCounts: '{i} afbeeldingen · {f} bestanden',
+  trajAttachImageN: 'Afbeelding {n}',
+  trajAttachFile: 'Bestand',
+  trajAttachOffloaded: 'Uitgeladen',
+  trajAttachView: 'Afbeelding bekijken',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bevestigen",

@@ -467,6 +467,11 @@ export const zh = {
   trajStatusRunning: "进行中",
   trajStatusError: "失败",
   trajStatusInterrupted: "已停止",
+  trajAttachCounts: '{i} 张图片 · {f} 个文件',
+  trajAttachImageN: '图片 {n}',
+  trajAttachFile: '文件',
+  trajAttachOffloaded: '已卸载',
+  trajAttachView: '查看大图',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "确定",
@@ -981,6 +986,11 @@ export const en: Record<keyof typeof zh, string> = {
   trajStatusRunning: "running",
   trajStatusError: "failed",
   trajStatusInterrupted: "stopped",
+  trajAttachCounts: '{i} images · {f} files',
+  trajAttachImageN: 'Image {n}',
+  trajAttachFile: 'File',
+  trajAttachOffloaded: 'Offloaded',
+  trajAttachView: 'View image',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirm",

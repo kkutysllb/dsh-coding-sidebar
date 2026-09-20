@@ -411,6 +411,11 @@ export const th: Record<string, string> = {
   trajStatusRunning: "กำลังทำงาน",
   trajStatusError: "ล้มเหลว",
   trajStatusInterrupted: "หยุดแล้ว",
+  trajAttachCounts: '{i} รูปภาพ · {f} ไฟล์',
+  trajAttachImageN: 'รูปภาพ {n}',
+  trajAttachFile: 'ไฟล์',
+  trajAttachOffloaded: 'ถูกย้ายออก',
+  trajAttachView: 'ดูรูปภาพ',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "ยืนยัน",

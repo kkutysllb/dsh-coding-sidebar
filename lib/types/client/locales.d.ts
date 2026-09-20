@@ -464,6 +464,11 @@ export declare const zh: {
     trajStatusRunning: string;
     trajStatusError: string;
     trajStatusInterrupted: string;
+    trajAttachCounts: string;
+    trajAttachImageN: string;
+    trajAttachFile: string;
+    trajAttachOffloaded: string;
+    trajAttachView: string;
     confirm: string;
     gitViewChanges: string;
     gitViewBranches: string;

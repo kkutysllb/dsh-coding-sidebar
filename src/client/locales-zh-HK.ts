@@ -426,6 +426,11 @@ export const zhHK: Record<string, string> = {
   trajStatusRunning: "進行中",
   trajStatusError: "失敗",
   trajStatusInterrupted: "已停止",
+  trajAttachCounts: '{i} 張圖片 · {f} 個檔案',
+  trajAttachImageN: '圖片 {n}',
+  trajAttachFile: '檔案',
+  trajAttachOffloaded: '已卸載',
+  trajAttachView: '檢視大圖',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確定",

@@ -403,6 +403,11 @@ export const ko: Record<string, string> = {
   trajStatusRunning: "실행 중",
   trajStatusError: "실패",
   trajStatusInterrupted: "중지됨",
+  trajAttachCounts: '{i}개 이미지 · {f}개 파일',
+  trajAttachImageN: '이미지 {n}',
+  trajAttachFile: '파일',
+  trajAttachOffloaded: '오프로드됨',
+  trajAttachView: '이미지 보기',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "확인",

@@ -394,6 +394,11 @@ export const sv: Record<string, string> = {
   trajStatusRunning: "körs",
   trajStatusError: "misslyckades",
   trajStatusInterrupted: "stoppad",
+  trajAttachCounts: '{i} bilder · {f} filer',
+  trajAttachImageN: 'Bild {n}',
+  trajAttachFile: 'Fil',
+  trajAttachOffloaded: 'Urlagd',
+  trajAttachView: 'Visa bild',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bekräfta",

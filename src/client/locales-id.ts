@@ -409,6 +409,11 @@ export const id: Record<string, string> = {
   trajStatusRunning: "berjalan",
   trajStatusError: "gagal",
   trajStatusInterrupted: "dihentikan",
+  trajAttachCounts: '{i} gambar · {f} berkas',
+  trajAttachImageN: 'Gambar {n}',
+  trajAttachFile: 'Berkas',
+  trajAttachOffloaded: 'Dioffload',
+  trajAttachView: 'Lihat gambar',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Konfirmasi",

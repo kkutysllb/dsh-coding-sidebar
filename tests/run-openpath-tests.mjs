@@ -741,6 +741,63 @@ console.log('[buildTrajectoryGraph]')
 }
 
 // ── layoutTrajectoryGraph / ellipsize（泳道几何与路径）──────────
+// ── 附件投影（对齐上游 0.1.6-alpha.2 统一附件展示）────────────────
+console.log('[buildTrajectoryGraph attachments]')
+{
+  const snapshot = {
+    eventNodes: [
+      {
+        kind: 'user', seq: 2, time: 1100,
+        content: [
+          { type: 'text', text: '看这两张图' },
+          { type: 'image', attachment: { attachmentId: 'img-1', mediaType: 'image/png', bytes: 2048, width: 640, height: 480 } },
+          { type: 'image', attachment: { attachmentId: 'img-2', mediaType: 'image/jpeg', bytes: 4096, width: 800, height: 600, name: 'chart.jpg', offloaded: true } },
+          { type: 'file', attachment: { attachmentId: 'file-1', name: 'data.csv', bytes: 0 } },
+        ],
+      },
+      {
+        kind: 'user', seq: 3, time: 1150,
+        content: [
+          { type: 'image', attachment: { attachmentId: 'img-3', mediaType: 'image/png', bytes: 1024, width: 100, height: 100 } },
+        ],
+      },
+      { kind: 'user', seq: 4, time: 1160, content: [{ type: 'image', attachment: { mediaType: 'image/png' } }] },
+      {
+        kind: 'assistant', seq: 20, time: 1300, turn: 1, step: 1,
+        blocks: [
+          { kind: 'text', text: '收到' },
+          { kind: 'image', attachment: { attachmentId: 'img-4', mediaType: 'image/png', bytes: 512, width: 32, height: 32 } },
+        ],
+      },
+    ],
+    requests: [],
+  }
+  const graph = buildTrajectoryGraph(snapshot)
+  const byId = (id) => graph.nodes.find(node => node.id === id)
+
+  // 混合消息：标签只剩文本，附件按块顺序完整投影
+  const mixed = byId('ev:user:2')
+  ok(mixed?.label === '看这两张图', '文本+附件消息：标签只剩文本（不再有 [image] 噪声）')
+  ok(mixed?.attachments?.length === 3, '三枚附件按块顺序保留')
+  ok(mixed?.attachments?.[0]?.kind === 'image' && mixed.attachments[0].attachmentId === 'img-1' && mixed.attachments[0].width === 640, '图片附件带 id/尺寸')
+  ok(mixed?.attachments?.[1]?.offloaded === true && mixed.attachments[1].name === 'chart.jpg', 'offload 标记与名称保留')
+  ok(mixed?.attachments?.[2]?.kind === 'file' && mixed.attachments[2].bytes === 0, '文件附件保留字节（0 B 也保留）')
+  ok(mixed?.detail === '看这两张图', '检查器 detail 同样无附件噪声')
+
+  // 纯附件消息：无名图片标签回落 kind（渲染层用本地化序号名与计数角标补足）
+  const pure = byId('ev:user:3')
+  ok(pure?.attachments?.length === 1, '纯图片消息附件完整')
+  ok(pure?.label === 'user', '无名纯图消息标签回落 kind 兜底')
+
+  // 畸形引用被跳过，不产生附件也不崩
+  ok(byId('ev:user:4')?.attachments === undefined, '缺 attachmentId 的引用整体跳过')
+
+  // assistant 前向兼容：image 块进附件列表，标签无噪声
+  const assistant = byId('ev:assistant:20')
+  ok(assistant?.attachments?.length === 1 && assistant.attachments[0].attachmentId === 'img-4', 'assistant 图片块投影为附件')
+  ok(assistant?.label === '收到', 'assistant 标签只剩文本')
+}
+
 console.log('[layoutTrajectoryGraph]')
 {
   const graph = buildTrajectoryGraph({

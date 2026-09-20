@@ -75,6 +75,25 @@ export interface TrajectoryTokens {
     output?: number;
     reasoning?: number;
 }
+/**
+ * One attachment carried by a user/assistant/tool content block (upstream
+ * 0.1.6-alpha.2 unified attachment display). Images and files keep their
+ * recorded metadata so the inspector can list them (name, size, type,
+ * dimensions) and the view can request authorized thumbnails.
+ */
+export interface TrajectoryAttachment {
+    kind: 'image' | 'file';
+    /** Opaque storage id; never a filesystem path. */
+    attachmentId: string;
+    /** Recorded display name (files always have one; images may not). */
+    name?: string;
+    bytes?: number;
+    mediaType?: string;
+    width?: number;
+    height?: number;
+    /** An image-offload decision replaced the bytes with placeholder text. */
+    offloaded?: boolean;
+}
 /** One graph node (a ledger record). */
 export interface TrajectoryGraphNode {
     /** Stable identity (`req:<startSeq>`, `ev:<kind>:<seq>`, `call:<callId>`…). */
@@ -96,6 +115,8 @@ export interface TrajectoryGraphNode {
     badge?: string;
     /** Full inspector body. */
     detail?: string;
+    /** Ordered attachments carried by this record's content blocks. */
+    attachments?: readonly TrajectoryAttachment[];
     tokens?: TrajectoryTokens;
     durationMs?: number | null;
     /** Whether this node is still moving (drives the flow animation). */
@@ -150,6 +171,8 @@ export interface TrajectoryBlockLike {
     callId?: string;
     name?: string;
     argsRaw?: string;
+    /** Durable image reference of an `image` block (forward-compat shape). */
+    attachment?: unknown;
     [key: string]: unknown;
 }
 /** One content block of a user/context/tool record. */
@@ -157,6 +180,8 @@ export interface TrajectoryContentBlockLike {
     type?: string;
     text?: string;
     name?: string;
+    /** Durable attachment reference of an `image`/`file` block (structural). */
+    attachment?: unknown;
     [key: string]: unknown;
 }
 /** One tool call (running or settled), possibly owning child calls. */
@@ -267,6 +292,16 @@ export interface TrajectorySnapshotLike {
     runningCalls?: readonly TrajectoryCallLike[];
     [key: string]: unknown;
 }
+/**
+ * Extract the ordered attachment list of one record's content blocks.
+ * Both vocabularies are covered: user/tool records key blocks by `type`
+ * ('image' | 'file'), assistant records key them by `kind` ('image' forward
+ * compatibility). Repeated references are preserved, malformed refs are
+ * skipped — the inspector list stays a faithful, bounded projection.
+ */
+export declare function attachmentsOfContent(content: readonly TrajectoryContentBlockLike[] | undefined): TrajectoryAttachment[];
+/** Extract the ordered attachment list of one assistant record's blocks. */
+export declare function attachmentsOfBlocks(blocks: readonly TrajectoryBlockLike[] | undefined): TrajectoryAttachment[];
 /**
  * Project one host trajectory snapshot into the graph model.
  * @param snapshot - host `TrajectorySnapshot` (structural mirror), or null.
