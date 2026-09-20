@@ -425,6 +425,8 @@ export const ru: Record<string, string> = {
   trajEdgeLegendHint: 'Щёлкните, чтобы подсветить только этот тип связей',
   trajSearchPlaceholder: 'Поиск по траектории…',
   trajSearchNone: 'нет совпадений',
+  trajStatsSlowest: 'медленнейший {name}·{duration}',
+  trajLanesSummary: 'ввод {n1} · модель {n2} · инструмент {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Подтвердить",

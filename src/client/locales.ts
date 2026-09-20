@@ -483,6 +483,8 @@ export const zh = {
   trajEdgeLegendHint: '点击只高亮这一类边',
   trajSearchPlaceholder: '搜索轨迹…',
   trajSearchNone: '无匹配',
+  trajStatsSlowest: '最慢 {name}·{duration}',
+  trajLanesSummary: '输入 {n1} · 模型 {n2} · 工具 {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "确定",
@@ -1013,6 +1015,8 @@ export const en: Record<keyof typeof zh, string> = {
   trajEdgeLegendHint: 'Click to highlight only this edge kind',
   trajSearchPlaceholder: 'Search trajectory…',
   trajSearchNone: 'no match',
+  trajStatsSlowest: 'slowest {name}·{duration}',
+  trajLanesSummary: 'input {n1} · model {n2} · tool {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirm",

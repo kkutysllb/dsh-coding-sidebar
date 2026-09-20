@@ -322,6 +322,18 @@ export declare function attachmentsOfBlocks(blocks: readonly TrajectoryBlockLike
  * @returns the graph; an absent/empty snapshot yields an empty graph.
  */
 export declare function buildTrajectoryGraph(snapshot: TrajectorySnapshotLike | null | undefined): TrajectoryGraph;
+/**
+ * The slowest settled tool records, descending by recorded duration.
+ * @param graph - the (windowed) graph projection.
+ * @param limit - how many leaders to keep.
+ * @returns id, chip label and duration of each leader (empty when no tool
+ * record carries a duration).
+ */
+export declare function slowestTools(graph: TrajectoryGraph, limit: number): {
+    id: string;
+    name: string;
+    durationMs: number;
+}[];
 /** One windowed view of a graph (the render cap). */
 export interface TrajectoryGraphWindow {
     graph: TrajectoryGraph;

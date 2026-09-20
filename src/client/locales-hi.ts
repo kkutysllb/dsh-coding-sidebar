@@ -427,6 +427,8 @@ export const hi: Record<string, string> = {
   trajEdgeLegendHint: 'केवल इस प्रकार के किनारों को उभारने के लिए क्लिक करें',
   trajSearchPlaceholder: 'प्रक्षेप खोजें…',
   trajSearchNone: 'कोई मिलान नहीं',
+  trajStatsSlowest: 'सबसे धीमा {name}·{duration}',
+  trajLanesSummary: 'इनपुट {n1} · मॉडल {n2} · टूल {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "पुष्टि करें",

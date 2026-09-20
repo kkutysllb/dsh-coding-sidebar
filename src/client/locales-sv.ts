@@ -410,6 +410,8 @@ export const sv: Record<string, string> = {
   trajEdgeLegendHint: 'Klicka för att endast markera denna typ av kanter',
   trajSearchPlaceholder: 'Sök i banan…',
   trajSearchNone: 'inga träffar',
+  trajStatsSlowest: 'långsammaste {name}·{duration}',
+  trajLanesSummary: 'inmatning {n1} · modell {n2} · verktyg {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bekräfta",

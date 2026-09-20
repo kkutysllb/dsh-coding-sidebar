@@ -427,6 +427,8 @@ export const tr: Record<string, string> = {
   trajEdgeLegendHint: 'Yalnızca bu kenar türünü vurgulamak için tıklayın',
   trajSearchPlaceholder: 'Yörüngede ara…',
   trajSearchNone: 'eşleşme yok',
+  trajStatsSlowest: 'en yavaş {name}·{duration}',
+  trajLanesSummary: 'girdi {n1} · model {n2} · araç {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Onayla",

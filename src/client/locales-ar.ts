@@ -428,6 +428,8 @@ export const ar: Record<string, string> = {
   trajEdgeLegendHint: 'انقر لإبراز هذا النوع من الحواف فقط',
   trajSearchPlaceholder: 'بحث في المسار…',
   trajSearchNone: 'لا نتائج',
+  trajStatsSlowest: 'الأبطأ {name}·{duration}',
+  trajLanesSummary: 'إدخال {n1} · نموذج {n2} · أداة {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "تأكيد",

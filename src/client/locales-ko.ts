@@ -419,6 +419,8 @@ export const ko: Record<string, string> = {
   trajEdgeLegendHint: '클릭하면 이 종류의 간선만 강조',
   trajSearchPlaceholder: '궤적 검색…',
   trajSearchNone: '일치 없음',
+  trajStatsSlowest: '최고 지연 {name}·{duration}',
+  trajLanesSummary: '입력 {n1} · 모델 {n2} · 도구 {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "확인",

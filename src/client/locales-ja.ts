@@ -427,6 +427,8 @@ export const ja: Record<string, string> = {
   trajEdgeLegendHint: 'クリックでこの種類の辺だけを強調',
   trajSearchPlaceholder: '軌跡を検索…',
   trajSearchNone: '一致なし',
+  trajStatsSlowest: '最遅 {name}·{duration}',
+  trajLanesSummary: '入力 {n1} · モデル {n2} · ツール {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確認",

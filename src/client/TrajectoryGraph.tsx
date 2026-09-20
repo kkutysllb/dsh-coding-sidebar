@@ -38,9 +38,10 @@ import { markdownTextProps } from './markdown-labels.tsx'
 import type { Context } from '../context-types.ts'
 import type { SessionScope } from './api.ts'
 import {
-  buildTrajectoryGraph, searchTrajectoryNodes, windowTrajectoryGraph,
+  buildTrajectoryGraph, searchTrajectoryNodes, slowestTools, windowTrajectoryGraph,
   type TrajectoryAttachment, type TrajectoryEdgeKind, type TrajectoryGraphNode, type TrajectoryLane,
   type TrajectoryNodeKind, type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
+  type TrajectoryTokens,
 } from './trajectory-graph.ts'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.ts'
 import { resolveTrajectorySource } from './trajectory-source.ts'
@@ -436,6 +437,30 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
     return (tokens.input ?? 0) + (tokens.output ?? 0)
   }, [windowed])
 
+  /** D: the slowest tool leaders + the token-bucket breakdown (stat tooltips). */
+  const slowest = useMemo(() => slowestTools(windowed.graph, 3), [windowed])
+  const tokenBreakdownTitle = useMemo((): string => {
+    const tokens: TrajectoryTokens = windowed.graph.stats.tokens
+    const parts: string[] = []
+    if (tokens.input !== undefined) parts.push(`input ${tokens.input}`)
+    if (tokens.cacheRead !== undefined) parts.push(`cache read ${tokens.cacheRead}`)
+    if (tokens.cacheWrite !== undefined) parts.push(`cache write ${tokens.cacheWrite}`)
+    if (tokens.output !== undefined) parts.push(`output ${tokens.output}`)
+    if (tokens.reasoning !== undefined) parts.push(`reasoning ${tokens.reasoning}`)
+    return parts.join(' · ')
+  }, [windowed])
+  const laneCounts = useMemo(() => {
+    let input = 0
+    let model = 0
+    let tool = 0
+    for (const node of windowed.graph.nodes) {
+      if (node.lane === 'input') input++
+      else if (node.lane === 'model') model++
+      else tool++
+    }
+    return { input, model, tool }
+  }, [windowed])
+
   const selected = selectedId === null ? undefined : modelById.get(selectedId)
   const activeStep = replay === null || replay.index === 0 ? undefined : timeline[replay.index - 1]
   const activeEdgeId = activeStep?.edgeId
@@ -493,7 +518,15 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
         <span className={css.stat}>{t('trajStatsNodes', { n: windowed.graph.stats.nodes })}</span>
         <span className={css.stat}>{t('trajStatsEdges', { n: windowed.graph.stats.edges })}</span>
         <span className={css.stat}>{t('trajStatsTurns', { n: windowed.graph.stats.turns })}</span>
-        <span className={css.stat}>{t('trajStatsTokens', { n: statTokens })}</span>
+        <span className={css.stat} title={tokenBreakdownTitle}>{t('trajStatsTokens', { n: statTokens })}</span>
+        {slowest.length > 0 && slowest[0] !== undefined && (
+          <span
+            className={css.stat}
+            title={slowest.map(leader => `${leader.name} ${durationOf(leader.durationMs)}`).join('\n')}
+          >
+            {t('trajStatsSlowest', { name: slowest[0].name, duration: durationOf(slowest[0].durationMs) })}
+          </span>
+        )}
         {full.live && <span className={css.liveDot} aria-hidden="true" />}
         <span className={css.spacer} />
         <button
@@ -762,7 +795,13 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
       )}
 
       {selected === undefined ? (
-        <div className={css.note}>{t('trajInspectorHint')}</div>
+        <div className={css.note}>
+          <div>{t('trajInspectorHint')}</div>
+          <div className={css.noteSummary}>
+            {t('trajLanesSummary', { n1: laneCounts.input, n2: laneCounts.model, n3: laneCounts.tool })}
+            {statTokens > 0 ? ` · ${t('trajStatsTokens', { n: statTokens })}` : ''}
+          </div>
+        </div>
       ) : (
         <div className={css.inspector} style={{ '--node-accent': ACCENT[selected.kind] } as CSSProperties}>
           <div className={css.inspectorHead}>

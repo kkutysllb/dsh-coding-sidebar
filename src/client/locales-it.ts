@@ -418,6 +418,8 @@ export const it: Record<string, string> = {
   trajEdgeLegendHint: 'Clicca per evidenziare solo questo tipo di arco',
   trajSearchPlaceholder: 'Cerca nella traiettoria…',
   trajSearchNone: 'nessuno',
+  trajStatsSlowest: 'più lento {name}·{duration}',
+  trajLanesSummary: 'input {n1} · modello {n2} · strumento {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Conferma",

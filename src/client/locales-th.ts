@@ -427,6 +427,8 @@ export const th: Record<string, string> = {
   trajEdgeLegendHint: 'คลิกเพื่อไฮไลต์เฉพาะชนิดของเส้นเชื่อมนี้',
   trajSearchPlaceholder: 'ค้นหาเส้นทาง…',
   trajSearchNone: 'ไม่พบ',
+  trajStatsSlowest: 'ช้าสุด {name}·{duration}',
+  trajLanesSummary: 'อินพุต {n1} · โมเดล {n2} · เครื่องมือ {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "ยืนยัน",

@@ -77,7 +77,7 @@ import {
 } from './team-model.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
 import { createFileIconRegistry } from './file-icon-registry.mjs'
-import { buildTrajectoryGraph, searchTrajectoryNodes, windowTrajectoryGraph } from './trajectory-graph.mjs'
+import { buildTrajectoryGraph, searchTrajectoryNodes, slowestTools, windowTrajectoryGraph } from './trajectory-graph.mjs'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.mjs'
 import { resolveTrajectorySource } from './trajectory-source.mjs'
 import {
@@ -871,6 +871,39 @@ console.log('[searchTrajectoryNodes]')
 
   // 无命中
   ok(searchTrajectoryNodes(graph, 'zzz不存在').length === 0, '无匹配返回空')
+}
+
+// ── 最慢工具排行（D 段统计）────────────────────────────────
+console.log('[slowestTools]')
+{
+  const snapshot = {
+    eventNodes: [
+      { kind: 'user', seq: 2, time: 1100, content: [{ type: 'text', text: '跑一下' }] },
+      {
+        kind: 'tool-result', seq: 30, time: 1500, callId: 'c1',
+        call: { name: 'fs_read', argsRaw: '{}' }, content: [{ type: 'text', text: 'ok' }],
+        timing: { stepStartTime: 1200, completedTime: 1250 },
+      },
+      {
+        kind: 'tool-result', seq: 40, time: 2600, callId: 'c2',
+        call: { name: 'bash', argsRaw: '{}' }, content: [{ type: 'text', text: 'done' }],
+        timing: { stepStartTime: 1300, completedTime: 2500 },
+      },
+      // 无 timing 的工具记录不参与排行
+      {
+        kind: 'tool-result', seq: 50, time: 2700, callId: 'c3',
+        call: { name: 'fast', argsRaw: '{}' }, content: [{ type: 'text', text: 'x' }],
+      },
+    ],
+    requests: [],
+  }
+  const graph = buildTrajectoryGraph(snapshot)
+  const leaders = slowestTools(graph, 3)
+  ok(leaders.length === 2, '只有带时长的工具记录参与排行')
+  ok(leaders[0]?.name === 'bash' && leaders[0].durationMs === 1200, '榜首是最长耗时（bash 1200ms）')
+  ok(leaders[1]?.name === 'fs_read' && leaders[1].durationMs === 50, '次席 fs_read 50ms')
+  ok(slowestTools(graph, 1).length === 1, 'limit 截断')
+  ok(slowestTools(buildTrajectoryGraph(null), 3).length === 0, '空图无排行')
 }
 
 console.log('[layoutTrajectoryGraph]')

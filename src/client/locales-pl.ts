@@ -429,6 +429,8 @@ export const pl: Record<string, string> = {
   trajEdgeLegendHint: 'Kliknij, aby podświetlić tylko ten rodzaj krawędzi',
   trajSearchPlaceholder: 'Szukaj w trajektorii…',
   trajSearchNone: 'brak dopasowań',
+  trajStatsSlowest: 'najwolniejsze {name}·{duration}',
+  trajLanesSummary: 'wejście {n1} · model {n2} · narzędzie {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Potwierdź",

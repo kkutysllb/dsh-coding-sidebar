@@ -442,6 +442,8 @@ export const zhMO: Record<string, string> = {
   trajEdgeLegendHint: '點擊只高亮這一類邊',
   trajSearchPlaceholder: '搜索軌跡…',
   trajSearchNone: '無匹配',
+  trajStatsSlowest: '最慢 {name}·{duration}',
+  trajLanesSummary: '輸入 {n1} · 模型 {n2} · 工具 {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確定",

@@ -480,6 +480,8 @@ export declare const zh: {
     trajEdgeLegendHint: string;
     trajSearchPlaceholder: string;
     trajSearchNone: string;
+    trajStatsSlowest: string;
+    trajLanesSummary: string;
     confirm: string;
     gitViewChanges: string;
     gitViewBranches: string;

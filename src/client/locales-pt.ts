@@ -410,6 +410,8 @@ export const pt: Record<string, string> = {
   trajEdgeLegendHint: 'Clique para destacar apenas este tipo de aresta',
   trajSearchPlaceholder: 'Pesquisar trajetória…',
   trajSearchNone: 'sem resultados',
+  trajStatsSlowest: 'mais lento {name}·{duration}',
+  trajLanesSummary: 'entrada {n1} · modelo {n2} · ferramenta {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirmar",

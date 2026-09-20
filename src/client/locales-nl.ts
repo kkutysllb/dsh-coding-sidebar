@@ -425,6 +425,8 @@ export const nl: Record<string, string> = {
   trajEdgeLegendHint: 'Klik om alleen dit soort randen te markeren',
   trajSearchPlaceholder: 'Traject zoeken…',
   trajSearchNone: 'geen treffers',
+  trajStatsSlowest: 'traagste {name}·{duration}',
+  trajLanesSummary: 'invoer {n1} · model {n2} · gereedschap {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bevestigen",

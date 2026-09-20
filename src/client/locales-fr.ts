@@ -420,6 +420,8 @@ export const fr: Record<string, string> = {
   trajEdgeLegendHint: 'Cliquer pour ne mettre en évidence que ce type de lien',
   trajSearchPlaceholder: 'Rechercher dans la trajectoire…',
   trajSearchNone: 'aucun résultat',
+  trajStatsSlowest: 'plus lent {name}·{duration}',
+  trajLanesSummary: 'entrée {n1} · modèle {n2} · outil {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirmer",

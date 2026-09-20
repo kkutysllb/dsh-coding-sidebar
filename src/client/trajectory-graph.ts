@@ -1020,6 +1020,23 @@ function emptyGraph(): TrajectoryGraph {
   }
 }
 
+/**
+ * The slowest settled tool records, descending by recorded duration.
+ * @param graph - the (windowed) graph projection.
+ * @param limit - how many leaders to keep.
+ * @returns id, chip label and duration of each leader (empty when no tool
+ * record carries a duration).
+ */
+export function slowestTools(graph: TrajectoryGraph, limit: number): { id: string; name: string; durationMs: number }[] {
+  const leaders: { id: string; name: string; durationMs: number }[] = []
+  for (const node of graph.nodes) {
+    if (node.lane !== 'tool' || node.durationMs === undefined || node.durationMs === null) continue
+    leaders.push({ id: node.id, name: node.label, durationMs: node.durationMs })
+  }
+  leaders.sort((left, right) => right.durationMs - left.durationMs)
+  return leaders.slice(0, Math.max(0, limit))
+}
+
 /** One windowed view of a graph (the render cap). */
 export interface TrajectoryGraphWindow {
   graph: TrajectoryGraph

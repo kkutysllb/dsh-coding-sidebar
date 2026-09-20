@@ -427,6 +427,8 @@ export const vi: Record<string, string> = {
   trajEdgeLegendHint: 'Bấm để chỉ làm nổi bật loại cạnh này',
   trajSearchPlaceholder: 'Tìm trong quỹ đạo…',
   trajSearchNone: 'không có',
+  trajStatsSlowest: 'chậm nhất {name}·{duration}',
+  trajLanesSummary: 'đầu vào {n1} · mô hình {n2} · công cụ {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Xác nhận",

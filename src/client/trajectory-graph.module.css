@@ -428,6 +428,15 @@
   border-top: 1px dashed var(--dsw-alias-border-l2, transparent);
 }
 
+/* The empty inspector's lane summary line (D). */
+.noteSummary {
+  margin-top: 2px;
+  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .empty {
   flex: 1;
   min-height: 0;

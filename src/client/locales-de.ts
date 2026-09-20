@@ -413,6 +413,8 @@ export const de: Record<string, string> = {
   trajEdgeLegendHint: 'Klicken, um nur diese Kantentart hervorzuheben',
   trajSearchPlaceholder: 'Verlauf durchsuchen…',
   trajSearchNone: 'kein Treffer',
+  trajStatsSlowest: 'langsamstes {name}·{duration}',
+  trajLanesSummary: 'Eingabe {n1} · Modell {n2} · Werkzeug {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bestätigen",

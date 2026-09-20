@@ -425,6 +425,8 @@ export const id: Record<string, string> = {
   trajEdgeLegendHint: 'Klik untuk menyorot hanya jenis tepi ini',
   trajSearchPlaceholder: 'Cari trayektori…',
   trajSearchNone: 'tidak ada',
+  trajStatsSlowest: 'terlambat {name}·{duration}',
+  trajLanesSummary: 'masukan {n1} · model {n2} · alat {n3}',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Konfirmasi",

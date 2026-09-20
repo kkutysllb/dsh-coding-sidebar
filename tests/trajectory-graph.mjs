@@ -763,6 +763,23 @@ function emptyGraph() {
     };
 }
 /**
+ * The slowest settled tool records, descending by recorded duration.
+ * @param graph - the (windowed) graph projection.
+ * @param limit - how many leaders to keep.
+ * @returns id, chip label and duration of each leader (empty when no tool
+ * record carries a duration).
+ */
+export function slowestTools(graph, limit) {
+    const leaders = [];
+    for (const node of graph.nodes) {
+        if (node.lane !== 'tool' || node.durationMs === undefined || node.durationMs === null)
+            continue;
+        leaders.push({ id: node.id, name: node.label, durationMs: node.durationMs });
+    }
+    leaders.sort((left, right) => right.durationMs - left.durationMs);
+    return leaders.slice(0, Math.max(0, limit));
+}
+/**
  * Search the graph's records by a case-insensitive substring of the chip
  * label, the node kind, the node id, or a tool record's call id — the
  * search box's match model.
