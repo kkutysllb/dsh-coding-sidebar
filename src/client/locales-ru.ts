@@ -417,6 +417,14 @@ export const ru: Record<string, string> = {
   trajToolArgs: 'Аргументы вызова',
   trajToolResult: 'Результат',
   trajToolPending: 'Ожидание результата',
+  trajEdgePrompt: 'ввод',
+  trajEdgeResult: 'результат',
+  trajEdgeDispatch: 'вызов',
+  trajEdgeSubcall: 'подвызов',
+  trajEdgeLoop: 'цикл',
+  trajEdgeLegendHint: 'Щёлкните, чтобы подсветить только этот тип связей',
+  trajSearchPlaceholder: 'Поиск по траектории…',
+  trajSearchNone: 'нет совпадений',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Подтвердить",

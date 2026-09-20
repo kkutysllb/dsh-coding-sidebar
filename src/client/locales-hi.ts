@@ -419,6 +419,14 @@ export const hi: Record<string, string> = {
   trajToolArgs: 'कॉल तर्क',
   trajToolResult: 'परिणाम',
   trajToolPending: 'परिणाम प्रतीक्षित',
+  trajEdgePrompt: 'इनपुट',
+  trajEdgeResult: 'परिणाम',
+  trajEdgeDispatch: 'प्रेषण',
+  trajEdgeSubcall: 'उप-कॉल',
+  trajEdgeLoop: 'लूप',
+  trajEdgeLegendHint: 'केवल इस प्रकार के किनारों को उभारने के लिए क्लिक करें',
+  trajSearchPlaceholder: 'प्रक्षेप खोजें…',
+  trajSearchNone: 'कोई मिलान नहीं',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "पुष्टि करें",

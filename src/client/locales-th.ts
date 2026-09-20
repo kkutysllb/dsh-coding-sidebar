@@ -419,6 +419,14 @@ export const th: Record<string, string> = {
   trajToolArgs: 'อาร์กิวเมนต์การเรียก',
   trajToolResult: 'ผลลัพธ์',
   trajToolPending: 'รอผลลัพธ์',
+  trajEdgePrompt: 'อินพุต',
+  trajEdgeResult: 'ผลลัพธ์',
+  trajEdgeDispatch: 'ส่งงาน',
+  trajEdgeSubcall: 'เรียกย่อย',
+  trajEdgeLoop: 'วนซ้ำ',
+  trajEdgeLegendHint: 'คลิกเพื่อไฮไลต์เฉพาะชนิดของเส้นเชื่อมนี้',
+  trajSearchPlaceholder: 'ค้นหาเส้นทาง…',
+  trajSearchNone: 'ไม่พบ',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "ยืนยัน",

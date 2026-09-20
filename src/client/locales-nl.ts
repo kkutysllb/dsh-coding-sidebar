@@ -417,6 +417,14 @@ export const nl: Record<string, string> = {
   trajToolArgs: 'Aanroepargumenten',
   trajToolResult: 'Resultaat',
   trajToolPending: 'Resultaat in behandeling',
+  trajEdgePrompt: 'invoer',
+  trajEdgeResult: 'resultaat',
+  trajEdgeDispatch: 'uitgifte',
+  trajEdgeSubcall: 'sub-aanroep',
+  trajEdgeLoop: 'lus',
+  trajEdgeLegendHint: 'Klik om alleen dit soort randen te markeren',
+  trajSearchPlaceholder: 'Traject zoeken…',
+  trajSearchNone: 'geen treffers',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bevestigen",

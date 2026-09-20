@@ -411,6 +411,14 @@ export const ko: Record<string, string> = {
   trajToolArgs: '호출 인자',
   trajToolResult: '결과',
   trajToolPending: '결과 대기 중',
+  trajEdgePrompt: '입력',
+  trajEdgeResult: '결과',
+  trajEdgeDispatch: '파견',
+  trajEdgeSubcall: '하위 호출',
+  trajEdgeLoop: '루프',
+  trajEdgeLegendHint: '클릭하면 이 종류의 간선만 강조',
+  trajSearchPlaceholder: '궤적 검색…',
+  trajSearchNone: '일치 없음',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "확인",

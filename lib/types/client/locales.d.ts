@@ -472,6 +472,14 @@ export declare const zh: {
     trajToolArgs: string;
     trajToolResult: string;
     trajToolPending: string;
+    trajEdgePrompt: string;
+    trajEdgeResult: string;
+    trajEdgeDispatch: string;
+    trajEdgeSubcall: string;
+    trajEdgeLoop: string;
+    trajEdgeLegendHint: string;
+    trajSearchPlaceholder: string;
+    trajSearchNone: string;
     confirm: string;
     gitViewChanges: string;
     gitViewBranches: string;

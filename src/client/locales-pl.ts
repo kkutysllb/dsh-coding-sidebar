@@ -421,6 +421,14 @@ export const pl: Record<string, string> = {
   trajToolArgs: 'Argumenty wywołania',
   trajToolResult: 'Wynik',
   trajToolPending: 'Oczekiwanie na wynik',
+  trajEdgePrompt: 'wejście',
+  trajEdgeResult: 'wynik',
+  trajEdgeDispatch: 'wysyłka',
+  trajEdgeSubcall: 'podwywołanie',
+  trajEdgeLoop: 'pętla',
+  trajEdgeLegendHint: 'Kliknij, aby podświetlić tylko ten rodzaj krawędzi',
+  trajSearchPlaceholder: 'Szukaj w trajektorii…',
+  trajSearchNone: 'brak dopasowań',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Potwierdź",

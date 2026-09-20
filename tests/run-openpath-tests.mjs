@@ -77,7 +77,7 @@ import {
 } from './team-model.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
 import { createFileIconRegistry } from './file-icon-registry.mjs'
-import { buildTrajectoryGraph, windowTrajectoryGraph } from './trajectory-graph.mjs'
+import { buildTrajectoryGraph, searchTrajectoryNodes, windowTrajectoryGraph } from './trajectory-graph.mjs'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.mjs'
 import { resolveTrajectorySource } from './trajectory-source.mjs'
 import {
@@ -840,6 +840,37 @@ console.log('[buildTrajectoryGraph inspector detail]')
 
   // user 记录不带 toolDetail；assistant 不带 toolDetail
   ok(byId('ev:user:2')?.toolDetail === undefined && byId('ev:assistant:20')?.toolDetail === undefined, '非工具记录不带 toolDetail')
+}
+
+// ── 搜索匹配模型（label/kind/id 子串，按账序）────────────────
+console.log('[searchTrajectoryNodes]')
+{
+  const snapshot = {
+    eventNodes: [
+      { kind: 'user', seq: 2, time: 1100, content: [{ type: 'text', text: '把 README 修好' }] },
+      { kind: 'assistant', seq: 20, time: 1300, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'readme 已更新' }] },
+      {
+        kind: 'tool-result', seq: 30, time: 1400, callId: 'call-abc123',
+        call: { name: 'fs_read', argsRaw: '{}' }, content: [{ type: 'text', text: 'ok' }],
+      },
+    ],
+    requests: [],
+  }
+  const graph = buildTrajectoryGraph(snapshot)
+
+  // 空白查询不命中
+  ok(searchTrajectoryNodes(graph, '').length === 0 && searchTrajectoryNodes(graph, '   ').length === 0, '空白查询无命中')
+
+  // label 子串（大小写不敏感）
+  const byLabel = searchTrajectoryNodes(graph, 'README')
+  ok(byLabel.length === 2 && byLabel[0] === 'ev:user:2' && byLabel[1] === 'ev:assistant:20', 'label 子串命中且按账序')
+
+  // kind 与 id 子串
+  ok(searchTrajectoryNodes(graph, 'tool').includes('ev:tool-result:30'), 'kind 子串可命中')
+  ok(searchTrajectoryNodes(graph, 'abc123').includes('ev:tool-result:30'), 'id 子串可命中（callId 尾部落入节点 id）')
+
+  // 无命中
+  ok(searchTrajectoryNodes(graph, 'zzz不存在').length === 0, '无匹配返回空')
 }
 
 console.log('[layoutTrajectoryGraph]')

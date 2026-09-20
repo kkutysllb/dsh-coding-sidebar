@@ -417,6 +417,14 @@ export const id: Record<string, string> = {
   trajToolArgs: 'Argumen panggilan',
   trajToolResult: 'Hasil',
   trajToolPending: 'Menunggu hasil',
+  trajEdgePrompt: 'masukan',
+  trajEdgeResult: 'hasil',
+  trajEdgeDispatch: 'kirim',
+  trajEdgeSubcall: 'sub-panggilan',
+  trajEdgeLoop: 'loop',
+  trajEdgeLegendHint: 'Klik untuk menyorot hanya jenis tepi ini',
+  trajSearchPlaceholder: 'Cari trayektori…',
+  trajSearchNone: 'tidak ada',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Konfirmasi",

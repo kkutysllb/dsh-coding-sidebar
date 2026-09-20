@@ -412,6 +412,14 @@ export const fr: Record<string, string> = {
   trajToolArgs: "Arguments d'appel",
   trajToolResult: 'Résultat',
   trajToolPending: 'Résultat en attente',
+  trajEdgePrompt: 'entrée',
+  trajEdgeResult: 'résultat',
+  trajEdgeDispatch: 'distribution',
+  trajEdgeSubcall: 'sous-appel',
+  trajEdgeLoop: 'boucle',
+  trajEdgeLegendHint: 'Cliquer pour ne mettre en évidence que ce type de lien',
+  trajSearchPlaceholder: 'Rechercher dans la trajectoire…',
+  trajSearchNone: 'aucun résultat',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirmer",

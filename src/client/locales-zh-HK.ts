@@ -434,6 +434,14 @@ export const zhHK: Record<string, string> = {
   trajToolArgs: '呼叫參數',
   trajToolResult: '結果',
   trajToolPending: '等待結果',
+  trajEdgePrompt: '輸入',
+  trajEdgeResult: '產出',
+  trajEdgeDispatch: '派發',
+  trajEdgeSubcall: '子調用',
+  trajEdgeLoop: '循環',
+  trajEdgeLegendHint: '點擊只高亮這一類邊',
+  trajSearchPlaceholder: '搜索軌跡…',
+  trajSearchNone: '無匹配',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確定",

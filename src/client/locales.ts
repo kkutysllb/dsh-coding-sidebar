@@ -475,6 +475,14 @@ export const zh = {
   trajToolArgs: '调用参数',
   trajToolResult: '结果',
   trajToolPending: '等待结果',
+  trajEdgePrompt: '输入',
+  trajEdgeResult: '产出',
+  trajEdgeDispatch: '派发',
+  trajEdgeSubcall: '子调用',
+  trajEdgeLoop: '循环',
+  trajEdgeLegendHint: '点击只高亮这一类边',
+  trajSearchPlaceholder: '搜索轨迹…',
+  trajSearchNone: '无匹配',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "确定",
@@ -997,6 +1005,14 @@ export const en: Record<keyof typeof zh, string> = {
   trajToolArgs: 'Arguments',
   trajToolResult: 'Result',
   trajToolPending: 'Pending',
+  trajEdgePrompt: 'prompt',
+  trajEdgeResult: 'result',
+  trajEdgeDispatch: 'dispatch',
+  trajEdgeSubcall: 'subcall',
+  trajEdgeLoop: 'loop',
+  trajEdgeLegendHint: 'Click to highlight only this edge kind',
+  trajSearchPlaceholder: 'Search trajectory…',
+  trajSearchNone: 'no match',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirm",

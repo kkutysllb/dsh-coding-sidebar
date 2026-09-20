@@ -402,6 +402,14 @@ export const sv: Record<string, string> = {
   trajToolArgs: 'Anropsargument',
   trajToolResult: 'Resultat',
   trajToolPending: 'Väntar på resultat',
+  trajEdgePrompt: 'inmatning',
+  trajEdgeResult: 'resultat',
+  trajEdgeDispatch: 'sändning',
+  trajEdgeSubcall: 'underanrop',
+  trajEdgeLoop: 'loop',
+  trajEdgeLegendHint: 'Klicka för att endast markera denna typ av kanter',
+  trajSearchPlaceholder: 'Sök i banan…',
+  trajSearchNone: 'inga träffar',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Bekräfta",

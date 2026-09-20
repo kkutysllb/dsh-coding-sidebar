@@ -402,6 +402,14 @@ export const pt: Record<string, string> = {
   trajToolArgs: 'Argumentos da chamada',
   trajToolResult: 'Resultado',
   trajToolPending: 'Aguardando resultado',
+  trajEdgePrompt: 'entrada',
+  trajEdgeResult: 'resultado',
+  trajEdgeDispatch: 'despacho',
+  trajEdgeSubcall: 'subchamada',
+  trajEdgeLoop: 'loop',
+  trajEdgeLegendHint: 'Clique para destacar apenas este tipo de aresta',
+  trajSearchPlaceholder: 'Pesquisar trajetória…',
+  trajSearchNone: 'sem resultados',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Confirmar",

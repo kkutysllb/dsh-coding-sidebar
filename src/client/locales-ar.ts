@@ -420,6 +420,14 @@ export const ar: Record<string, string> = {
   trajToolArgs: 'وسائط الاستدعاء',
   trajToolResult: 'النتيجة',
   trajToolPending: 'في انتظار النتيجة',
+  trajEdgePrompt: 'مُدخل',
+  trajEdgeResult: 'ناتج',
+  trajEdgeDispatch: 'إرسال',
+  trajEdgeSubcall: 'استدعاء فرعي',
+  trajEdgeLoop: 'حلقة',
+  trajEdgeLegendHint: 'انقر لإبراز هذا النوع من الحواف فقط',
+  trajSearchPlaceholder: 'بحث في المسار…',
+  trajSearchNone: 'لا نتائج',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "تأكيد",

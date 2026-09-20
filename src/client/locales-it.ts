@@ -410,6 +410,14 @@ export const it: Record<string, string> = {
   trajToolArgs: 'Argomenti della chiamata',
   trajToolResult: 'Risultato',
   trajToolPending: 'Risultato in attesa',
+  trajEdgePrompt: 'input',
+  trajEdgeResult: 'risultato',
+  trajEdgeDispatch: 'invio',
+  trajEdgeSubcall: 'sotto-chiamata',
+  trajEdgeLoop: 'ciclo',
+  trajEdgeLegendHint: 'Clicca per evidenziare solo questo tipo di arco',
+  trajSearchPlaceholder: 'Cerca nella traiettoria…',
+  trajSearchNone: 'nessuno',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Conferma",

@@ -419,6 +419,14 @@ export const ja: Record<string, string> = {
   trajToolArgs: '呼び出し引数',
   trajToolResult: '結果',
   trajToolPending: '結果待ち',
+  trajEdgePrompt: '入力',
+  trajEdgeResult: '出力',
+  trajEdgeDispatch: '呼び出し',
+  trajEdgeSubcall: 'サブ呼び出し',
+  trajEdgeLoop: 'ループ',
+  trajEdgeLegendHint: 'クリックでこの種類の辺だけを強調',
+  trajSearchPlaceholder: '軌跡を検索…',
+  trajSearchNone: '一致なし',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "確認",

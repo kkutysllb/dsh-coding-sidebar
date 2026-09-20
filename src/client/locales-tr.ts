@@ -419,6 +419,14 @@ export const tr: Record<string, string> = {
   trajToolArgs: 'Çağrı argümanları',
   trajToolResult: 'Sonuç',
   trajToolPending: 'Sonuç bekleniyor',
+  trajEdgePrompt: 'girdi',
+  trajEdgeResult: 'sonuç',
+  trajEdgeDispatch: 'sevkiyat',
+  trajEdgeSubcall: 'alt çağrı',
+  trajEdgeLoop: 'döngü',
+  trajEdgeLegendHint: 'Yalnızca bu kenar türünü vurgulamak için tıklayın',
+  trajSearchPlaceholder: 'Yörüngede ara…',
+  trajSearchNone: 'eşleşme yok',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Onayla",

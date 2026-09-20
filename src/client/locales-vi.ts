@@ -419,6 +419,14 @@ export const vi: Record<string, string> = {
   trajToolArgs: 'Tham số gọi',
   trajToolResult: 'Kết quả',
   trajToolPending: 'Đang chờ kết quả',
+  trajEdgePrompt: 'đầu vào',
+  trajEdgeResult: 'kết quả',
+  trajEdgeDispatch: 'phái phát',
+  trajEdgeSubcall: 'lời gọi con',
+  trajEdgeLoop: 'vòng lặp',
+  trajEdgeLegendHint: 'Bấm để chỉ làm nổi bật loại cạnh này',
+  trajSearchPlaceholder: 'Tìm trong quỹ đạo…',
+  trajSearchNone: 'không có',
 
   // ---- 源代码管理：分支 / 推送 / GitHub（补齐 git 面板）----
   confirm: "Xác nhận",

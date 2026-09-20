@@ -130,6 +130,93 @@
   background: var(--dsw-alias-link, var(--dsw-alias-brand-primary));
 }
 
+/* Edge-kind legend chips (click to pin one kind's highlight) and the search
+ * box, sharing the legend row. */
+.legendEdgeHint {
+  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+}
+
+.legendEdge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  cursor: pointer;
+}
+
+.legendEdge:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentcolor 10%, transparent));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.legendEdge[aria-pressed='true'] {
+  border-color: var(--dsw-alias-border-l3, transparent);
+  background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentcolor 14%, transparent));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+/* A short bar in the kind's edge color (the SVG strokes, as backgrounds). */
+.legendEdgeDot {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.45));
+}
+
+.legendEdgeDot[data-kind='prompt'] {
+  background: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.5));
+}
+
+.legendEdgeDot[data-kind='subcall'] {
+  background: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+}
+
+.legendEdgeDot[data-kind='loop'] {
+  background: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+}
+
+.legendEdgeDot[data-kind='result'],
+.legendEdgeDot[data-kind='dispatch'] {
+  background: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.45));
+}
+
+.search {
+  flex: none;
+  width: 96px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+  font: var(--dsw-font-xs-12, 11px/16px system-ui);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+}
+
+.search::placeholder {
+  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+}
+
+.searchCount {
+  flex: none;
+  font: var(--dsw-font-xs-12, 10px/14px system-ui);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+  white-space: nowrap;
+}
+
+.searchNone {
+  color: var(--dsw-alias-state-error-primary, inherit);
+}
+
 /* ----------------------------------------------------------------- canvas */
 
 .canvas {
@@ -218,6 +305,22 @@
 .edgeHot {
   stroke: var(--dsw-alias-label-primary, currentcolor);
   stroke-width: 2.2;
+}
+
+/* A pinned/hovered kind: its edges brighten and thicken; every other edge
+ * takes .edgeDim from the view. */
+.edgeKindHot {
+  stroke: var(--dsw-alias-label-primary, currentcolor);
+  stroke-width: 2;
+  opacity: 1;
+}
+
+/* The invisible wide twin of an edge path (hover target only). */
+.edgeHit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 9;
+  pointer-events: stroke;
 }
 
 /* The dashed overlay that travels along a live edge. */

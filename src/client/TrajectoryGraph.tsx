@@ -38,7 +38,7 @@ import { markdownTextProps } from './markdown-labels.tsx'
 import type { Context } from '../context-types.ts'
 import type { SessionScope } from './api.ts'
 import {
-  buildTrajectoryGraph, windowTrajectoryGraph,
+  buildTrajectoryGraph, searchTrajectoryNodes, windowTrajectoryGraph,
   type TrajectoryAttachment, type TrajectoryEdgeKind, type TrajectoryGraphNode, type TrajectoryLane,
   type TrajectoryNodeKind, type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
 } from './trajectory-graph.ts'
@@ -98,6 +98,15 @@ const LANE_CLASS: Record<TrajectoryLane, string | undefined> = {
   input: css.laneInput,
   model: css.laneModel,
   tool: css.laneTool,
+}
+
+/** Edge-kind label key per chain kind (the clickable legend chips). */
+const EDGE_KEY: Record<TrajectoryEdgeKind, 'trajEdgePrompt' | 'trajEdgeResult' | 'trajEdgeDispatch' | 'trajEdgeSubcall' | 'trajEdgeLoop'> = {
+  prompt: 'trajEdgePrompt',
+  result: 'trajEdgeResult',
+  dispatch: 'trajEdgeDispatch',
+  subcall: 'trajEdgeSubcall',
+  loop: 'trajEdgeLoop',
 }
 
 /** Status chip copy per status. */
@@ -254,6 +263,13 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [replay, setReplay] = useState<ReplayState | null>(null)
+  /** Search box state: the raw query and the Enter cursor over its matches. */
+  const [query, setQuery] = useState('')
+  const [matchIndex, setMatchIndex] = useState(0)
+  /** The legend-pinned edge kind (null = all edges neutral); hovering an edge
+   * highlights its kind while the pointer stays. */
+  const [pinnedEdgeKind, setPinnedEdgeKind] = useState<TrajectoryEdgeKind | null>(null)
+  const [hoverEdgeKind, setHoverEdgeKind] = useState<TrajectoryEdgeKind | null>(null)
   const [, bump] = useState(0)
 
   const source = useMemo(() => resolveTrajectorySource(ctx, scope.sessionId), [ctx, scope.sessionId])
@@ -295,6 +311,32 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
     [layout],
   )
   const timeline = windowed.graph.timeline
+
+  // Search: match model over the windowed graph; Enter cycles the matches
+  // (newest query resets the cursor to the first hit).
+  const matches = useMemo(() => searchTrajectoryNodes(windowed.graph, query), [windowed, query])
+  const matchIds = useMemo(() => new Set(matches), [matches])
+  const jumpMatch = useCallback((delta: number): void => {
+    if (matches.length === 0) return
+    const next = (((matchIndex + delta) % matches.length) + matches.length) % matches.length
+    setMatchIndex(next)
+    const id = matches[next]
+    if (id === undefined) return
+    setSelectedId(id)
+    const element = scrollRef.current
+    const laid = laidById.get(id)
+    if (element === null || laid === undefined) return
+    setFollow(false)
+    setReplay(current => (current === null ? null : { ...current, playing: false }))
+    const top = laid.y * scale
+    const bottom = (laid.y + laid.h) * scale
+    if (top < element.scrollTop || bottom > element.scrollTop + element.clientHeight) {
+      element.scrollTop = Math.max(0, top - element.clientHeight / 2)
+    }
+  }, [laidById, matchIndex, matches, scale])
+
+  /** The edge kind in focus: the legend pin wins over the hover highlight. */
+  const focusEdgeKind = pinnedEdgeKind ?? hoverEdgeKind
 
   // Follow the tail: pin the view to the newest record while new data lands.
   useEffect(() => {
@@ -546,6 +588,43 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             {t(LANE_KEY[lane])}
           </span>
         ))}
+        <span className={cx(css.legendItem, css.legendEdgeHint)} aria-hidden="true">·</span>
+        {(Object.keys(EDGE_KEY) as TrajectoryEdgeKind[]).map(kind => (
+          <button
+            key={kind}
+            type="button"
+            className={cx(css.legendEdge, pinnedEdgeKind === kind && css.legendEdgeOn)}
+            aria-pressed={pinnedEdgeKind === kind}
+            title={t('trajEdgeLegendHint')}
+            onClick={() => { setPinnedEdgeKind(current => (current === kind ? null : kind)) }}
+          >
+            <span className={css.legendEdgeDot} data-kind={kind} aria-hidden="true" />
+            {t(EDGE_KEY[kind])}
+          </button>
+        ))}
+        <span className={css.spacer} />
+        <input
+          className={css.search}
+          value={query}
+          placeholder={t('trajSearchPlaceholder')}
+          spellCheck={false}
+          aria-label={t('trajSearchPlaceholder')}
+          onChange={event => { setQuery(event.currentTarget.value); setMatchIndex(0) }}
+          onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              jumpMatch(event.shiftKey ? -1 : 1)
+            } else if (event.key === 'Escape') {
+              setQuery('')
+              setMatchIndex(0)
+            }
+          }}
+        />
+        {query.trim() !== '' && (
+          <span className={cx(css.searchCount, matches.length === 0 && css.searchNone)}>
+            {matches.length > 0 ? `${matchIndex + 1}/${matches.length}` : t('trajSearchNone')}
+          </span>
+        )}
       </div>
 
       <div
@@ -581,8 +660,18 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             const from = laidById.get(edge.from)
             const hidden = replay !== null && from !== undefined && from.index >= replay.index
             const hot = hoverId !== null && (edge.from === hoverId || edge.to === hoverId)
+            // A pinned/hovered kind keeps its edges and dims every other one.
+            const kindFocused = focusEdgeKind === edge.kind
+            const kindDimmed = focusEdgeKind !== null && !kindFocused
             return (
               <g key={edge.id}>
+                {/* Invisible wide twin so a 1px stroke is still hoverable. */}
+                <path
+                  className={css.edgeHit}
+                  d={edge.d}
+                  onMouseEnter={() => { setHoverEdgeKind(edge.kind) }}
+                  onMouseLeave={() => { setHoverEdgeKind(current => (current === edge.kind ? null : current)) }}
+                />
                 <path
                   className={cx(
                     css.edge,
@@ -590,6 +679,8 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
                     edge.live && css.edgeLive,
                     hidden && css.edgeDim,
                     hot && css.edgeHot,
+                    kindDimmed && css.edgeDim,
+                    kindFocused && css.edgeKindHot,
                   )}
                   d={edge.d}
                   markerEnd={`url(#${edge.live ? arrowLiveId : arrowId})`}
@@ -621,11 +712,13 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             if (model === undefined) return null
             const hidden = replay !== null && node.index >= replay.index
             const hot = hoverId === node.id || selectedId === node.id
+            // An active query dims every non-matching record.
+            const searchDimmed = query.trim() !== '' && !matchIds.has(node.id)
             const badge = model.badge === undefined || model.badge === '' ? undefined : model.badge
             return (
               <g
                 key={node.id}
-                className={cx(css.node, node.live && css.nodeLive, hidden && css.nodeDim, hot && css.nodeHot)}
+                className={cx(css.node, node.live && css.nodeLive, (hidden || searchDimmed) && css.nodeDim, hot && css.nodeHot)}
                 style={{ '--node-accent': ACCENT[model.kind] } as CSSProperties}
                 transform={`translate(${node.x} ${node.y})`}
                 role="button"

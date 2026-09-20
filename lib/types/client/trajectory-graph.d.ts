@@ -329,6 +329,15 @@ export interface TrajectoryGraphWindow {
     hidden: number;
 }
 /**
+ * Search the graph's records by a case-insensitive substring of the chip
+ * label, the node kind, the node id, or a tool record's call id — the
+ * search box's match model.
+ * @param graph - the (windowed) graph projection.
+ * @param query - raw user text; blank matches nothing.
+ * @returns matching node ids in ledger order (the Enter key cycles them).
+ */
+export declare function searchTrajectoryNodes(graph: TrajectoryGraph, query: string): string[];
+/**
  * Keep only the most recent `limit` records (plus the edges between them).
  * Long sessions are unbounded; the graph view renders a tail window so a
  * thousand-record ledger cannot stall the sidebar.
