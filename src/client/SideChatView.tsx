@@ -58,8 +58,15 @@ const PAGE_MESSAGES = 8
  *  event per streamed delta, so a single answer can be hundreds of events —
  *  the walk must page big or earlier tool/call rows fall out of the window. */
 const WALK_PAGE_EVENTS = 200
-/** Poll cadence while the selected thread is running and the tab visible. */
-const POLL_MS = 2000
+/** Poll cadence while the selected thread is running and the tab visible.
+ *  ADAPTIVE (no event channel reaches the browser client for another
+ *  session's appends): a pull that observed new tail events schedules the
+ *  next one at POLL_FAST_MS (streaming reads near-smooth), consecutive
+ *  quiet pulls back off toward POLL_SLOW_MS so an idle turn costs almost
+ *  nothing. */
+const POLL_FAST_MS = 700
+const POLL_BASE_MS = 2000
+const POLL_SLOW_MS = 5000
 /** Textarea auto-grow ceiling (px) — the composer scrolls beyond it. */
 const COMPOSER_MAX_HEIGHT = 132
 
@@ -328,8 +335,9 @@ export function SideChatView(props: {
 
   /** One transcript pull: the first read walks back to the seed boundary
    *  (big pages — chunk deltas re-expand on cold reads), later reads fetch
-   *  one tail page and merge (seq-deduped). */
-  const fetchThread = useCallback(async (childId: string): Promise<void> => {
+   *  one tail page and merge (seq-deduped).
+   *  @returns whether the merged transcript grew (the poll's pacing signal). */
+  const fetchThread = useCallback(async (childId: string): Promise<boolean> => {
     // Capability probe: the transcript pull rides the carrier's legacy
     // `connection.api.sessions.history` RPC. Hosts that moved to a remote-
     // namespace carrier (QiLin) expose no `.api` face — keep the last rows
@@ -337,11 +345,12 @@ export function SideChatView(props: {
     const legacySessions = (ctx.connection as unknown as {
       api?: { sessions?: { history?: unknown } }
     }).api?.sessions?.history
-    if (legacySessions === undefined) return
+    if (legacySessions === undefined) return false
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller
     const cache = cacheRef.current
+    const before = cache.entries.length
     try {
       if (cache.seedBoundary === null) {
         const walk = await collectOwnEvents(async (beforeSeq) => {
@@ -363,12 +372,14 @@ export function SideChatView(props: {
           { sessionId: childId, maxMessages: PAGE_MESSAGES },
           controller.signal,
         )
-        if (!response.result.ok) return
+        if (!response.result.ok) return false
         cache.entries = mergeBySeq(cache.entries, response.result.value.events)
       }
       setRevision(value => value + 1)
+      return cache.entries.length > before
     } catch {
       // Aborted by a newer pull or a wire failure: keep the last rows.
+      return false
     }
   }, [ctx])
 
@@ -395,16 +406,32 @@ export function SideChatView(props: {
     }
   }, [threadId, fetchInfo])
 
-  // Poll while the tab is visible and the thread runs.
+  // Poll while the tab is visible and the thread runs. ADAPTIVE pacing: a
+  // growing transcript means active streaming → keep the fast cadence;
+  // consecutive quiet pulls back off from POLL_BASE_MS toward POLL_SLOW_MS
+  // (reset the moment anything lands). Send/cancel kick an immediate pull,
+  // so user actions never wait on the backoff.
   useEffect(() => {
     if (!visible || threadId === undefined) return
     void fetchThread(threadId)
     if (!running) return
-    const timer = window.setInterval(() => {
-      void fetchThread(threadId)
-      void fetchInfo(threadId)
-    }, POLL_MS)
-    return () => { window.clearInterval(timer) }
+    let timer = 0
+    let quiet = 0
+    const schedule = (delay: number): void => {
+      timer = window.setTimeout(async () => {
+        let grew = false
+        try {
+          grew = await fetchThread(threadId)
+          void fetchInfo(threadId)
+        } catch {
+          quiet += 1
+        }
+        quiet = grew ? 0 : quiet + 1
+        schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)))
+      }, delay)
+    }
+    schedule(POLL_FAST_MS)
+    return () => { window.clearTimeout(timer) }
   }, [visible, threadId, running, fetchThread, fetchInfo])
 
   useEffect(() => () => { controllerRef.current?.abort() }, [])
@@ -490,6 +517,9 @@ export function SideChatView(props: {
     if (threadId === undefined || busy !== null) return
     try {
       await api.sidechatCancel(threadId)
+      // Reflect the abort immediately instead of waiting out the backoff.
+      void fetchThread(threadId)
+      void fetchInfo(threadId)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
