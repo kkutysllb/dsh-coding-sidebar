@@ -195,3 +195,83 @@ export class BrowserNavigation {
     return request
   }
 }
+
+/** Refusal reasons a persisted failure may carry (runtime twin of the type). */
+const FAILURE_REASONS = new Set<string>(['empty', 'invalid', 'scheme', 'credentials', 'app-origin'])
+
+/** Local bound for persisted strings (titles are hostnames; urls ≤ 16 KiB by policy). */
+const MAX_PERSISTED_URL = 16 * 1024
+const MAX_PERSISTED_TITLE = 1024
+
+/** Whether a value is a plain non-empty bounded string. */
+function isBoundedString(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value !== '' && value.length <= max
+}
+
+/** Whether a value is a well-formed history entry. */
+function isHistoryEntry(value: unknown): value is BrowserHistoryEntry {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const entry = value as Record<string, unknown>
+  return isBoundedString(entry.url, MAX_PERSISTED_URL) && isBoundedString(entry.title, MAX_PERSISTED_TITLE)
+}
+
+/** Whether a value is a positive integer revision. */
+function isRevision(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+}
+
+/**
+ * Validate one persisted `tab.meta` value back into a `BrowserTabState`.
+ * The meta channel is plugin-owned JSON restored verbatim from localStorage,
+ * so the browser tab re-validates the whole shape before adopting it: any
+ * malformed field (wrong type, out-of-range index, entry/reason outside the
+ * vocabulary, a request that does not match the selected entry) rejects the
+ * whole snapshot and the tab falls back to its legacy `path` seed. The result
+ * is rebuilt field by field, so unknown extra keys in the stored object are
+ * dropped instead of being re-persisted.
+ *
+ * @param value - the persisted `tab.meta` (unknown provenance).
+ * @returns a clean state, or undefined when the snapshot cannot be trusted.
+ */
+export function restoreBrowserTabState(value: unknown): BrowserTabState | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const entries = record.entries
+  if (!Array.isArray(entries) || entries.length > MAX_BROWSER_HISTORY) return undefined
+  if (!entries.every(entry => isHistoryEntry(entry))) return undefined
+  const index = record.index
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < -1 || index >= entries.length) return undefined
+  let request: BrowserTabState['request']
+  if (record.request === undefined) {
+    request = undefined
+  } else {
+    if (record.request === null || typeof record.request !== 'object' || Array.isArray(record.request)) return undefined
+    const raw = record.request as Record<string, unknown>
+    if (!isRevision(raw.revision) || !isHistoryEntry(raw.target)) return undefined
+    const selected = index >= 0 ? entries[index] : undefined
+    if (selected === undefined || selected.url !== raw.target.url || selected.title !== raw.target.title) return undefined
+    request = { revision: raw.revision, target: raw.target }
+  }
+  const rawNavigation = record.navigation
+  if (rawNavigation === null || typeof rawNavigation !== 'object' || Array.isArray(rawNavigation)) return undefined
+  const navigation = rawNavigation as Record<string, unknown>
+  let navigationStatus: BrowserNavigationStatus
+  if (navigation.status === 'empty') {
+    navigationStatus = { status: 'empty' }
+  } else if (navigation.status === 'loading' || navigation.status === 'known' || navigation.status === 'unknown') {
+    if (!isRevision(navigation.revision)) return undefined
+    navigationStatus = { status: navigation.status, revision: navigation.revision }
+  } else {
+    return undefined
+  }
+  let failure: BrowserFailure | undefined
+  if (record.failure === undefined) {
+    failure = undefined
+  } else {
+    if (record.failure === null || typeof record.failure !== 'object' || Array.isArray(record.failure)) return undefined
+    const raw = record.failure as Record<string, unknown>
+    if (raw.kind !== 'address' || typeof raw.reason !== 'string' || !FAILURE_REASONS.has(raw.reason)) return undefined
+    failure = { kind: 'address', reason: raw.reason as BrowserFailureReason }
+  }
+  return { entries, index, request, navigation: navigationStatus, failure }
+}

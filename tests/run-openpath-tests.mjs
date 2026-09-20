@@ -66,7 +66,7 @@
  *   因为它运行时依赖同目录的 git 模块。）
  */
 import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, wrapNativeBrowserOpen, browserUrlOfOpen } from './openpath-intercept.mjs'
-import { BrowserNavigation, MAX_BROWSER_HISTORY } from './browser-nav.mjs'
+import { BrowserNavigation, MAX_BROWSER_HISTORY, restoreBrowserTabState } from './browser-nav.mjs'
 import { normalizeBrowserUrl } from './browser-url.mjs'
 import { registerLinkInterception, shouldInterceptLink } from './link-intercept.mjs'
 import { readScopeOf } from './editor-read-scope.mjs'
@@ -1560,10 +1560,12 @@ console.log('[normalizeBrowserUrl 政策]')
   ok(normalizeBrowserUrl('ftp://example.com/', origin).reason === 'scheme', 'ftp: 被拒')
   ok(normalizeBrowserUrl('https://user:pw@example.com/', origin).reason === 'credentials', '带账号密码被拒')
   ok(normalizeBrowserUrl('http://127.0.0.1:62301/', origin).reason === 'app-origin', 'GUI 自身来源被拒（帧带 allow-same-origin，同源即危险）')
-  ok(normalizeBrowserUrl('http://127.0.0.1:8080/', origin).reason === 'loopback', '本机地址默认被拒')
-  const allowed = normalizeBrowserUrl('http://127.0.0.1:8080/', origin, '127.0.0.1:8080')
-  ok(allowed.kind === 'ok' && allowed.url === 'http://127.0.0.1:8080/', '白名单内的本机地址放行')
-  ok(normalizeBrowserUrl('https://example.com/', origin, '127.0.0.1').kind === 'ok', '白名单不影响外网地址')
+  const local = normalizeBrowserUrl('http://127.0.0.1:8080/', origin)
+  ok(local.kind === 'ok' && local.url === 'http://127.0.0.1:8080/', '本机地址与公网同权放行（上游语义：同一默认沙箱）')
+  const localhost = normalizeBrowserUrl('localhost:5173', origin)
+  ok(localhost.kind === 'ok' && localhost.url === 'https://localhost:5173/', 'localhost:port 裸输入按主机处理、补 https（与上游一致）')
+  const v6 = normalizeBrowserUrl('http://[::1]:9000/', origin)
+  ok(v6.kind === 'ok' && v6.url === 'http://[::1]:9000/', 'IPv6 loopback 同权放行')
 }
 
 /* ───────────────────────── 导航状态机（上游 BrowserNavigation 同语义） ───────────────────────── */
@@ -1604,8 +1606,8 @@ console.log('[BrowserNavigation]')
   nav.navigate({ url: 'https://c.test/', title: 'c.test' })
   ok(nav.snapshot.entries.length === 2 && BrowserNavigation.current(nav.snapshot)?.url === 'https://c.test/', '在中段导航截断前向分支')
 
-  nav.addressFailed('loopback')
-  ok(nav.snapshot.failure?.reason === 'loopback' && BrowserNavigation.current(nav.snapshot)?.url === 'https://c.test/', 'addressFailed 只记失败、不动当前文档')
+  nav.addressFailed('scheme')
+  ok(nav.snapshot.failure?.reason === 'scheme' && BrowserNavigation.current(nav.snapshot)?.url === 'https://c.test/', 'addressFailed 只记失败、不动当前文档')
   nav.navigate({ url: 'https://d.test/', title: 'd.test' })
   ok(nav.snapshot.failure === undefined, '下一次成功导航清掉失败提示')
 
@@ -1613,6 +1615,54 @@ console.log('[BrowserNavigation]')
   for (let i = 0; i < MAX_BROWSER_HISTORY + 5; i++) big.navigate({ url: `https://h${String(i)}.test/`, title: `h${String(i)}` })
   ok(big.snapshot.entries.length === MAX_BROWSER_HISTORY, `历史上限 ${String(MAX_BROWSER_HISTORY)} 条`)
   ok(BrowserNavigation.current(big.snapshot)?.url === `https://h${String(MAX_BROWSER_HISTORY + 4)}.test/`, '淘汰的是最旧项')
+}
+
+/* ───────────────────────── 持久化快照恢复（tab.meta → BrowserTabState） ───────────────────────── */
+console.log('[restoreBrowserTabState]')
+{
+  // 一段真实历史：导航两次、首次 load 完成、再 back —— 快照应原样恢复。
+  const live = new BrowserNavigation()
+  live.navigate({ url: 'https://a.test/', title: 'a.test' })
+  live.navigate({ url: 'https://b.test/', title: 'b.test' })
+  live.frameLoaded(live.snapshot.request.revision)
+  live.back()
+  const restored = restoreBrowserTabState(JSON.parse(JSON.stringify(live.snapshot)))
+  ok(restored !== undefined, '合法快照整体通过')
+  ok(restored.entries.length === 2 && restored.index === 0, '历史与游标恢复')
+  ok(restored.request.target.url === 'https://a.test/' && restored.navigation.status === 'loading', '请求与加载态恢复')
+  const replay = new BrowserNavigation(restored)
+  const request = replay.reload()
+  ok(request !== undefined && request.target.url === 'https://a.test/' && request.revision === restored.request.revision + 1, '恢复后的 reload 重放最后受控 URL 且 revision 续接')
+
+  ok(restoreBrowserTabState(undefined) === undefined, 'undefined → 拒绝')
+  ok(restoreBrowserTabState(null) === undefined, 'null → 拒绝')
+  ok(restoreBrowserTabState('x') === undefined, '字符串 → 拒绝')
+  ok(restoreBrowserTabState([]) === undefined, '数组 → 拒绝')
+  ok(restoreBrowserTabState({}) === undefined, '缺 entries → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, entries: 'nope' }) === undefined, 'entries 非数组 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, entries: [{ url: 'https://a.test/' }] }) === undefined, '条目缺 title → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, entries: [{ url: '', title: 'x' }] }) === undefined, '条目空 url → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, index: 2 }) === undefined, 'index 越界 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, index: -2 }) === undefined, 'index < -1 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, index: 1.5 }) === undefined, 'index 非整数 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, request: { revision: 1, target: live.snapshot.entries[1] } }) === undefined, 'request 目标与选中项不符 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, request: { revision: 0, target: live.snapshot.request.target } }) === undefined, 'revision 非正整数 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, navigation: { status: 'weird', revision: 3 } }) === undefined, 'navigation 状态超纲 → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, navigation: { status: 'known' } }) === undefined, '非 empty 态缺 revision → 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, failure: { kind: 'address', reason: 'loopback' } }) === undefined, '失败原因超纲（旧 loopback 已删）→ 拒绝')
+  ok(restoreBrowserTabState({ ...live.snapshot, failure: { kind: 'other' } }) === undefined, 'failure kind 超纲 → 拒绝')
+
+  const withFailure = new BrowserNavigation()
+  withFailure.addressFailed('credentials')
+  const restoredFailure = restoreBrowserTabState(JSON.parse(JSON.stringify(withFailure.snapshot)))
+  ok(restoredFailure?.failure?.reason === 'credentials', '合法失败原因可恢复')
+
+  const clean = restoreBrowserTabState({ ...live.snapshot, extra: 'junk' })
+  ok(clean !== undefined && !('extra' in clean), '多余字段被丢弃、不随快照再持久化')
+
+  const emptyNav = new BrowserNavigation()
+  const restoredEmpty = restoreBrowserTabState(JSON.parse(JSON.stringify(emptyNav.snapshot)))
+  ok(restoredEmpty !== undefined && restoredEmpty.entries.length === 0 && restoredEmpty.index === -1, '空状态快照合法（挂载时按无受控目标回落种子路径）')
 }
 
 /* ───────────────────── 编辑器读取作用域（跨工作区预览） ─────────────────────

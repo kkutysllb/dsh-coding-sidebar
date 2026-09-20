@@ -3,16 +3,16 @@
  * an http(s) URL, and refuse destinations that must never reach the frame.
  * Kept dependency-free so it is unit-testable.
  *
- * Policy (2026-09-19, aligned with the upstream native side bar's browser):
- * only http/https; no embedded credentials; the GUI's own origin is refused
- * (the frame carries `allow-same-origin` for every site, so a document from
- * the GUI's origin would be same-origin with its parent and could take over
- * the session); loopback addresses need an explicit allowlist entry
- * (`browserAllowedLoopback`) because a browsed page must not probe local
- * services by user action.
+ * Policy (2026-09-20, fully aligned with the upstream native side bar's
+ * browser, dsh 0.1.6-alpha.2): only http/https — loopback included, with the
+ * same default sandbox as public targets (the upstream browser lets you sit
+ * a local dev server next to the conversation); no embedded credentials; the
+ * GUI's own origin is refused (the frame carries `allow-same-origin` for
+ * every site, so a document from the GUI's origin would be same-origin with
+ * its parent and could take over the session).
  */
 /** Why a navigation attempt was refused (surfaced verbatim under the toolbar). */
-export type BrowserFailureReason = 'empty' | 'invalid' | 'scheme' | 'loopback' | 'credentials' | 'app-origin';
+export type BrowserFailureReason = 'empty' | 'invalid' | 'scheme' | 'credentials' | 'app-origin';
 /** Maximum accepted address length; bounds the persisted navigation state. */
 export declare const MAX_BROWSER_URL_LENGTH: number;
 /** Result of normalizing one address-bar input. */
@@ -45,16 +45,4 @@ export type Embeddability = 'embeddable' | 'blocked' | 'unknown';
  * and the plain iframe stays.
  */
 export declare function embeddabilityOf(probe: BrowserProbeResult): Embeddability;
-/** A loopback hostname (localhost, IPv6 ::1, 127.0.0.0/8, 0.0.0.0). */
-export declare function isLoopbackHostname(hostname: string): boolean;
-/** Parse the loopback allowlist into a matcher predicate over host:port. */
-export declare function parseLoopbackAllowlist(allowlist: string): (host: string, port: string) => boolean;
-/**
- * Whether a loopback URL is explicitly allowlisted by the side card prefs
- * (`browserAllowedLoopback`). Only allowlisted local addresses may run with
- * `allow-same-origin` in the sidebar iframe — needed for local dev servers
- * (Vite etc.) whose module/HMR/fetch pipeline requires a real origin, while
- * the page stays cross-origin to the GUI and to every other site.
- */
-export declare function isAllowedLoopbackUrl(url: string, allowlist: string): boolean;
-export declare function normalizeBrowserUrl(input: string, selfOrigin: string, allowedLoopback?: string): BrowserNavigateResult;
+export declare function normalizeBrowserUrl(input: string, selfOrigin: string): BrowserNavigateResult;

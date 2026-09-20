@@ -119,9 +119,6 @@ export function parsePrefs(value: unknown): SidebarPrefs {
     browserInterceptHttps: typeof record.browserInterceptHttps === 'boolean'
       ? record.browserInterceptHttps
       : SIDEBAR_PREFS_DEFAULTS.browserInterceptHttps,
-    browserAllowedLoopback: typeof record.browserAllowedLoopback === 'string'
-      ? record.browserAllowedLoopback
-      : SIDEBAR_PREFS_DEFAULTS.browserAllowedLoopback,
     tabsEnabled: booleanMapOf(record.tabsEnabled),
     viewersEnabled: booleanMapOf(record.viewersEnabled),
     pluginSettings: pluginSettingsMapOf(record.pluginSettings),

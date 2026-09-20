@@ -202,10 +202,11 @@ export declare function closeTab(state: SidebarState, paneId: string, tabId: str
 /** Activate a tab in its pane (the pane's own tree). */
 export declare function activateTab(state: SidebarState, paneId: string, tabId: string): SidebarState;
 /** Update the display fields of one open tab (title / path / meta) without
- *  re-opening it. The browser tab persists its current URL and hostname
- *  title through this reducer so a reload restores the visited page. A
- *  missing tab id is a no-op. The tab may live in any pane or a free
- *  window. */
+ *  re-opening it. The browser tab persists its FULL navigation snapshot
+ *  (history + revision chain) plus current URL and hostname title through
+ *  this reducer, so a reload or remount restores and replays the visited
+ *  page (upstream native browser semantics). A missing tab id is a no-op.
+ *  The tab may live in any pane or a free window. */
 export declare function patchTab(state: SidebarState, tabId: string, patch: {
     title?: string;
     path?: string;

@@ -37,7 +37,7 @@ import { searchFiles } from './fs-search.ts'
 import { decodeHtmlUrl } from './html-route.ts'
 import { serveMediaRange } from './media-range.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
-import { isTrustedApiRequest, isLoopbackHostname } from './trust-fence.ts'
+import { isTrustedApiRequest } from './trust-fence.ts'
 import { registerBundleRoute } from './bundle-route.ts'
 import { launchExternal, launchExternalFile } from './open-external.ts'
 import * as git from './git.ts'
@@ -278,26 +278,6 @@ function shellOverridesOf(getSettings: () => SidebarSettingsFace | undefined): {
   return {
     shell: shell === '' ? undefined : shell,
     shellArgs: args === '' ? undefined : args.split(/\s+/).filter(Boolean),
-  }
-}
-
-/**
- * Parse the browser tab's `browserAllowedLoopback` allowlist into a matcher
- * over host:port (same contract as the client-side helper in
- * src/client/browser.ts — kept in sync). Bare hosts (`localhost`,
- * `127.0.0.1`) match every port; `host:port` entries match exactly.
- */
-function parseLoopbackAllowlist(allowlist: string): (host: string, port: string) => boolean {
-  const entries = allowlist.split(',').map(entry => entry.trim().toLowerCase()).filter(entry => entry !== '')
-  const exact = new Set(entries)
-  const hosts = new Set<string>()
-  for (const entry of entries) {
-    if (!entry.includes(':')) hosts.add(entry.replace(/^\[|\]$/g, ''))
-  }
-  return (host, port) => {
-    const key = `${host}:${port}`
-    if (exact.has(key) || exact.has(host)) return true
-    return port !== '' && hosts.has(host)
   }
 }
 
@@ -740,18 +720,10 @@ function buildApi(
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         throw new SidebarError('bad-request', 'only http/https urls can be probed', 400)
       }
-      // Mirror the browser tab's address-bar policy: loopback stays unreachable
-      // from the sidebar (unless the user allowlisted it), so probing it would
-      // leak nothing the tab could use.
-      if (isLoopbackHostname(parsed.hostname)) {
-        const prefs = getSettings()?.get()?.value as SidebarPrefs | undefined
-        const allowlist = typeof prefs?.browserAllowedLoopback === 'string' ? prefs.browserAllowedLoopback : ''
-        const allowed = allowlist.trim() !== ''
-          && parseLoopbackAllowlist(allowlist)(parsed.hostname, parsed.port)
-        if (!allowed) {
-          throw new SidebarError('bad-request', 'local addresses are not probed', 400)
-        }
-      }
+      // Loopback targets are probed like public ones (2026-09-20, fully
+      // aligned with the upstream native browser): the tab itself may browse
+      // local dev servers with the same default sandbox, so a probe verdict
+      // for them leaks nothing the tab could not already load.
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 8000)
       try {

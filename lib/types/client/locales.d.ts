@@ -297,7 +297,6 @@ export declare const zh: {
     browserLiveTargetNone: string;
     browserLiveFollowLatest: string;
     browserBlockedScheme: string;
-    browserBlockedLoopback: string;
     browserBlockedCredentials: string;
     browserBlockedAppOrigin: string;
     browserInvalid: string;
@@ -322,9 +321,6 @@ export declare const zh: {
     settingsBrowserHttpDesc: string;
     settingsBrowserHttpsTitle: string;
     settingsBrowserHttpsDesc: string;
-    settingsBrowserLoopbackTitle: string;
-    settingsBrowserLoopbackDesc: string;
-    settingsBrowserLoopbackPlaceholder: string;
     browserOpenExternal: string;
     browserEmbedBlocked: string;
     browserEmbedBlockedDesc: string;

@@ -128,3 +128,17 @@ export declare class BrowserNavigation {
     frameLoaded(revision: number): void;
     private request;
 }
+/**
+ * Validate one persisted `tab.meta` value back into a `BrowserTabState`.
+ * The meta channel is plugin-owned JSON restored verbatim from localStorage,
+ * so the browser tab re-validates the whole shape before adopting it: any
+ * malformed field (wrong type, out-of-range index, entry/reason outside the
+ * vocabulary, a request that does not match the selected entry) rejects the
+ * whole snapshot and the tab falls back to its legacy `path` seed. The result
+ * is rebuilt field by field, so unknown extra keys in the stored object are
+ * dropped instead of being re-persisted.
+ *
+ * @param value - the persisted `tab.meta` (unknown provenance).
+ * @returns a clean state, or undefined when the snapshot cannot be trusted.
+ */
+export declare function restoreBrowserTabState(value: unknown): BrowserTabState | undefined;

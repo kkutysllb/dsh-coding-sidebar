@@ -3,17 +3,17 @@
  * an http(s) URL, and refuse destinations that must never reach the frame.
  * Kept dependency-free so it is unit-testable.
  *
- * Policy (2026-09-19, aligned with the upstream native side bar's browser):
- * only http/https; no embedded credentials; the GUI's own origin is refused
- * (the frame carries `allow-same-origin` for every site, so a document from
- * the GUI's origin would be same-origin with its parent and could take over
- * the session); loopback addresses need an explicit allowlist entry
- * (`browserAllowedLoopback`) because a browsed page must not probe local
- * services by user action.
+ * Policy (2026-09-20, fully aligned with the upstream native side bar's
+ * browser, dsh 0.1.6-alpha.2): only http/https — loopback included, with the
+ * same default sandbox as public targets (the upstream browser lets you sit
+ * a local dev server next to the conversation); no embedded credentials; the
+ * GUI's own origin is refused (the frame carries `allow-same-origin` for
+ * every site, so a document from the GUI's origin would be same-origin with
+ * its parent and could take over the session).
  */
 
 /** Why a navigation attempt was refused (surfaced verbatim under the toolbar). */
-export type BrowserFailureReason = 'empty' | 'invalid' | 'scheme' | 'loopback' | 'credentials' | 'app-origin'
+export type BrowserFailureReason = 'empty' | 'invalid' | 'scheme' | 'credentials' | 'app-origin'
 
 /** Maximum accepted address length; bounds the persisted navigation state. */
 export const MAX_BROWSER_URL_LENGTH = 16 * 1024
@@ -53,28 +53,6 @@ export function embeddabilityOf(probe: BrowserProbeResult): Embeddability {
   return 'embeddable'
 }
 
-/** A loopback hostname (localhost, IPv6 ::1, 127.0.0.0/8, 0.0.0.0). */
-export function isLoopbackHostname(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  if (host === 'localhost' || host === '::1' || host === '0.0.0.0') return true
-  const parts = host.split('.')
-  return parts.length === 4
-    && parts[0] === '127'
-    && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
-}
-
-/**
- * Normalize one address-bar input against the navigation policy.
- * @param input - raw user text.
- * @param selfOrigin - the GUI's own origin (window.location.origin). The GUI
- * itself may be browsed in the sidebar (the sandbox keeps it opaque), so it
- * is let through BEFORE the loopback check — its host is normally loopback.
- * @param allowedLoopback - comma-separated loopback allowlist from the side
- * card prefs (`browserAllowedLoopback`): bare hosts (`localhost`,
- * `127.0.0.1`) allow every port, `host:port` entries allow exactly that
- * authority. Entries are matched case-insensitively; portless entries match
- * the host on any port. Empty allowlist keeps the default loopback block.
- */
 /** Schemes that must never reach the iframe, even without `//` (javascript:,
  *  data:, file:, ...). Host:port lookalikes (example.com:8080) are NOT here —
  *  they parse as hosts below. */
@@ -84,41 +62,7 @@ const FORBIDDEN_SCHEMES = new Set([
   'chrome', 'chrome-extension', 'moz-extension', 'edge', 'opera', 'resource', 'view-source',
 ])
 
-/** Parse the loopback allowlist into a matcher predicate over host:port. */
-export function parseLoopbackAllowlist(allowlist: string): (host: string, port: string) => boolean {
-  const entries = allowlist.split(',').map(entry => entry.trim().toLowerCase()).filter(entry => entry !== '')
-  const exact = new Set(entries)
-  const hosts = new Set<string>()
-  for (const entry of entries) {
-    if (!entry.includes(':')) hosts.add(entry.replace(/^\[|\]$/g, ''))
-  }
-  return (host, port) => {
-    const key = `${host}:${port}`
-    if (exact.has(key) || exact.has(host)) return true
-    return port !== '' && hosts.has(host)
-  }
-}
-
-/**
- * Whether a loopback URL is explicitly allowlisted by the side card prefs
- * (`browserAllowedLoopback`). Only allowlisted local addresses may run with
- * `allow-same-origin` in the sidebar iframe — needed for local dev servers
- * (Vite etc.) whose module/HMR/fetch pipeline requires a real origin, while
- * the page stays cross-origin to the GUI and to every other site.
- */
-export function isAllowedLoopbackUrl(url: string, allowlist: string): boolean {
-  if (allowlist.trim() === '') return false
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return false
-  }
-  if (!isLoopbackHostname(parsed.hostname)) return false
-  return parseLoopbackAllowlist(allowlist)(parsed.hostname, parsed.port)
-}
-
-export function normalizeBrowserUrl(input: string, selfOrigin: string, allowedLoopback = ''): BrowserNavigateResult {
+export function normalizeBrowserUrl(input: string, selfOrigin: string): BrowserNavigateResult {
   const trimmed = input.trim()
   if (trimmed === '') return { kind: 'blocked', reason: 'empty' }
   if (trimmed.length > MAX_BROWSER_URL_LENGTH) return { kind: 'blocked', reason: 'invalid' }
@@ -159,15 +103,7 @@ export function normalizeBrowserUrl(input: string, selfOrigin: string, allowedLo
   try {
     if (url.origin === new URL(selfOrigin).origin) return { kind: 'blocked', reason: 'app-origin' }
   } catch {
-    // Unparsable selfOrigin (never in practice): fall through to the loopback gate.
-  }
-  if (isLoopbackHostname(url.hostname)) {
-    // An explicit user allowlist (browserAllowedLoopback) can lift the
-    // loopback block for trusted local dev servers.
-    if (allowedLoopback.trim() !== '' && parseLoopbackAllowlist(allowedLoopback)(url.hostname, url.port)) {
-      return { kind: 'ok', url: url.href, title: url.hostname }
-    }
-    return { kind: 'blocked', reason: 'loopback' }
+    // Unparsable selfOrigin (never in practice): the target stands.
   }
   return { kind: 'ok', url: url.href, title: url.hostname }
 }

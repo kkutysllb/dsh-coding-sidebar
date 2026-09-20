@@ -379,12 +379,6 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
           key: 'browserInterceptHttps',
           title: () => t('settingsBrowserHttpsTitle'),
           desc: () => t('settingsBrowserHttpsDesc'),
-        }, {
-          key: 'browserAllowedLoopback',
-          type: 'text',
-          title: () => t('settingsBrowserLoopbackTitle'),
-          desc: () => t('settingsBrowserLoopbackDesc'),
-          placeholder: t('settingsBrowserLoopbackPlaceholder'),
         }],
       },
       createTab: (state) => ({
