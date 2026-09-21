@@ -370,8 +370,11 @@ export interface SidebarSessionsService {
     subscribe(fn: () => void): () => void
   }
   /**
-   * Select a listed session as current (mirror of the runtime ISessions.open)
-   * — used to jump back to the main agent from the topology root node.
+   * Select a listed session as current — used to jump back to the main agent
+   * from the topology root node. REMOVED upstream in 0.1.6-alpha.2 (the
+   * session-controller refactor): new code navigates through
+   * {@link SidebarUiWorkspaceService.openSession}; this face only remains as
+   * the 0.1.5-era fallback (see ./client/workspace-nav.ts).
    */
   open?(id: string): void
   /**
@@ -398,8 +401,11 @@ export interface SidebarSessionsService {
    */
   scope(id: string): Context | undefined
   /**
-   * Open a healthy catalog child through its exact direct-parent address
-   * (mirror of the runtime ISessions.openSubagent).
+   * Open a healthy catalog child through its exact direct-parent address.
+   * REMOVED upstream in 0.1.6-alpha.2 (the session-controller refactor):
+   * new code navigates through
+   * {@link SidebarUiWorkspaceService.openSession}; this face only remains as
+   * the 0.1.5-era fallback (see ./client/workspace-nav.ts).
    */
   openSubagent?(address: SidebarSubagentAddress): void
   /**
@@ -414,6 +420,23 @@ export interface SidebarSessionsService {
    * Refresh one direct-child catalog.
    */
   refreshSubagents?(parentSessionId: string): Promise<void>
+}
+
+/**
+ * The client workspace-navigation face (mirror of the ui-workspace plugin's
+ * `UiWorkspace`, captured through the waitable `ctx.inject(['uiWorkspace'],
+ * …)` — see ./client/workspace-nav.ts): the 0.1.6-alpha session-open seam
+ * that replaced the removed `sessions.open` / `sessions.openSubagent`.
+ * Optional — every navigation degrades through workspace-nav when the host
+ * lacks it.
+ */
+export interface SidebarUiWorkspaceService {
+  /**
+   * Select a Session and show its Conversation as one UI navigation action
+   * (0.1.5 mirror: session id only; since 0.1.6-alpha.2 the target also
+   * accepts a durable direct-parent subagent address).
+   */
+  openSession?(target: string | SidebarSubagentAddress): void
 }
 
 /**
@@ -632,6 +655,15 @@ export interface SidebarContextShape {
    * `ui-trajectory` plugin never registered the target.
    */
   uiConversation?: SidebarConversationAssembly
+  /**
+   * The client workspace navigation (ui-workspace; captured through the
+   * waitable `ctx.inject(['uiWorkspace'], …)` — a bare `ctx.get` reads only
+   * the calling fiber's local store and silently misses a cross-plugin
+   * service) — the 0.1.6-alpha session-open seam that replaced
+   * `sessions.open` / `sessions.openSubagent`. Optional: navigation degrades
+   * through ./client/workspace-nav.ts when the host lacks it.
+   */
+  uiWorkspace?: SidebarUiWorkspaceService
   /**
    * The client-side sidebar registry: external plugins register tab types
    * and file previewers here. Provided by the client half (see

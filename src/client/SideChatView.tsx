@@ -46,6 +46,7 @@ import {
 } from '../sidechat-core.ts'
 import { collectOwnEvents, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
 import { api } from './api.ts'
+import { openViaUiWorkspace } from './workspace-nav.ts'
 import { t } from './locales.ts'
 import type { SessionScope } from './api.ts'
 import type { SidebarTab } from './state.ts'
@@ -541,7 +542,12 @@ export function SideChatView(props: {
       if (binding !== undefined && title !== '') {
         await binding.session.rename(title)
       }
-      ctx.sessions.open?.(newId)
+      // 0.1.6-alpha.2 removed sessions.open — promote the saved thread
+      // through uiWorkspace.openSession (the 0.1.5 face stays the fallback).
+      const outcome = openViaUiWorkspace(ctx, newId, ctx.sessions)
+      if (outcome !== 'opened') {
+        console.warn(`[dsh-coding-sidebar] promote side thread ${outcome}:`, newId)
+      }
       setSaved(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))

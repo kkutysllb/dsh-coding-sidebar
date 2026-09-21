@@ -17,7 +17,9 @@
  * src/client/markdown-html.ts 的 markdown/HTML 分段与结构部件归约、
  * src/client/editor-load.ts 的 viewer 策略分派与二进制 head 重匹配、
  * src/media-range.ts 的 HTTP Range 解析（内置视频预览的 206/416 归约与无效区间忽略）、
- * src/client/markdown-images.ts 的本地图片目标改写（代码块掩码/引用定义门）。
+ * src/client/markdown-images.ts 的本地图片目标改写（代码块掩码/引用定义门）、
+ *   以及 src/client/workspace-nav.ts 的 0.1.6-alpha 会话导航接缝
+ *   （uiWorkspace.openSession 探针 + 0.1.5 sessions.open/openSubagent 回退）。
  *
  * 运行：node tests/run-openpath-tests.mjs
  *
@@ -54,6 +56,9 @@
  *   cp /tmp/csb-preview/client/paths.js tests/paths.mjs
  *   sed -i '' "s|from './mermaid-blocks.ts'|from './mermaid-blocks.mjs'|" tests/markdown-html.mjs
  *   sed -i '' "s|from './paths.ts'|from './paths.mjs'|" tests/markdown-images.mjs
+ *   ./node_modules/.bin/tsc src/client/workspace-nav.ts --target es2022 --module esnext \
+ *     --skipLibCheck --noCheck --outDir /tmp/csb-nav
+ *   cp /tmp/csb-nav/client/workspace-nav.js tests/workspace-nav.mjs
  *   ./node_modules/.bin/tsc src/client/browser.ts src/client/browser-nav.ts \
  *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-browser
  *   cp /tmp/csb-browser/browser.js tests/browser-url.mjs
@@ -102,6 +107,7 @@ import {
 import { decodeHead, planFirstMatch, planFsReadOutcome } from './editor-load.mjs'
 import { resolveLocalMediaDest, rewriteLocalImageUrls } from './markdown-images.mjs'
 import { parseRange } from './media-range.mjs'
+import { openViaUiWorkspace, observeUiWorkspaceFace, resetUiWorkspaceObserver } from './workspace-nav.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -1943,6 +1949,93 @@ console.log('[chunk-loader retry]')
   setChunkRetryDelaysForTests(null)
   setChunkModuleSystem(undefined)
   resetChunks()
+}
+
+// ── openViaUiWorkspace（0.1.6-alpha 会话导航接缝：uiWorkspace 探针 + 0.1.5 回退）──
+console.log('[openViaUiWorkspace]')
+{
+  const address = { parentSessionId: 'p-1', childSessionId: 'c-1', mode: 'continuable' }
+
+  // 0) 捕获面（waitable inject 官方姿势）：ctx.get 拿不到跨 fiber 服务时仍可用
+  //    ——1.0.28 首版 dev 实测失效的根因回归（get 只读本地 store → undefined）。
+  {
+    resetUiWorkspaceObserver()
+    const seen = []
+    const blindCtx = { get: () => undefined } // cordis 跨 fiber get 的真实形态
+    const face = { openSession: (t) => { seen.push(t) } }
+    ok(openViaUiWorkspace(blindCtx, address) === 'unavailable', '未捕获 + get 盲 → unavailable（事故形态）')
+    observeUiWorkspaceFace(face)
+    ok(openViaUiWorkspace(blindCtx, address) === 'opened' && seen[0] === address,
+      '捕获面接管：get 盲也不影响导航')
+    ok(openViaUiWorkspace(blindCtx, 'sess-7') === 'opened' && seen[1] === 'sess-7', '捕获面对 id 目标同样生效')
+    observeUiWorkspaceFace(null)
+    observeUiWorkspaceFace(42)
+    ok(openViaUiWorkspace(blindCtx, address) === 'opened', '非对象 face 不覆盖既有捕获')
+    resetUiWorkspaceObserver()
+    ok(openViaUiWorkspace(blindCtx, address) === 'unavailable', 'reset 后回到 unavailable')
+    observeUiWorkspaceFace({ openSession: () => { throw new Error('boom') } })
+    ok(openViaUiWorkspace(blindCtx, address) === 'failed', '捕获面 openSession 抛错 → failed')
+    resetUiWorkspaceObserver()
+  }
+
+  // 1) 0.1.6 宿主：uiWorkspace 健在 → 地址与 id 都走 openSession
+  {
+    const seen = []
+    const ctx = { get: (name) => name === 'uiWorkspace' ? { openSession: (t) => seen.push(t) } : undefined }
+    ok(openViaUiWorkspace(ctx, address) === 'opened', '地址目标 → uiWorkspace.openSession 接管')
+    ok(openViaUiWorkspace(ctx, 'sess-9') === 'opened', '会话 id 目标 → openSession')
+    ok(JSON.stringify(seen) === JSON.stringify([address, 'sess-9']), 'openSession 收到的目标原样透传')
+  }
+
+  // 2) uiWorkspace 优先：即便误传 0.1.5 legacy 面（新宿主上不应存在），也不可双触
+  {
+    let legacyCalls = 0
+    const ctx = { get: (name) => name === 'uiWorkspace' ? { openSession: () => {} } : undefined }
+    const legacy = { open: () => { legacyCalls += 1 }, openSubagent: () => { legacyCalls += 1 } }
+    ok(openViaUiWorkspace(ctx, address, legacy) === 'opened' && legacyCalls === 0, 'uiWorkspace 健在 → legacy 不触')
+  }
+
+  // 3) 0.1.5 宿主：无 uiWorkspace → 按 target 形状分派 legacy 面
+  {
+    const calls = { open: [], openSubagent: [] }
+    const ctx = { get: () => undefined }
+    const legacy = {
+      open: (id) => { calls.open.push(id) },
+      openSubagent: (a) => { calls.openSubagent.push(a) },
+    }
+    ok(openViaUiWorkspace(ctx, 'sess-5', legacy) === 'opened' && calls.open[0] === 'sess-5' && calls.openSubagent.length === 0,
+      '无 uiWorkspace → id 走 legacy.open')
+    ok(openViaUiWorkspace(ctx, address, legacy) === 'opened' && calls.openSubagent[0] === address,
+      '无 uiWorkspace → 地址走 legacy.openSubagent')
+  }
+
+  // 4) 两个面都缺 → unavailable（不抛）
+  ok(openViaUiWorkspace({ get: () => undefined }, 'sess-1') === 'unavailable', '无 uiWorkspace 无 legacy → unavailable')
+  ok(openViaUiWorkspace({ get: () => undefined }, address) === 'unavailable', '地址目标同样 unavailable')
+
+  // 5) get 抛错（探针防御）→ 降级到 legacy / unavailable
+  {
+    const throwingCtx = { get: () => { throw new Error('scope gone') } }
+    ok(openViaUiWorkspace(throwingCtx, 'sess-2', { open: () => {} }) === 'opened', 'get 抛错 → legacy 回退仍可用')
+    ok(openViaUiWorkspace(throwingCtx, 'sess-2') === 'unavailable', 'get 抛错且无 legacy → unavailable')
+  }
+
+  // 6) 面畸形：null / 原始值 / 缺 openSession 方法 → 跳过并回退
+  {
+    const legacy = { open: () => {} }
+    for (const face of [null, 42, 'x', {}, { openSession: 'not-a-function' }]) {
+      const ctx = { get: () => face }
+      ok(openViaUiWorkspace(ctx, 'sess-3', legacy) === 'opened', `畸形 face ${JSON.stringify(face) ?? 'null'} → legacy 回退`)
+    }
+  }
+
+  // 7) opener 抛错 → failed（不冒泡进 React 回调）
+  {
+    const ctx = { get: () => ({ openSession: () => { throw new Error('boom') } }) }
+    ok(openViaUiWorkspace(ctx, address) === 'failed', 'openSession 抛错 → failed')
+    ok(openViaUiWorkspace({ get: () => undefined }, address, { openSubagent: () => { throw new Error('boom') } }) === 'failed',
+      'legacy.openSubagent 抛错 → failed')
+  }
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

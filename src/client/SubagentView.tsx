@@ -60,6 +60,7 @@ import {
   type TreeJob,
 } from './subagent-jobs.ts'
 import { api, type JobOutputResult } from './api.ts'
+import { openViaUiWorkspace } from './workspace-nav.ts'
 import { IconStopOutline16 } from './icons.tsx'
 import { t } from './locales.ts'
 import css from './SubagentView.module.css'
@@ -768,22 +769,23 @@ export function SubagentView(props: {
     // of it (the topology stays rooted at the main agent with the child
     // highlighted) — the README "page stays open" contract.
     onOpenChild?.(address)
-    try {
-      sessions.openSubagent?.(address)
-    } catch (error) {
-      console.warn('[dsh-coding-sidebar] openSubagent failed:', error)
+    // 0.1.6-alpha.2 removed sessions.openSubagent — the navigation goes
+    // through uiWorkspace.openSession (the 0.1.5 face stays the fallback).
+    const outcome = openViaUiWorkspace(ctx, address, sessions)
+    if (outcome !== 'opened') {
+      console.warn(`[dsh-coding-sidebar] openSubagent ${outcome}:`, address)
     }
-  }, [sessions, onOpenChild])
+  }, [ctx, sessions, onOpenChild])
 
   /** Jump back to the main agent (the topology root) from its node. */
   const openMain = useCallback((): void => {
     if (rootId === undefined) return
-    try {
-      sessions.open?.(rootId)
-    } catch (error) {
-      console.warn('[dsh-coding-sidebar] open session failed:', error)
+    // 0.1.6-alpha.2 removed sessions.open — navigate through uiWorkspace.
+    const outcome = openViaUiWorkspace(ctx, rootId, sessions)
+    if (outcome !== 'opened') {
+      console.warn(`[dsh-coding-sidebar] open session ${outcome}:`, rootId)
     }
-  }, [sessions, rootId])
+  }, [ctx, sessions, rootId])
 
   const refresh = useCallback((parentSessionId: string): void => {
     void sessions.refreshSubagents?.(parentSessionId)

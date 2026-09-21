@@ -12,7 +12,7 @@ import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Context } from '../context-types.ts'
 import { allLeaves, createSidebarStore, isAgentTabId } from './state.ts'
-import { createBetterSidebarService, matchUrlTarget } from './service.ts'
+import { createBetterSidebarService, matchUrlTarget, SIDEBAR_SERVICE_VERSION } from './service.ts'
 import { revalidateChunksOnReactivate, setChunkModuleSystem } from './chunk-loader.ts'
 import { registerBuiltins } from './builtins/index.ts'
 import { Sidebar } from './Sidebar.tsx'
@@ -25,6 +25,7 @@ import { REPLACE_STOCK_SIDEBAR_SETTINGS, SETTINGS_SECTION_ID } from './channel-p
 import { loadExternalDisable, loadPrefs } from './prefs.ts'
 import { SideCardSection } from './SideCardSection.tsx'
 import { api } from './api.ts'
+import { observeUiWorkspaceFace } from './workspace-nav.ts'
 import { LOCALE_NS, attachLocale, attachBetterLocale, t, zh, en } from './locales.ts'
 import { loadChunk } from './chunk-loader.ts'
 import css from './sidebar.module.css'
@@ -65,6 +66,27 @@ export function apply(ctx: Context): void {
     const offEn = ctx.locale.register(LOCALE_NS, 'en', en)
     return () => { offZh(); offEn() }
   }, 'dsh-coding-sidebar: dictionaries')
+
+  // 0.1.6-alpha session-open seam: capture the host uiWorkspace through the
+  // waitable inject — the OFFICIAL cross-plugin service resolution. A bare
+  // ctx.get('uiWorkspace') only reads this fiber's local store and silently
+  // misses a service another plugin's fiber provided (the 1.0.28-first-cut
+  // subagent navigation died exactly there); the property proxy would throw
+  // "cannot get property without inject". Deliberately NOT wrapped in
+  // ctx.effect: inject starts a child plugin fiber (it returns a Fiber, not
+  // a disposer), and cordis disposes child fibers with this fiber — an HMR
+  // reload re-runs apply and re-captures cleanly.
+  ctx.inject(['uiWorkspace'], (scope) => {
+    observeUiWorkspaceFace((scope as { uiWorkspace?: unknown }).uiWorkspace)
+  })
+
+  // Build-identity banner: the FIRST line every debugging session looks for.
+  // "Which build is actually running" cost three rounds of blind fixing once
+  // (a profile heal kept reverting the installed copy) — never again. The
+  // nav-seam tag marks the uiWorkspace capture + method-call navigation.
+  console.info(
+    `[dsh-coding-sidebar] client ${SIDEBAR_SERVICE_VERSION} booted (nav-seam v3: uiWorkspace capture)`,
+  )
 
   // Opt-in third-language support through @huanlin/dsh-plugin-better-locale.
   // When that plugin is installed, it publishes `ctx.betterLocale` (the

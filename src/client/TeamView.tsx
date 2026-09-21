@@ -21,6 +21,7 @@ import {
 import type { Context } from '../context-types.ts'
 import type { TeamMemberView, TeamTaskView, TeamUnavailableReason, TeamView } from '../team-types.ts'
 import { api } from './api.ts'
+import { openViaUiWorkspace } from './workspace-nav.ts'
 import {
   EMPTY_TEAM_DRAFT, isTeamDraftCommittable, isTeamMemberAssignable, isTeamMemberOpenable,
   sameTeamDependencies, teamDraftOfTask, teamFailureText, teamItems, teamMemberStatusKey,
@@ -232,11 +233,9 @@ export function TeamView(props: TabComponentProps): ReactNode {
       sessions?: { refreshSubagents?: (id: string) => Promise<unknown> | unknown }
     }).sessions
     try { void sessions?.refreshSubagents?.(leadId) } catch { /* 名册过期不影响打开 */ }
-    const uiWorkspace = ctx.get('uiWorkspace') as
-      | { openSession?: (input: { parentSessionId: string; childSessionId: string; mode: 'continuable' }) => void }
-      | undefined
+    // uiWorkspace.openSession 探针与 0.1.5 回退都收口在 workspace-nav。
     try {
-      uiWorkspace?.openSession?.({ parentSessionId: leadId, childSessionId: member.id, mode: 'continuable' })
+      openViaUiWorkspace(ctx, { parentSessionId: leadId, childSessionId: member.id, mode: 'continuable' })
     } catch { /* 载具没有会话导航：成员会话仍可从会话列表进入 */ }
   }, [ctx, leadId])
 
