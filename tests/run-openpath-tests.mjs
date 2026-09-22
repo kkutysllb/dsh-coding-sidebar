@@ -36,6 +36,10 @@
  *   cp /tmp/csb-tr/trajectory-source.js tests/trajectory-source.mjs
  *   ./node_modules/.bin/tsc src/git.ts src/github.ts src/client/git-branch-model.ts \
  *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-git
+ *   ./node_modules/.bin/tsc src/prefs-shared.ts src/config.ts \
+ *     --target es2022 --module esnext --skipLibCheck --outDir /tmp/csb-config
+ *   cp /tmp/csb-config/prefs-shared.js tests/prefs-shared.mjs
+ *   sed "s|from './prefs-shared.ts'|from './prefs-shared.mjs'|" /tmp/csb-config/config.js > tests/config-prefs.mjs
  *   cp /tmp/csb-git/git.js tests/git-helpers.mjs
  *   cp /tmp/csb-git/github.js tests/github-helpers.mjs
  *   cp /tmp/csb-git/client/git-branch-model.js tests/git-branch-model.mjs
@@ -106,6 +110,7 @@ import {
 } from './markdown-html.mjs'
 import { decodeHead, planFirstMatch, planFsReadOutcome } from './editor-load.mjs'
 import { resolveLocalMediaDest, rewriteLocalImageUrls } from './markdown-images.mjs'
+import { Config, PrefsSchema, SIDEBAR_PREFS_DEFAULTS, isVolatileRef, prefsOf, resolveSidebarConfig } from './config-prefs.mjs'
 import { parseRange } from './media-range.mjs'
 import { openViaUiWorkspace, observeUiWorkspaceFace, resetUiWorkspaceObserver } from './workspace-nav.mjs'
 import {
@@ -2036,6 +2041,79 @@ console.log('[openViaUiWorkspace]')
     ok(openViaUiWorkspace({ get: () => undefined }, address, { openSubagent: () => { throw new Error('boom') } }) === 'failed',
       'legacy.openSubagent 抛错 → failed')
   }
+}
+
+// ── config.ts（0.1.7 profile-config / volatile 迁移）───────────────
+console.log('[config/volatile]')
+
+// 1) Config({})：宿主限制为原值；偏好为 fork 引用（volatile 包装的运行时证据）
+{
+  const parsed = Config({})
+  ok(parsed.readLimit === 512 * 1024 && parsed.terminalsPerSession === 3, '宿主限制默认值（原值）')
+  ok(isVolatileRef(parsed.openByDefault) && !isVolatileRef(parsed.readLimit),
+    'fork 语义：偏好字段解析为 volatile 引用、宿主字段为原值')
+  const prefs = prefsOf(parsed)
+  ok(prefs.titleBarScheme === 'auto' && prefs.titleBarPresetId === '' && prefs.customCss === '',
+    '偏好三字段补 default（auto/空串）经引用读出')
+  ok(prefs.agentTerminalTools === false && prefs.agentOpenTools === false && prefs.browserInterceptHttps === true,
+    '偏好默认与 SIDEBAR_PREFS_DEFAULTS 对齐（https 接管为 true）')
+}
+
+// 2) volatile 标记矩阵：26 偏好 true、8 宿主不标
+{
+  const hostKeys = ['readLimit', 'mediaLimit', 'uploadLimit', 'listLimit', 'terminalsPerSession', 'reconnectGraceMs', 'shell', 'shellArgs']
+  const prefKeys = Object.keys(SIDEBAR_PREFS_DEFAULTS)
+  ok(prefKeys.length === 26, `偏好字段 26 个（实际 ${prefKeys.length}）`)
+  const badPref = prefKeys.filter(k => Config.dict[k]?.meta?.volatile !== true)
+  const badHost = hostKeys.filter(k => Config.dict[k]?.meta?.volatile === true)
+  ok(badPref.length === 0, `偏好字段全部带 volatile 标记（fork 原生 .volatile()；缺：${badPref.join(',') || '无'}）`)
+  ok(badHost.length === 0, `宿主字段不标 volatile（误标：${badHost.join(',') || '无'}）`)
+}
+
+// 3) prefsOf(undefined) 逐键回落 SIDEBAR_PREFS_DEFAULTS
+{
+  const prefs = prefsOf(undefined)
+  const diff = Object.keys(SIDEBAR_PREFS_DEFAULTS)
+    .filter(k => JSON.stringify(prefs[k]) !== JSON.stringify(SIDEBAR_PREFS_DEFAULTS[k]))
+  ok(diff.length === 0, `undefined 配置 → 全默认（偏差：${diff.join(',') || '无'}）`)
+}
+
+// 4) volatile 引用解包 / 原值直传 / 缺失兜底
+{
+  const brand = Symbol.for('cosmokit.volatile.write')
+  const ref = v => ({ [brand]: () => {}, get: () => v })
+  const prefs = prefsOf({ agentTerminalTools: ref(true), titleBarStripPx: 96, autoOpenJobs: ref(false) })
+  ok(prefs.agentTerminalTools === true, 'VolatileRef 解包（true）')
+  ok(prefs.autoOpenJobs === false, 'VolatileRef 解包（false 不回落默认）')
+  ok(prefs.titleBarStripPx === 96, '普通值直传')
+  ok(prefs.openByDefault === SIDEBAR_PREFS_DEFAULTS.openByDefault, '缺失键回落默认')
+}
+
+// 5) isVolatileRef 判定（与 fork 同源品牌符号）
+{
+  const brand = Symbol.for('cosmokit.volatile.write')
+  ok(isVolatileRef({ [brand]: () => {}, get: () => 1 }) === true, '品牌对象判真')
+  ok(isVolatileRef(() => {}) === false, '普通函数判假')
+  ok(isVolatileRef({ get: () => 1 }) === false, '无品牌 getter 判假')
+  ok(isVolatileRef(null) === false && isVolatileRef(42) === false && isVolatileRef('x') === false, '原始值判假')
+}
+
+// 6) resolveSidebarConfig：volatile 宿主字段解包 + shell trim + 直调兜底
+{
+  const brand = Symbol.for('cosmokit.volatile.write')
+  const ref = v => ({ [brand]: () => {}, get: () => v })
+  const resolved = resolveSidebarConfig({ readLimit: ref(1024), shell: '  /bin/zsh  ', shellArgs: ['-l'] })
+  ok(resolved.readLimit === 1024 && resolved.shell === '/bin/zsh' && resolved.shellArgs[0] === '-l',
+    'volatile 宿主字段解包 + shell trim')
+  const fallback = resolveSidebarConfig(undefined)
+  ok(fallback.readLimit === 512 * 1024 && fallback.mediaLimit === 20 * 1024 * 1024 && fallback.shell === '',
+    'undefined → 直调默认兜底')
+}
+
+// 7) PrefsSchema 兼容导出（历史语义保留：https 默认 false；非 volatile，解析为原值）
+{
+  ok(PrefsSchema({}).browserInterceptHttps === false && prefsOf(Config({})).browserInterceptHttps === true,
+    'PrefsSchema 与 Config 的 https 默认差异为历史既有（保留不动）')
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

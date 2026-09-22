@@ -547,34 +547,48 @@ export interface SidebarInvariantsService {
     /** Reserve one package's checks and install them in the service's child fiber. */
     register(packageName: string, installer: (ctx: Context, fail: (message: string) => never) => void | Promise<void>): () => void;
 }
-/** The settings service face (mirror of @deepseek-ai/dsh-settings' SettingsProvider). */
-export interface SidebarSettingsService {
-    /**
-     * Register one namespace schema (the resolved value layers schema defaults,
-     * then the composition base, then the user document).
-     */
-    register<T>(ns: string, schema: unknown, options?: {
-        base?: Partial<T>;
-        applies?: 'live' | 'restart';
-    }): {
-        get(): T;
-        watch(callback: (next: T, prev: T) => void | Promise<void>): () => void;
-        update(patch: object): Promise<void>;
-        replace(section: object): Promise<void>;
+/**
+ * One addressable Loader entry (the slice the configEditor bridge touches).
+ *
+ * `options.config` is the entry's **overlay** config (profile-patch layer),
+ * not the resolved value — bundle-layer defaults are invisible here. The
+ * `aionui-panel` mutual-exclusion probe therefore reads whatever the other
+ * plugin's own patch row declares; absent rows read as not-disabled.
+ */
+export interface SidebarLoaderEntry {
+    /** Whether the row is currently disabled (patch rows may compute this). */
+    readonly disabled?: boolean;
+    readonly options: {
+        readonly id?: string;
+        readonly name?: string;
+        readonly config?: unknown;
     };
-    /** Redacted descriptors of every registered namespace (secrets stripped). */
-    describe(options?: {
-        redactSecrets?: boolean;
-    }): Array<{
-        ns: string;
-        value?: unknown;
-        base?: unknown;
-        user?: unknown;
-        applies: 'live' | 'restart';
-        revision: number;
-    }>;
-    /** Service-level merge write with the revision guard (a stale writer is refused). */
-    update(ns: string, patch: object, expectedRevision?: number): Promise<void>;
+}
+/** The Loader service face (entry enumeration for cross-plugin config probes). */
+export interface SidebarLoaderService {
+    /** Every active entry in the tree (the plugin's own row included). */
+    entries(): Iterable<SidebarLoaderEntry>;
+}
+/**
+ * The config editor face (mirror of @deepseek-ai/dsh-config-editor's
+ * ConfigEditor) — the 0.1.7 write path for plugin configuration.
+ *
+ * `entries()` returns the addressable profile rows (include tree,
+ * unique patch id); `edit()` validates the derived config against the
+ * entry's schema, persists it into the profile `cordis.patch.yml`, and lets
+ * the Loader reconcile — volatile-only changes update the live refs without
+ * remounting the plugin.
+ */
+export interface SidebarConfigEditorService {
+    /** Addressable profile rows, one per unique patch id. */
+    entries(): SidebarLoaderEntry[];
+    /**
+     * Persist one entry's next config.
+     *
+     * @param entry - Current Loader entry (identity-checked during the write).
+     * @param change - Derive the raw next config from the overlay and inherited layers.
+     */
+    edit(entry: SidebarLoaderEntry, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>): Promise<void>;
 }
 /**
  * The tools service face (mirror of @deepseek-ai/dsh-tools' ToolRuntime).
@@ -621,8 +635,12 @@ export interface SidebarContextShape {
     workspaces: SidebarWorkspacesService;
     /** The client Remote carrier (0.1.2+ file-open funnel; optional legacy probe). */
     remote?: SidebarRemoteService;
-    /** The settings service face (prefs persistence + namespace reads). */
-    settings: SidebarSettingsService;
+    /** The config-editor face (0.1.7 prefs persistence; optional — degrades to defaults). */
+    configEditor?: SidebarConfigEditorService;
+    /** The Loader face (cross-plugin config probes; optional). */
+    loader?: SidebarLoaderService;
+    /** The root Context (the Loader entries a plugin may probe live outside its own fiber). */
+    root: Context;
     /** The invariant registry face. */
     invariants: SidebarInvariantsService;
     /** The tool registry face. */
@@ -669,6 +687,14 @@ export interface SidebarContextShape {
      * {@link ./client/index.tsx}); undefined on the host side.
      */
     betterSidebar: BetterSidebarService;
+    /**
+     * Volatile-config commit notice (the vendored cordis Loader event): emitted
+     * after the new values are already committed into the live references, so
+     * listeners re-read their config instead of consuming a payload. The paths
+     * are the changed config paths; this plugin re-evaluates its gates for any
+     * of them (both gates are idempotent).
+     */
+    on(event: 'loader/volatile-update', listener: (paths: readonly (readonly string[])[]) => void): () => void;
     /**
      * String-keyed session feed subscribe (the vendored cordis `on` is keyed
      * to its typed Events map; the harness session feed is a plain string

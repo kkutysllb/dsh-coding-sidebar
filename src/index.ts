@@ -18,12 +18,11 @@ import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
-import type { Context, SidebarHttpRequest, SidebarSessionPersistenceService } from './context-types.ts'
+import type { Context, SidebarConfigEditorService, SidebarHttpRequest, SidebarSessionPersistenceService } from './context-types.ts'
 import {
   Config,
-  PrefsSchema,
+  prefsOf,
   resolveSidebarConfig,
-  SIDEBAR_PREFS_DEFAULTS,
   SIDEBAR_PREFS_NS,
   type ResolvedSidebarConfig,
   type SidebarConfig,
@@ -43,7 +42,6 @@ import { launchExternal, launchExternalFile } from './open-external.ts'
 import * as git from './git.ts'
 import * as github from './github.ts'
 import * as plans from './plans.ts'
-import { SettingsConflictError, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defaultShell, ensureSpawnHelper, PtyManager, shellDisplayName } from './pty-manager.ts'
 import { AgentPtyRegistry, armPtyResizeGate, tryResizePty, type AgentTerminalHandle } from './agent-pty.ts'
 import {
@@ -58,7 +56,7 @@ import { buildJobsApi, type SidebarJobsRoutes } from './jobs-routes.ts'
 import { buildSubagentLiveApi, type SidebarSubagentLiveRoutes } from './subagent-live-route.ts'
 import { buildTeamApi, type SidebarTeamRoutes } from './team-routes.ts'
 import { buildSidechatApi } from './sidechat-routes.ts'
-import { readJsonBody, requireString, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
+import { readJsonBody, requireString, SettingsConflictError, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
 
 export { Config }
 export type { SidebarConfig, ResolvedSidebarConfig }
@@ -662,11 +660,12 @@ function buildApi(
     // "Terminal N" label; the shell itself is configured through
     // `cordis.patch.yml` (`config.shell`) or resolved by the host default.
     'shell.get': () => ({ shell: terminalShell, name: shellDisplayName(terminalShell) }),
-    // The side card preferences. The settings service is optional in the
-    // composition; while absent the routes report undefined and the client
-    // keeps the schema defaults. Writes are revision-guarded: a stale editor
-    // is refused with settings-conflict so a concurrent change is never
-    // silently overwritten (mirror of the settings seam's own guard).
+    // The side card preferences (0.1.7: the plugin Config volatile fields,
+    // persisted through the engine configEditor). The editor is optional in
+    // the composition; while absent the routes report undefined and the
+    // client keeps the schema defaults. Writes are revision-guarded: a stale
+    // editor is refused with settings-conflict so a concurrent change is
+    // never silently overwritten.
     'settings.get': () => {
       const settings = getSettings()
       return settings === undefined
@@ -676,7 +675,7 @@ function buildApi(
     'settings.update': async (payload) => {
       const settings = getSettings()
       if (settings === undefined) {
-        throw new SidebarError('settings-rejected', 'the settings service is not mounted in this deployment', 503)
+        throw new SidebarError('settings-rejected', 'the config editor is not mounted in this deployment', 503)
       }
       const record = payload as { patch?: unknown; expectedRevision?: unknown } | null
       const patch = record?.patch
@@ -846,15 +845,24 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
   // native dependencies — the tool works even in node-pty degraded mode.
   const agentOpenRegistry = new AgentOpenRegistry()
 
-  // ── User-facing "Side card" preferences ──────────────────────────────────
-  // Register the namespace with the settings provider so the Settings page
-  // (client half) can render and persist the new-conversation defaults. The
-  // DSH settings RPC domain (api-proxy) only serves allowlisted namespaces to
-  // configuration clients, so the client reaches this namespace through the
-  // plugin's own fenced routes below ('settings.get'/'settings.update'),
-  // which call the seam in-process. Deployments without a settings service
-  // simply never fill the face and the client falls back to the defaults.
+  // ── User-facing "Side card" preferences (0.1.7 profile-config model) ────
+  // The plugin entry's Config IS the preferences store: every user-facing
+  // preference is a volatile field, so the Settings page (client half) reads
+  // and writes them through the plugin's own fenced routes below
+  // ('settings.get' / 'settings.update'). Writes go through the engine's
+  // configEditor, which persists them into the profile `cordis.patch.yml`
+  // row and lets the Loader reconcile — volatile-only changes update the
+  // live references in place (no plugin remount, no settings.yaml).
+  // Deployments without a configEditor never fill the face and the client
+  // falls back to the defaults.
   let settingsFace: SidebarSettingsFace | undefined
+  // Session-scoped optimistic-concurrency counter: the client echoes the
+  // revision it last read and a stale write is refused with
+  // `settings-conflict`. It does not survive a restart (the values do); the
+  // client's recovery is the same re-read either way.
+  let prefsRevision = 0
+  /** The current preferences, read fresh from the live config references. */
+  const prefsSnapshot = (): SidebarPrefs => prefsOf(config)
   // The model-facing terminal tools are gated on the side-card setting
   // `agentTerminalTools` (default off): nothing is injected until the user
   // turns the feature on, and turning it off mid-session unregisters the
@@ -864,8 +872,8 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
   // syncOpenToolsGate below); separate disposer (no native deps, and turning
   // the feature off must not release user terminals).
   let openToolsDisposers: (() => void) | null = null
-  const syncToolsGate = (scope: { get(): SidebarPrefs }): void => {
-    if (scope.get().agentTerminalTools) {
+  const syncToolsGate = (): void => {
+    if (prefsSnapshot().agentTerminalTools) {
       if (toolsDisposers === null) {
         // Degraded mode (node-pty unavailable): never register the terminal
         // tools — every one of them would fail at spawn time.
@@ -881,75 +889,91 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
       agentPtyRegistry?.disposeAll()
     }
   }
-  ctx.inject(['settings'], (sctx) => {
-    const ns = SIDEBAR_PREFS_NS as SettingsNamespace
-    // The structural settings mirror types `schema` as unknown, so the
-    // generic is not inferred here; the real service resolves it from the
-    // schemastery schema (PrefsSchema) — narrow the owner scope explicitly.
-    const scope = sctx.settings.register(ns, PrefsSchema) as {
-      get(): SidebarPrefs
-      watch(callback: (next: SidebarPrefs, prev: SidebarPrefs) => void): () => void
+  // The model-facing open tool is gated the same way on `agentOpenTools`
+  // (default off): nothing is injected until the user turns the feature on,
+  // and turning it off mid-session unregisters the tool and drops the queued
+  // (undelivered) open requests. Already-delivered opens keep their tabs —
+  // the tools' only lever is the queue, not the rendered state.
+  const syncOpenToolsGate = (): void => {
+    if (prefsSnapshot().agentOpenTools) {
+      if (openToolsDisposers === null) {
+        openToolsDisposers = registerOpenTool(
+          ctx,
+          agentOpenRegistry,
+          (sessionId) => sessionCwdOf(ctx, sessionId),
+          () => prefsSnapshot(),
+        )
+      }
+    } else if (openToolsDisposers !== null) {
+      openToolsDisposers()
+      openToolsDisposers = null
+      agentOpenRegistry.drainAll()
     }
-    const viewOf = (): { value?: unknown; revision?: number } => {
-      const descriptor = sctx.settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === ns)
-      return descriptor === undefined
-        ? { value: undefined, revision: undefined }
-        : { value: descriptor.value, revision: descriptor.revision }
-    }
+  }
+  ctx.inject(['configEditor'], (scope) => {
+    const editor = (scope as { configEditor?: SidebarConfigEditorService }).configEditor
+    // No config editor (headless/direct compositions): the routes report the
+    // absence and the client keeps the schema defaults — same degradation the
+    // old missing-settings-service path had.
+    if (editor === undefined) return
+    const viewOf = (): { value?: unknown; revision?: number } => ({
+      value: prefsSnapshot(),
+      revision: prefsRevision,
+    })
     // Mutual exclusion with the dsh-web-ui family right panel: the aionui
     // panel's provider choice (`aionui-panel.rightPanel`) is the authority.
-    // While it resolves to 'aionui-panel', this sidebar must not mount. The
-    // namespace is read through the settings seam like any other registered
-    // section; absent namespace (no aionui installed) = not disabled.
+    // While it resolves to 'aionui-panel', this sidebar must not mount.
+    // Read from the live Loader entries — `options.config` is the entry's
+    // overlay (profile-patch layer), so a provider selected through the
+    // other plugin's own patch row is visible; bundle-layer defaults are not
+    // (they never select 'aionui-panel'). Absent entry = not disabled.
     const externalDisable = (): boolean => {
-      const descriptor = sctx.settings.describe({ redactSecrets: true })
-        .find(candidate => candidate.ns === 'aionui-panel')
-      const value = descriptor?.value as { rightPanel?: unknown } | undefined
-      return value?.rightPanel === 'aionui-panel'
+      for (const entry of ctx.root.loader?.entries() ?? []) {
+        if (entry.options.id !== 'aionui-panel') continue
+        const value = entry.options.config
+        if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
+        if ((value as { rightPanel?: unknown }).rightPanel === 'aionui-panel') return true
+      }
+      return false
     }
     settingsFace = {
       get: viewOf,
       externalDisable,
       update: async (patch, expectedRevision) => {
-        await sctx.settings.update(ns, patch, expectedRevision)
+        if (expectedRevision !== undefined && expectedRevision !== prefsRevision) {
+          throw new SettingsConflictError('the settings document changed since it was read')
+        }
+        // The active row may carry either id: the published bundle patch
+        // mounts it as `better-sidebar` (name `dsh-coding-sidebar`), while a
+        // legacy manual mount line used the package name as the id — and a
+        // stale pair leaves one of them disabled by the bundle's own guard.
+        // Match on name OR id and skip disabled rows.
+        const entry = editor.entries().find(candidate =>
+          !candidate.disabled
+          && (candidate.options.name === SIDEBAR_PREFS_NS || candidate.options.id === SIDEBAR_PREFS_NS))
+        if (entry === undefined) {
+          throw new SidebarError(
+            'settings-rejected',
+            `profile row "${SIDEBAR_PREFS_NS}" is not addressable in this deployment`,
+            503,
+          )
+        }
+        await editor.edit(entry, (current) => ({ ...current, ...patch }))
+        prefsRevision += 1
         return viewOf()
       },
     }
-    // Register (or unregister) the terminal tools from the current setting,
-    // and keep them in sync with every settings commit.
-    syncToolsGate(scope)
-    // The model-facing open tool is gated the same way on `agentOpenTools`
-    // (default off): nothing is injected until the user turns the feature
-    // on, and turning it off mid-session unregisters the tool and drops the
-    // queued (undelivered) open requests. Already-delivered opens keep their
-    // tabs — the tools' only lever is the queue, not the rendered state.
-    const syncOpenToolsGate = (): void => {
-      if (scope.get().agentOpenTools) {
-        if (openToolsDisposers === null) {
-          openToolsDisposers = registerOpenTool(
-            ctx,
-            agentOpenRegistry,
-            (sessionId) => sessionCwdOf(ctx, sessionId),
-            () => {
-              const view = settingsFace?.get()
-              const value = view?.value
-              return value !== null && typeof value === 'object'
-                ? value as SidebarPrefs
-                : SIDEBAR_PREFS_DEFAULTS
-            },
-          )
-        }
-      } else if (openToolsDisposers !== null) {
-        openToolsDisposers()
-        openToolsDisposers = null
-        agentOpenRegistry.drainAll()
-      }
-    }
+    // Register (or unregister) both model-facing tools from the current
+    // preferences; every later volatile commit re-evaluates them.
+    syncToolsGate()
     syncOpenToolsGate()
-    // ONE watch subscription drives both gates: settings commits re-evaluate
-    // the terminal tools AND the open tool together (each gate is idempotent
-    // and owns its own disposer).
-    scope.watch(() => { syncToolsGate(scope); syncOpenToolsGate() })
+  })
+  // Volatile-config commits re-evaluate both gates: the Loader emits this
+  // AFTER the new values are committed into the live references, so
+  // re-reading is enough (each gate is idempotent and owns its own disposer).
+  ctx.on('loader/volatile-update', () => {
+    syncToolsGate()
+    syncOpenToolsGate()
   })
 
   // ── JSON API ────────────────────────────────────────────────────────────

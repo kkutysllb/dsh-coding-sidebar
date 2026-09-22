@@ -3,7 +3,7 @@ allowBuilds:
   protobufjs: true
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-invariants@0.1.5-rc.2'
-  - '@deepseek-ai/cosmokit@1.8.3'
+  - '@deepseek-ai/cosmokit@1.8.3 || 1.8.4'
   - '@deepseek-ai/dsh-agent@0.1.5-rc.2'
   - '@deepseek-ai/dsh-attachment@0.1.5-rc.2'
   - '@deepseek-ai/dsh-brand@0.1.5-rc.2'
@@ -28,5 +28,5 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-util-crypto@0.1.5-rc.2'
   - '@deepseek-ai/dsh-util-time@0.1.5-rc.2'
   - '@deepseek-ai/dsh-util-values@0.1.5-rc.2'
-  - '@deepseek-ai/schemastery@3.18.2'
+  - '@deepseek-ai/schemastery@3.18.2 || 3.18.3'
   - '@deepseek-ai/dsh-chunked-list@0.1.5-rc.2'

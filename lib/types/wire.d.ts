@@ -19,6 +19,14 @@ export declare class SidebarError extends Error {
     /** Optional structured context (e.g. `{ shell }` for shell-not-found). */
     meta?: Record<string, string> | undefined);
 }
+/**
+ * A preferences write refused because the document moved since the editor
+ * read it. The route layer maps it to `settings-conflict` (HTTP 409); the
+ * client re-reads and retries. Mirrors the engine's own conflict error class
+ * (`@deepseek-ai/dsh-settings`), which this plugin no longer depends on.
+ */
+export declare class SettingsConflictError extends Error {
+}
 /** Success envelope of one API method. */
 export interface SidebarOk<T> {
     ok: true;

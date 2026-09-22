@@ -41,6 +41,14 @@ export class SidebarError extends Error {
   }
 }
 
+/**
+ * A preferences write refused because the document moved since the editor
+ * read it. The route layer maps it to `settings-conflict` (HTTP 409); the
+ * client re-reads and retries. Mirrors the engine's own conflict error class
+ * (`@deepseek-ai/dsh-settings`), which this plugin no longer depends on.
+ */
+export class SettingsConflictError extends Error {}
+
 /** Body size bound of one JSON request (defense against unbounded reads). */
 const MAX_BODY_BYTES = 1 << 20
 
