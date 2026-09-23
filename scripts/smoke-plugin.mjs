@@ -4,7 +4,7 @@
  *
  * prepack 闸门（npm publish 前自动执行），覆盖四类交付面：
  * 1. 产物存在性：lib 入口与类型声明齐备（与 files 白名单对齐）；
- * 2. 契约字段：package.json dsh 契约（bundle.patch + client.inject 五件套 + platform）
+ * 2. 契约字段：package.json dsh 契约（bundle.patch + client.inject 图行清单 + platform）
  *    与 cordis.patch.yml insert 声明（dsh plugin add 的挂载链路）；
  * 3. 产物卫生：lib 无 bottomPanel 残留字符串（产品裁剔已源码级移除）、
  *    SIDEBAR_SERVICE_VERSION 与 package.json version 一致（单一事实源 define 注入）；
@@ -42,15 +42,20 @@ for (const chunk of ['client-registry.js', 'client-terminal.js', 'client-editor.
 check('package name = dsh-coding-sidebar', pkg.name === 'dsh-coding-sidebar')
 check('dsh.bundle.patch 指向 cordis.patch.yml', pkg.dsh?.bundle?.patch === './cordis.patch.yml')
 check('dsh.client.platform = web', pkg.dsh?.client?.platform === 'web')
+// 清单是客户端图的到达序提示（client-modules system.ts 的 graphRows 查找），
+// 必须逐条指向真实存在的图行：0.1.7-alpha.1 已无 @deepseek-ai/dsh-client-runtime
+// （末版 0.1.1-rc.2），ui-slots 只是类型包、不是图行——两者都不该在列。
 const EXPECT_INJECT = [
-  '@deepseek-ai/dsh-client-runtime',
+  '@deepseek-ai/dsh-api-remotes',
+  '@deepseek-ai/dsh-api-session-controller',
+  '@deepseek-ai/dsh-client-connection',
   '@deepseek-ai/dsh-client-locale',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-conversation',
   '@deepseek-ai/dsh-client-modules',
+  '@deepseek-ai/dsh-client-ui-conversation',
+  '@deepseek-ai/dsh-client-ui-renderer',
 ]
 check(
-  'dsh.client.inject 五件套完整',
+  'dsh.client.inject 图行清单与 0.1.7 客户端图一致',
   JSON.stringify(pkg.dsh?.client?.inject) === JSON.stringify(EXPECT_INJECT),
   JSON.stringify(pkg.dsh?.client?.inject ?? null),
 )
