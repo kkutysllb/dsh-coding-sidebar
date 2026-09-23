@@ -7,7 +7,7 @@
  * `browser:<n>` the same way (no quota). The editor IS the files window
  * (the old standalone explorer merged into it).
  */
-import { IconCodeOutline16, IconPanelLeftOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCodeOutlineRegular, IconPanelLeftOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../../context-types.ts'
 import {
   browserTabIcon, changesTabIcon, filesTabIcon, plansTabIcon, sidechatTabIcon, tasksTabIcon,
@@ -127,13 +127,13 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
           options: [
             {
               value: true,
-              icon: (size: number) => <IconPanelLeftOutline16 size={size} />,
+              icon: (size: number) => <IconPanelLeftOutlineRegular size={size} />,
               title: () => t('editorExplorerMerged'),
               desc: () => t('editorExplorerMergedDesc'),
             },
             {
               value: false,
-              icon: (size: number) => <IconCodeOutline16 size={size} />,
+              icon: (size: number) => <IconCodeOutlineRegular size={size} />,
               title: () => t('editorExplorerSplit'),
               desc: () => t('editorExplorerSplitDesc'),
             },

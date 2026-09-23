@@ -29,8 +29,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
-  IconChevronDownOutline14, IconChevronRightOutline14,
-  IconRefreshOutline14, StateDot,
+  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular,
+  IconRefreshOutlineRegular, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   Context,
@@ -297,7 +297,7 @@ function CatalogRows({
             className={css.subagentErrorRetry}
             onClick={() => { refresh(parentSessionId) }}
           >
-            <IconRefreshOutline14 />
+            <IconRefreshOutlineRegular />
             {t('retry')}
           </button>
         </div>
@@ -309,7 +309,7 @@ function CatalogRows({
           aria-expanded={historyOpen}
           onClick={() => { setHistoryOpen(open => !open) }}
         >
-          {historyOpen ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+          {historyOpen ? <IconChevronDownOutlineRegular /> : <IconChevronRightOutlineRegular />}
           {historyOpen ? t('subagentHideHistory') : t('subagentShowHistory', { count: historyCount })}
         </button>
       )}
@@ -670,7 +670,7 @@ function JobsSection(props: {
             aria-expanded={historyOpen}
             onClick={() => { setHistoryOpen(open => !open) }}
           >
-            {historyOpen ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+            {historyOpen ? <IconChevronDownOutlineRegular /> : <IconChevronRightOutlineRegular />}
             {historyOpen ? t('jobsHideHistory') : t('jobsShowHistory', { count: historyCount })}
           </button>
         )}
@@ -858,7 +858,7 @@ export function SubagentView(props: {
           disabled={rootId === undefined}
           onClick={() => { if (rootId !== undefined) refresh(rootId) }}
         >
-          <IconRefreshOutline14 />
+          <IconRefreshOutlineRegular />
         </button>
       </div>
       <div

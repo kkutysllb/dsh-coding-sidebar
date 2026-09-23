@@ -15,8 +15,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import {
-  IconCheckOutline14, IconEditOutline16, IconPlusOutline16, IconRefreshOutline14,
-  IconTrashOutline16, IconUserOutline16, StateDot,
+  IconCheckOutlineRegular, IconEditOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular,
+  IconTrashOutlineRegular, IconUserOutlineRegular, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import type { TeamMemberView, TeamTaskView, TeamUnavailableReason, TeamView } from '../team-types.ts'
@@ -246,12 +246,12 @@ export function TeamView(props: TabComponentProps): ReactNode {
   return (
     <div className={css.root} data-team-tab>
       <div className={css.toolbar}>
-        <span className={css.toolbarTitle}><IconUserOutline16 size={14} />{t('teamTitle')}</span>
+        <span className={css.toolbarTitle}><IconUserOutlineRegular size={14} />{t('teamTitle')}</span>
         {teammates.length > 0 && <span className={css.count}>{teammates.length}</span>}
         <span className={css.spacer} />
         <button type="button" className={css.iconButton} aria-label={t('teamRefresh')} title={t('teamRefresh')}
           onClick={() => { void refresh() }}>
-          <IconRefreshOutline14 />
+          <IconRefreshOutlineRegular />
         </button>
       </div>
 
@@ -305,7 +305,7 @@ export function TeamView(props: TabComponentProps): ReactNode {
             <div className={css.sectionHead}>
               <h3 className={css.sectionTitle}>{t('teamTasks')}</h3>
               <button type="button" className={css.smallButton} onClick={() => { setCreating(true) }}>
-                <IconPlusOutline16 size={13} /> {t('teamCreate')}
+                <IconPlusOutlineRegular size={13} /> {t('teamCreate')}
               </button>
             </div>
             {creating && (
@@ -368,7 +368,7 @@ export function TeamView(props: TabComponentProps): ReactNode {
                       </label>
                       <button type="button" className={css.smallButton} disabled={pending.has(task.id)}
                         onClick={() => { setEditing(task.id); setEditDraft(teamDraftOfTask(task)) }}>
-                        <IconEditOutline16 size={13} /> {t('teamEdit')}
+                        <IconEditOutlineRegular size={13} /> {t('teamEdit')}
                       </button>
                       {task.status === 'in_progress' && (
                         <button type="button" className={css.smallButton} disabled={pending.has(task.id)}
@@ -377,7 +377,7 @@ export function TeamView(props: TabComponentProps): ReactNode {
                               taskId: task.id, expectedRevision: task.revision, action: 'complete',
                             }))
                           }}>
-                          <IconCheckOutline14 /> {t('teamComplete')}
+                          <IconCheckOutlineRegular /> {t('teamComplete')}
                         </button>
                       )}
                       {task.status === 'completed' && (
@@ -396,7 +396,7 @@ export function TeamView(props: TabComponentProps): ReactNode {
                             taskId: task.id, expectedRevision: task.revision, action: 'delete',
                           }))
                         }}>
-                        <IconTrashOutline16 size={13} /> {t('teamDelete')}
+                        <IconTrashOutlineRegular size={13} /> {t('teamDelete')}
                       </button>
                     </div>
                   </article>

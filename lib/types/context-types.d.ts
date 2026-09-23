@@ -210,8 +210,13 @@ export interface SidebarJobView {
 }
 /** The host jobs registry face the sidebar routes touch (structural mirror of `JobRegistry`). */
 export interface SidebarJobsService {
-    /** Request cancellation; throws for an unknown or foreign job. */
-    kill(id: string, caller?: SidebarAgent, reason?: string): 'requested' | 'already-finished';
+    /**
+     * Request cancellation; throws for an unknown or foreign job.
+     *
+     * 0.1.7：`caller` 是**击杀方的 SessionId**（旧版是 Agent 对象）——注册表按
+     * 会话归属比对，传 Agent 会被判外来。
+     */
+    kill(id: string, caller?: string, reason?: string): 'requested' | 'already-finished';
 }
 /** The host agent registry face (structural mirror of the runtime `ctx.agents`). */
 export interface SidebarAgentsService {

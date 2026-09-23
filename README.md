@@ -172,6 +172,8 @@ ctx.effect(() => ctx.betterSidebar.registerFileIcon({
 ```sh
 pnpm install       # 安装依赖
 pnpm typecheck     # TypeScript 检查
+
+
 pnpm build         # 构建 lib/ 产物
 pnpm test          # 运行文件路径与安全边界测试
 pnpm smoke         # 插件清单、bundle 和导出冒烟检查

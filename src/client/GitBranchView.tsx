@@ -15,8 +15,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconBranchOutline16, IconCloseOutline16, IconPlusOutline16,
-  IconRefreshOutline16, IconTrashOutline16, Input, Modal,
+  Button, IconBranchOutlineRegular, IconCloseOutlineRegular, IconPlusOutlineRegular,
+  IconRefreshOutlineRegular, IconTrashOutlineRegular, Input, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SidebarApiError, api, type GitBranchRow, type SessionScope } from './api.ts'
 import { filterBranches, trackingNameOf } from './git-branch-model.ts'
@@ -145,7 +145,7 @@ export function GitBranchView(props: GitBranchViewProps) {
           disabled={busy}
           onClick={() => { setNewName(current => (current === null ? '' : null)) }}
         >
-          <IconPlusOutline16 size={14} />
+          <IconPlusOutlineRegular size={14} />
         </button>
         <button
           type="button"
@@ -154,7 +154,7 @@ export function GitBranchView(props: GitBranchViewProps) {
           title={t('refresh')}
           onClick={() => { void load() }}
         >
-          <IconRefreshOutline16 size={14} />
+          <IconRefreshOutlineRegular size={14} />
         </button>
       </div>
 
@@ -182,7 +182,7 @@ export function GitBranchView(props: GitBranchViewProps) {
             title={t('cancel')}
             onClick={() => { setNewName(null) }}
           >
-            <IconCloseOutline16 size={14} />
+            <IconCloseOutlineRegular size={14} />
           </button>
         </div>
       )}
@@ -201,7 +201,7 @@ export function GitBranchView(props: GitBranchViewProps) {
             disabled={busy || row.current}
             onClick={() => { void checkout(row) }}
           >
-            <IconBranchOutline16 size={13} />
+            <IconBranchOutlineRegular size={13} />
             <span className={css.gitBranchName}>{row.name}</span>
             {row.current && <span className={css.gitBranchBadge}>{t('gitBranchCurrent')}</span>}
             {row.remote && <span className={css.gitBranchMeta}>{t('gitBranchRemote')}</span>}
@@ -218,7 +218,7 @@ export function GitBranchView(props: GitBranchViewProps) {
               disabled={busy}
               onClick={() => { setDeleting(row) }}
             >
-              <IconTrashOutline16 size={14} />
+              <IconTrashOutlineRegular size={14} />
             </button>
           )}
         </div>

@@ -29,8 +29,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSPrope
 // Host glyphs: the toolbar wears the same icon set as the rest of the side
 // card (primitives are a module-table external, so nothing is bundled for it).
 import {
-  IconChevronDownOutline14, IconCloseOutline16, IconFullscreenOutline16,
-  IconPauseOutline16, IconPlayOutline16, IconStopFill16,
+  IconChevronDownOutlineRegular, IconCloseOutlineRegular, IconFullscreenOutlineRegular,
+  IconPauseOutlineRegular, IconPlayOutlineRegular, IconStopFillRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { VscFile, VscFileMedia } from 'react-icons/vsc'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -559,7 +559,7 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             setScale(clamp((element.clientWidth - 4) / layout.width, ZOOM_MIN, ZOOM_MAX))
           }}
         >
-          <IconFullscreenOutline16 size={14} />
+          <IconFullscreenOutlineRegular size={14} />
         </button>
         <button
           type="button"
@@ -572,7 +572,7 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             setFollow(current => !current)
           }}
         >
-          <IconChevronDownOutline14 size={14} />
+          <IconChevronDownOutlineRegular size={14} />
         </button>
         <button
           type="button"
@@ -584,7 +584,7 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             else setReplay(current => (current === null ? null : { ...current, playing: !current.playing }))
           }}
         >
-          {replay?.playing === true ? <IconPauseOutline16 size={14} /> : <IconPlayOutline16 size={14} />}
+          {replay?.playing === true ? <IconPauseOutlineRegular size={14} /> : <IconPlayOutlineRegular size={14} />}
         </button>
         <button
           type="button"
@@ -609,7 +609,7 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             title={t('trajStop')}
             onClick={() => { setReplay(null) }}
           >
-            <IconStopFill16 size={12} />
+            <IconStopFillRegular size={12} />
           </button>
         )}
       </div>
@@ -821,7 +821,7 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
               title={t('close')}
               onClick={() => { setSelectedId(null) }}
             >
-              <IconCloseOutline16 size={14} />
+              <IconCloseOutlineRegular size={14} />
             </button>
           </div>
           <div className={css.inspectorMeta}>

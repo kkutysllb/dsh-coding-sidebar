@@ -33,7 +33,19 @@ export declare const SIDE_BOUNDARY_PREFIX = "Side conversation boundary";
 /** The plugin identity stamped on the source of context-injection messages
  *  (boundary prompt + parked snapshot), so the transcript recognizes them
  *  structurally — not by text prefix. */
-export declare const SIDE_INJECTION_PLUGIN = "dsh-coding-sidebar";
+/**
+ * 0.1.7（V4 会话格式）：消息来源的 `kind: 'plugin'` 包装已废除，生产者须
+ * 声明自有 kind（开放词表 = module augmentation）。侧聊边界注入以本 kind
+ * 标记；实际识别走文本前缀（见 {@link boundaryDelivered}），kind 只作
+ * 日志/调试的可读标记。
+ */
+declare module '@deepseek-ai/dsh-llm' {
+    interface MessageSourceMap {
+        'sidechat-injection': {
+            kind: 'sidechat-injection';
+        };
+    }
+}
 /**
  * The boundary prompt delivered as the thread's first user message: the
  * inherited seed is reference context only, never active instruction.

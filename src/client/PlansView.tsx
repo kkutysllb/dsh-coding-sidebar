@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  IconListPenOutline16, IconRefreshOutline16, IconRightUpOutline16, Input,
+  IconListPenOutlineRegular, IconRefreshOutlineRegular, IconRightUpOutlineRegular, Input,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type PlanDoc, type SessionScope } from './api.ts'
 import { relativeTime, t } from './locales.ts'
@@ -114,7 +114,7 @@ export function PlansView(props: PlansViewProps) {
           title={t('refresh')}
           onClick={() => { void load() }}
         >
-          <IconRefreshOutline16 size={14} />
+          <IconRefreshOutlineRegular size={14} />
         </button>
       </div>
 
@@ -143,7 +143,7 @@ export function PlansView(props: PlansViewProps) {
             title={doc.path}
             onClick={() => { onOpenFile(doc.path) }}
           >
-            <span className={css.plansGlyph}><IconListPenOutline16 size={14} /></span>
+            <span className={css.plansGlyph}><IconListPenOutlineRegular size={14} /></span>
             <span className={css.plansText}>
               <span className={css.plansTitle}>{doc.title}</span>
               <span className={css.plansMeta}>{doc.rel} · {when(doc.mtimeMs)}</span>
@@ -156,7 +156,7 @@ export function PlansView(props: PlansViewProps) {
             title={t('plansOpenInApp')}
             onClick={() => { void openInApp(doc) }}
           >
-            <IconRightUpOutline16 size={14} />
+            <IconRightUpOutlineRegular size={14} />
           </button>
         </div>
       ))}

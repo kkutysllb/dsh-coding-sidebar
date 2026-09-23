@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Button, Input, IconRefreshOutline16, IconRightUpOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, IconRefreshOutlineRegular, IconRightUpOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type GhListResult, type GhProbeResult, type SessionScope } from './api.ts'
 import { t } from './locales.ts'
 import css from './sidebar.module.css'
@@ -182,7 +182,7 @@ export function GitHubView(props: GitHubViewProps) {
           disabled={loading}
           onClick={() => { void load() }}
         >
-          <IconRefreshOutline16 size={14} />
+          <IconRefreshOutlineRegular size={14} />
         </button>
       </div>
 
@@ -345,7 +345,7 @@ export function GitHubView(props: GitHubViewProps) {
               disabled={busy || prForm.title.trim() === ''}
               onClick={() => { void createPr() }}
             >
-              <IconRightUpOutline16 size={14} /> {t('ghCreate')}
+              <IconRightUpOutlineRegular size={14} /> {t('ghCreate')}
             </Button>
             <Button variant="outline" onClick={() => { setPrForm(null) }}>{t('cancel')}</Button>
           </div>

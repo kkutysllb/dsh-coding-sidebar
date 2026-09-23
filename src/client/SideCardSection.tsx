@@ -42,8 +42,8 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  IconChevronDownOutline14,
-  IconSettingsOutline16,
+  IconChevronDownOutlineRegular,
+  IconSettingsOutlineRegular,
   Input,
   Menu,
   Modal,
@@ -423,7 +423,7 @@ function SelectMenu(props: {
       <span className={css.selectAnchorText}>
         {selected.length === 0 ? (placeholder ?? '—') : selected.map(option => textOf(option.title)).join(', ')}
       </span>
-      <IconChevronDownOutline14 size={12} />
+      <IconChevronDownOutlineRegular size={12} />
     </button>
   )
 
@@ -842,7 +842,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
             aria-label={`${props.title} ${t('settingsPopup')}`}
             onClick={props.onOpenSettings}
           >
-            <IconSettingsOutline16 size={12} />
+            <IconSettingsOutlineRegular size={12} />
             <span>{t('settingsPopup')}</span>
           </button>
         )}
@@ -961,7 +961,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
                 title={t('settingsPopup')}
                 onClick={() => { setStripSettingsOpen(true) }}
               >
-                <IconSettingsOutline16 size={14} />
+                <IconSettingsOutlineRegular size={14} />
               </button>
             )}
           </span>

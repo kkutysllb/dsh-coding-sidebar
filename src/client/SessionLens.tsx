@@ -6,7 +6,7 @@
  * GitView hosts it as the "session changes" lens of the unified tab.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type SessionScope } from './api.ts'
 import { redactSecrets } from './redact.ts'
 import { t } from './locales.ts'
@@ -65,7 +65,7 @@ export function SessionLens(props: { scope: SessionScope }) {
       <div className={css.sessionLensBar}>
         <span className={css.sessionLensCount}>{ops === null ? t('loading') : t('changesCount', { count: ops.length })}</span>
         <button type="button" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} onClick={() => { void load() }}>
-          <IconRefreshOutline16 size={14} />
+          <IconRefreshOutlineRegular size={14} />
         </button>
       </div>
       {error !== null && <div className={css.sessionLensEmpty}>{error}</div>}

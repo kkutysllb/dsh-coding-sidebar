@@ -15,8 +15,8 @@ import { SessionLens } from './SessionLens.tsx'
 import { GitBranchView } from './GitBranchView.tsx'
 import { GitHubView } from './GitHubView.tsx'
 import {
-  Button, IconBranchOutline16, IconCloseOutline16, IconCodeOutline16, IconCopyOutline16, IconRefreshOutline16,
-  IconRightUpOutline16, IconTrashOutline16, Input, Menu, Modal, writeClipboard,
+  Button, IconBranchOutlineRegular, IconCloseOutlineRegular, IconCodeOutlineRegular, IconCopyOutlineRegular, IconRefreshOutlineRegular,
+  IconRightUpOutlineRegular, IconTrashOutlineRegular, Input, Menu, Modal, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   GhListResult, GitLogEntry, GitStatusEntry, GitStatusResult, GitSummary, GitWorktree, SessionScope,
@@ -521,7 +521,7 @@ export function GitView(props: {
           disabled={busy}
           onClick={() => { void stageEntry(entry, staged) }}
         >
-          {staged ? <IconTrashOutline16 /> : <IconBranchOutline16 />}
+          {staged ? <IconTrashOutlineRegular /> : <IconBranchOutlineRegular />}
         </button>
       </div>
     )
@@ -552,7 +552,7 @@ export function GitView(props: {
             title={t('close')}
             onClick={() => { setCommitError(null) }}
           >
-            <IconCloseOutline16 size={14} />
+            <IconCloseOutlineRegular size={14} />
           </button>
         </div>
       )}
@@ -641,7 +641,7 @@ export function GitView(props: {
           title={t('refresh')}
           onClick={() => { void refresh() }}
         >
-          <IconRefreshOutline16 size={14} />
+          <IconRefreshOutlineRegular size={14} />
         </button>
       </div>
 
@@ -718,7 +718,7 @@ export function GitView(props: {
               title={t('gitCommitPush')}
               onClick={() => { void commit(true) }}
             >
-              <IconRightUpOutline16 size={13} /> {t('gitCommitPush')}
+              <IconRightUpOutlineRegular size={13} /> {t('gitCommitPush')}
             </button>
             <button
               type="button"
@@ -786,17 +786,17 @@ export function GitView(props: {
               // every path under it. Hide the action for that checkout so
               // the menu does not offer a no-op that confuses the user.
               ...(fileMenu !== null && isWithinWorkspace(scope.cwd ?? '', resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, fileMenu.entry.path))
-                ? [{ id: 'open', label: t('openEditor'), icon: <IconCodeOutline16 size={14} /> }]
+                ? [{ id: 'open', label: t('openEditor'), icon: <IconCodeOutlineRegular size={14} /> }]
                 : []),
               fileMenu?.staged === true
-                ? { id: 'stage', label: t('unstage'), icon: <IconTrashOutline16 size={14} /> }
-                : { id: 'stage', label: t('stage'), icon: <IconBranchOutline16 size={14} /> },
+                ? { id: 'stage', label: t('unstage'), icon: <IconTrashOutlineRegular size={14} /> }
+                : { id: 'stage', label: t('stage'), icon: <IconBranchOutlineRegular size={14} /> },
               ...(fileMenu !== null && !isUntracked(fileMenu.entry)
-                ? [{ id: 'discard', label: t('discard'), icon: <IconTrashOutline16 size={14} />, danger: true }]
+                ? [{ id: 'discard', label: t('discard'), icon: <IconTrashOutlineRegular size={14} />, danger: true }]
                 : []),
               { type: 'separator', id: 'sep1' },
-              { id: 'relative', label: t('copyRelative'), icon: <IconCopyOutline16 size={14} /> },
-              { id: 'absolute', label: t('copyAbsolute'), icon: <IconCopyOutline16 size={14} /> },
+              { id: 'relative', label: t('copyRelative'), icon: <IconCopyOutlineRegular size={14} /> },
+              { id: 'absolute', label: t('copyAbsolute'), icon: <IconCopyOutlineRegular size={14} /> },
             ]}
             onSelect={(id) => {
               const target = fileMenu
@@ -843,9 +843,9 @@ export function GitView(props: {
             onClose={() => { setHistoryMenu(null) }}
             items={[
               { id: 'view', label: t('viewCommitDiff') },
-              { id: 'copyShort', label: t('copyShortHash'), icon: <IconCopyOutline16 size={14} /> },
-              { id: 'copyFull', label: t('copyFullHash'), icon: <IconCopyOutline16 size={14} /> },
-              { id: 'copySubject', label: t('copySubject'), icon: <IconCopyOutline16 size={14} /> },
+              { id: 'copyShort', label: t('copyShortHash'), icon: <IconCopyOutlineRegular size={14} /> },
+              { id: 'copyFull', label: t('copyFullHash'), icon: <IconCopyOutlineRegular size={14} /> },
+              { id: 'copySubject', label: t('copySubject'), icon: <IconCopyOutlineRegular size={14} /> },
               { type: 'separator', id: 'sep2' },
               { id: 'revert', label: t('revertCommit'), danger: true },
               { id: 'cherryPick', label: t('cherryPickCommit'), danger: true },

@@ -200,7 +200,9 @@ export function buildJobsApi(ctx: Context, outputLimit: number): SidebarJobsRout
   const agents = ctx.get('agents')
   const mirror = createJobOutputMirror(ctx)
   /** The live caller whose session id the registry fence compares against. */
-  const callerOf = (sessionId: string) => agents?.get(sessionId)
+  // 0.1.7：注册表的归属栅栏改收 SessionId（旧版收 Agent 对象）——传 Agent
+  // 会被判为外来调用方，kill 一律 404。
+  const callerOf = (sessionId: string): string => sessionId
   /** Registry refusals become a 404 job-error; unknown and foreign ids are indistinguishable. */
   const registryError = (error: unknown): SidebarError =>
     new SidebarError('job-error', error instanceof Error ? error.message : String(error), 404)

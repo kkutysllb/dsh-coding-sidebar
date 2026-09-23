@@ -24,8 +24,8 @@ import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEve
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
-  IconChevronRightOutline14, IconCodeOutline16, IconCopyOutline16, IconDownloadOutline16,
-  IconLinkOutline16, Menu, type MenuEntry, type MenuItem, Modal, Button, writeClipboard,
+  IconChevronRightOutlineRegular, IconCodeOutlineRegular, IconCopyOutlineRegular, IconDownloadOutlineRegular,
+  IconLinkOutlineRegular, Menu, type MenuEntry, type MenuItem, Modal, Button, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { SiCursor, SiZedindustries } from 'react-icons/si'
 import { VscFolderOpened, VscLinkExternal, VscPin, VscPinned } from 'react-icons/vsc'
@@ -473,7 +473,7 @@ export function FileTree(props: {
       if (target.id === 'vscode') return <IconVscode16 size={16} />
       if (target.id === 'cursor') return <SiCursor size={16} />
       if (target.id === 'zed') return <SiZedindustries size={16} />
-      return <IconCodeOutline16 size={16} />
+      return <IconCodeOutlineRegular size={16} />
     }
     const pinned = openWithTargets
       .filter(target => pinnedIds.includes(target.id))
@@ -524,7 +524,7 @@ export function FileTree(props: {
         label: (
           <span className={css.openWithLabel}>
             <span className={css.openWithName}>{t('openWithMenu')}</span>
-            <IconChevronRightOutline14 size={14} className={css.openWithChevron} aria-hidden />
+            <IconChevronRightOutlineRegular size={14} className={css.openWithChevron} aria-hidden />
           </span>
         ),
         icon: <VscLinkExternal size={16} />,
@@ -578,7 +578,7 @@ export function FileTree(props: {
               {renaming?.path === entry.path
                 ? renderRenameInput(entry.path)
                 : <span className={css.explorerName}>{entry.name}</span>}
-              {entry.isSymlink && <IconLinkOutline16 size={12} className={css.explorerSymlink} />}
+              {entry.isSymlink && <IconLinkOutlineRegular size={12} className={css.explorerSymlink} />}
               {rowActions(entry)}
             </div>
             {isOpen && renderLevel(entry.path, depth + 1)}
@@ -613,7 +613,7 @@ export function FileTree(props: {
           {renaming?.path === entry.path
             ? renderRenameInput(entry.path)
             : <span className={css.explorerName}>{entry.name}</span>}
-          {entry.isSymlink && <IconLinkOutline16 size={12} className={css.explorerSymlink} />}
+          {entry.isSymlink && <IconLinkOutlineRegular size={12} className={css.explorerSymlink} />}
           {rowActions(entry)}
         </div>
       )
@@ -746,7 +746,7 @@ export function FileTree(props: {
         items={[
           // The open escapes head the FILE menu (dirs only get copy).
           ...(rowMenu?.isDir === false && onOpenFileNewTab !== undefined
-            ? [{ id: 'open-new-tab', label: t('openFileNewTab'), icon: <IconCodeOutline16 size={16} /> }]
+            ? [{ id: 'open-new-tab', label: t('openFileNewTab'), icon: <IconCodeOutlineRegular size={16} /> }]
             : []),
           ...(rowMenu?.isDir === false && onOpenFileSide !== undefined
             ? [{ id: 'open-side', label: t('openFileSide'), icon: <VscFolderOpened size={16} /> }]
@@ -754,14 +754,14 @@ export function FileTree(props: {
           ...openWithEntries(),
           // Download applies to files only (the host route refuses directories).
           ...(rowMenu?.isDir === false
-            ? [{ id: 'download', label: t('download'), icon: <IconDownloadOutline16 size={16} /> }]
+            ? [{ id: 'download', label: t('download'), icon: <IconDownloadOutlineRegular size={16} /> }]
             : []),
           // Upload into a directory (incl. the workspace root row).
           ...(rowMenu?.isDir === true
             ? [{ id: 'upload-here', label: t('uploadHere'), icon: <IconUploadOutline16 size={16} /> }]
             : []),
-          { id: 'relative', label: t('copyRelative'), icon: <IconCopyOutline16 size={16} /> },
-          { id: 'absolute', label: t('copyAbsolute'), icon: <IconCopyOutline16 size={16} /> },
+          { id: 'relative', label: t('copyRelative'), icon: <IconCopyOutlineRegular size={16} /> },
+          { id: 'absolute', label: t('copyAbsolute'), icon: <IconCopyOutlineRegular size={16} /> },
           // Tree mutations (the workspace root row never offers them; the
           // server refuses too). Absent callbacks keep the entries hidden.
           ...((onPathRenamed !== undefined && rowMenu !== null && rowMenu.path !== root)
