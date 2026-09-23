@@ -1,10 +1,13 @@
 /**
  * Pure derivations for the Subagent page's background-job section. Kept
  * framework-free so the node test environment can unit-test them: the job
- * rows arrive through the harness `session/jobs` push mirror
- * (`jobsBySession` in the sessions list feed) — nothing here issues
- * requests, and the row ordering / status mapping mirror the official
- * ui-jobs header list.
+ * rows arrive from the client **jobs service** roster (`ctx.jobs.state`,
+ * watched per Session by ./use-jobs-row.ts) — nothing here issues requests,
+ * and the row ordering / status mapping mirror the official ui-jobs header
+ * list.
+ *
+ * 0.1.7 replaced the old `jobsBySession` list mirror with that service; the
+ * row shape is unchanged, so only the SOURCE moved.
  */
 import type {
   SidebarSessionList,
@@ -13,6 +16,9 @@ import type {
   SidebarJobView,
 } from '../context-types.ts'
 import type { CopyKey } from './locales.ts'
+
+/** One Session's job rows, as the jobs service snapshot keys them. */
+export type JobsRows = Readonly<Record<string, readonly SidebarJobView[]>>
 
 /** One row of the jobs section: the job plus its owning session's title. */
 export interface TreeJob {
@@ -59,35 +65,35 @@ export function treeSessionIds(
 
 /**
  * Whether a NEW background job appeared for one session between two
- * consecutive list snapshots (a job id the previous snapshot lacked).
+ * consecutive job rosters (a job id the previous roster lacked).
  * Unlike the subagent auto-open (0 → N only), ANY new job id triggers: the
  * agent may start several jobs over a session, and each new one should
  * surface the Jobs page (a fresh page load never triggers — its baseline
- * starts at the current snapshot).
+ * starts at the current roster).
  */
 export function detectNewJob(
-  prev: SidebarSessionList,
-  next: SidebarSessionList,
+  prev: JobsRows | undefined,
+  next: JobsRows | undefined,
   sessionId: string,
 ): boolean {
-  const prevIds = new Set((prev.jobsBySession?.[sessionId] ?? []).map(job => job.id))
-  return (next.jobsBySession?.[sessionId] ?? []).some(job => !prevIds.has(job.id))
+  const prevIds = new Set((prev?.[sessionId] ?? []).map(job => job.id))
+  return (next?.[sessionId] ?? []).some(job => !prevIds.has(job.id))
 }
 
 /**
  * Collect the background jobs of the whole current tree, owner-labeled.
- * Sessions without a mirror entry contribute nothing; an absent mirror
- * (runtime older than the jobs feed) yields an empty list.
+ * Sessions without a roster entry contribute nothing; an absent roster
+ * (runtime without the jobs service) yields an empty list.
  */
 export function collectTreeJobs(
   byId: SidebarSessionList['byId'],
-  jobsBySession: Readonly<Record<string, readonly SidebarJobView[]>> | undefined,
+  jobsRows: JobsRows | undefined,
   rootId: string | undefined,
 ): TreeJob[] {
   const rows: TreeJob[] = []
-  if (jobsBySession === undefined) return rows
+  if (jobsRows === undefined) return rows
   for (const sessionId of treeSessionIds(byId, rootId)) {
-    const jobs = jobsBySession[sessionId]
+    const jobs = jobsRows[sessionId]
     if (jobs === undefined || jobs.length === 0) continue
     const ownerTitle = byId[sessionId]?.displayTitle ?? sessionId
     for (const job of jobs) rows.push({ ownerSessionId: sessionId, ownerTitle, job })

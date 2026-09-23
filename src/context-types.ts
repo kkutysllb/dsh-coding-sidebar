@@ -358,14 +358,54 @@ export interface SidebarConnectionHandle {
 export interface SidebarSessionList {
   current: string | undefined
   byId: Record<string, SidebarSessionSummary>
-  /** Direct durable catalogs keyed by their selected parent address. */
-  subagentsByParent?: Readonly<Record<string, SidebarSubagentCatalog>>
   /**
-   * Background jobs per session, last-wins from the harness's `session/jobs`
-   * push (a missing key is an empty set). Absent on runtime snapshots older
-   * than the jobs mirror — the sidebar simply shows no job rows.
+   * Per-Session projection values plus the explicit-read state that owns them.
+   * The subagent catalog lives HERE, not in a dedicated list field: 0.1.7
+   * removed both `subagentsByParent` and the job mirror `jobsBySession` from
+   * this snapshot (verified: 0 occurrences in the 0.1.7-alpha.1..rc.1 runtime
+   * artifacts). Absent on a runtime older than the projection store — the
+   * sidebar then keeps showing the summary-backed loading rows, as before.
    */
-  jobsBySession?: Readonly<Record<string, readonly SidebarJobView[]>>
+  projectionsBySession?: Readonly<Record<string, SidebarSessionProjection>>
+}
+
+/**
+ * One direct-child row of a parent's durable subagent catalog, exactly as the
+ * `subagentCatalog` projection value carries it (declared by
+ * `packages/subagent/subagent` on `SessionProjectionMap`).
+ */
+export interface SidebarSubagentCatalogRow {
+  id: string
+  /** Child creation time; display order is the catalog's own event order. */
+  createdAt?: number
+  mode: 'one-shot' | 'continuable' | 'unknown'
+  label?: string
+}
+
+/** One Session's projection values and the read state that produced them. */
+export interface SidebarSessionProjection {
+  /** `idle` means "never read": an absent `subagentCatalog` under it still loads. */
+  state: 'idle' | 'loading' | 'ready' | 'error'
+  error?: { code?: string; message?: string } | null
+  values?: {
+    /** Direct children in catalog event order; absent until the projection lands. */
+    subagentCatalog?: readonly SidebarSubagentCatalogRow[]
+  }
+}
+
+/**
+ * The client jobs service face (`ctx.jobs`, the api-job-controller client
+ * half). It replaced the `jobsBySession` list mirror in 0.1.7: rows are
+ * observed per Session through {@link watchRows} and read off one shared
+ * snapshot, so a session nobody watches simply has no key.
+ */
+export interface SidebarJobsService {
+  readonly state: {
+    getSnapshot(): { rows: Readonly<Record<string, readonly SidebarJobView[]>> }
+    subscribe(listener: () => void): () => void
+  }
+  /** Start (or join) one Session's row roster; returns the release. */
+  watchRows?(sessionId: string): () => void
 }
 
 /** The client sessions service face (only the list feed is needed). */
@@ -418,13 +458,13 @@ export interface SidebarSessionsService {
    */
   subagentAddress?(id: string): SidebarSubagentAddress | undefined
   /**
-   * Mark whether a catalog surface is consuming live membership updates.
+   * Load one Session's projections once per connection (retry an unsuccessful
+   * initial read). This REPLACED the 0.1.6-era `setSubagentCatalogOpen` /
+   * `refreshSubagents` pair in 0.1.7 — the catalog is now a standard per-Session
+   * projection, so a branch we have not opened yet asks for it here, and there
+   * is no "unobserve" counterpart to call on release.
    */
-  setSubagentCatalogOpen?(parentSessionId: string, open: boolean): void
-  /**
-   * Refresh one direct-child catalog.
-   */
-  refreshSubagents?(parentSessionId: string): Promise<void>
+  refreshProjections?(sessionId: string): Promise<void>
 }
 
 /**

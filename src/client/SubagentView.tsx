@@ -43,13 +43,14 @@ import type {
   SidebarJobView,
 } from '../context-types.ts'
 import {
-  collectBranchIds,
   countSubagentDescendants,
   isSideThreadSummary,
   rootAncestor,
 } from './subagent-detect.ts'
 import { type LastActivity } from '../subagent-activity.ts'
 import { SIDE_LABEL_PREFIX } from '../sidechat-core.ts'
+import { deriveCatalogs } from './subagent-catalogs.ts'
+import { useJobsRows } from './use-jobs-rows.ts'
 import {
   collectTreeJobs,
   formatJobDuration,
@@ -57,6 +58,8 @@ import {
   orderJobs,
   jobDotState,
   jobStatusLabel,
+  treeSessionIds,
+  type JobsRows,
   type TreeJob,
 } from './subagent-jobs.ts'
 import { api, type JobOutputResult } from './api.ts'
@@ -503,8 +506,9 @@ function JobOutputPane(props: {
 
 /**
  * The background-job section of the Subagent page: every job of the whole
- * current tree (main agent + subagents, owner-labeled), fed by the harness
- * `session/jobs` push mirror. When more than {@link JOBS_VISIBLE} jobs
+ * current tree (main agent + subagents, owner-labeled), fed by the client
+ * jobs-service roster (0.1.7 replaced the old `session/jobs` push mirror;
+ * see ./use-jobs-rows.ts). When more than {@link JOBS_VISIBLE} jobs
  * exist, only the head of the standard order (live rows, then newest
  * settled) stays visible — earlier rows collapse behind a history toggle.
  * Clicking a row feeds its model-read output to the shared bottom dock
@@ -513,15 +517,15 @@ function JobOutputPane(props: {
  */
 function JobsSection(props: {
   byId: SidebarSessionList['byId']
-  jobsBySession: SidebarSessionList['jobsBySession']
+  jobsRows: JobsRows | undefined
   rootId: string | undefined
   /** The page is visible (active tab + open panel): skip polling otherwise. */
   active: boolean
 }) {
-  const { byId, jobsBySession, rootId, active } = props
+  const { byId, jobsRows, rootId, active } = props
   const rows = useMemo(
-    () => orderJobs(collectTreeJobs(byId, jobsBySession, rootId)),
-    [byId, jobsBySession, rootId],
+    () => orderJobs(collectTreeJobs(byId, jobsRows, rootId)),
+    [byId, jobsRows, rootId],
   )
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -705,15 +709,21 @@ export function SubagentView(props: {
   const { sessionId, active, ctx, onOpenChild } = props
   const sessions = ctx.sessions
 
-  // The same list feed the official catalog consumes (byId lineage + the
-  // lazy per-parent catalogs). Older DSH snapshots without the subagent seam
-  // simply leave these surfaces empty — the page degrades to the empty state.
+  // The list feed carries the summaries AND the per-Session projection store
+  // the catalog now lives in. 0.1.7 moved the catalog out of a dedicated list
+  // field (`subagentsByParent`, gone) into `projectionsBySession[parentId]
+  // .values.subagentCatalog`; ./subagent-catalogs.ts rebuilds the shape this
+  // page consumes. Older runtimes without the projection store degrade to the
+  // summary-backed loading rows, as before.
   const list = useSyncExternalStore(
     useMemo(() => (callback: () => void) => sessions.list.subscribe(callback), [sessions]),
     useCallback(() => sessions.list.getSnapshot(), [sessions]),
   )
   const byId = list.byId
-  const catalogs = list.subagentsByParent ?? {}
+  const catalogs = useMemo(
+    () => deriveCatalogs(list.projectionsBySession, byId),
+    [list.projectionsBySession, byId],
+  )
 
   // The topology root: the main agent of the current session's tree.
   const rootId = useMemo(() => rootAncestor(byId, sessionId), [byId, sessionId])
@@ -721,47 +731,35 @@ export function SubagentView(props: {
   const rootSummary = rootId === undefined ? undefined : byId[rootId]
   const live = useSubagentLive(rootId, active)
 
-  /** Catalog owners currently consuming live membership updates. */
-  const observedRef = useRef(new Set<string>())
+  // Every Session of the tree needs its own projection read: the OPEN session's
+  // catalog arrives with its follow baseline, but an unopened branch must be
+  // asked for explicitly. 0.1.7 removed the 0.1.6 observe/unobserve pair
+  // (`setSubagentCatalogOpen`); its replacement is a one-shot load per
+  // connection with no release counterpart, so only the request set survives.
+  const treeIds = useMemo(() => [...treeSessionIds(byId, rootId)], [byId, rootId])
+  const jobsRows = useJobsRows(ctx, treeIds)
+  const refreshProjections = sessions.refreshProjections
+  /** Branches already asked for on this tree activation (a failed read retries). */
+  const requestedRef = useRef(new Set<string>())
 
-  const observe = useCallback((parentSessionId: string, open: boolean): void => {
-    sessions.setSubagentCatalogOpen?.(parentSessionId, open)
-    if (open) observedRef.current.add(parentSessionId)
-    else observedRef.current.delete(parentSessionId)
-  }, [sessions])
-
-  // While the page is visible the topology root consumes live membership; a
-  // root change (switching to another main agent's tree) or the page hiding
-  // (tab switched away / panel collapsed) releases everything observed.
+  // A different tree (or the page becoming visible) restarts the request set.
   useEffect(() => {
     if (rootId === undefined || !active) return
-    observe(rootId, true)
-    return () => {
-      for (const parentSessionId of observedRef.current) {
-        sessions.setSubagentCatalogOpen?.(parentSessionId, false)
-      }
-      observedRef.current.clear()
-    }
-  }, [rootId, active, observe, sessions])
+    requestedRef.current.clear()
+    return () => { requestedRef.current.clear() }
+  }, [rootId, active])
 
-  // Every branch of the always-expanded topology consumes live membership
-  // (add-only: a branch stays observed until the root changes or the page
-  // hides, which releases the whole set via the root effect's cleanup).
-  const branches = useMemo(() => collectBranchIds(catalogs, rootId), [catalogs, rootId])
   useEffect(() => {
-    if (!active) return
-    for (const id of branches) {
-      if (!observedRef.current.has(id)) observe(id, true)
+    if (!active || refreshProjections === undefined) return
+    for (const id of treeIds) {
+      if (requestedRef.current.has(id)) continue
+      requestedRef.current.add(id)
+      // A failed read stays retryable: drop it from the set so a later pass
+      // (new snapshot, page re-open) asks again — the host also retries an
+      // unsuccessful initial read on its own.
+      void refreshProjections.call(sessions, id).catch(() => { requestedRef.current.delete(id) })
     }
-  }, [branches, active, observe])
-
-  // Unobserve everything on unmount (the host stops refreshing unused catalogs).
-  useEffect(() => () => {
-    for (const parentSessionId of observedRef.current) {
-      sessions.setSubagentCatalogOpen?.(parentSessionId, false)
-    }
-    observedRef.current.clear()
-  }, [sessions])
+  }, [active, treeIds, refreshProjections, sessions])
 
   const openChild = useCallback((address: SidebarSubagentAddress): void => {
     // Notify the shell first: the jump switches the sidebar to the child
@@ -788,7 +786,9 @@ export function SubagentView(props: {
   }, [ctx, sessions, rootId])
 
   const refresh = useCallback((parentSessionId: string): void => {
-    void sessions.refreshSubagents?.(parentSessionId)
+    // The per-row retry: 0.1.7 replaced `refreshSubagents` with the generic
+    // projection read (same intent — re-read one parent's catalog).
+    void sessions.refreshProjections?.(parentSessionId)
   }, [sessions])
 
   const totals = useMemo(
@@ -931,7 +931,7 @@ export function SubagentView(props: {
         </div>
         <JobsSection
           byId={byId}
-          jobsBySession={list.jobsBySession}
+          jobsRows={jobsRows}
           rootId={rootId}
           active={active}
         />

@@ -229,10 +229,13 @@ export function TeamView(props: TabComponentProps): ReactNode {
 
   const openTeammate = useCallback((member: TeamMemberView): void => {
     if (!isTeamMemberOpenable(member)) return
+    // 0.1.7 replaced `refreshSubagents` with the generic per-Session projection
+    // read; keep the member roster fresh before navigating (a stale roster must
+    // not block the jump either way).
     const sessions = (ctx as unknown as {
-      sessions?: { refreshSubagents?: (id: string) => Promise<unknown> | unknown }
+      sessions?: { refreshProjections?: (id: string) => Promise<unknown> | unknown }
     }).sessions
-    try { void sessions?.refreshSubagents?.(leadId) } catch { /* 名册过期不影响打开 */ }
+    try { void sessions?.refreshProjections?.(leadId) } catch { /* 名册过期不影响打开 */ }
     // uiWorkspace.openSession 探针与 0.1.5 回退都收口在 workspace-nav。
     try {
       openViaUiWorkspace(ctx, { parentSessionId: leadId, childSessionId: member.id, mode: 'continuable' })

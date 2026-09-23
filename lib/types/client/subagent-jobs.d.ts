@@ -1,13 +1,18 @@
 /**
  * Pure derivations for the Subagent page's background-job section. Kept
  * framework-free so the node test environment can unit-test them: the job
- * rows arrive through the harness `session/jobs` push mirror
- * (`jobsBySession` in the sessions list feed) — nothing here issues
- * requests, and the row ordering / status mapping mirror the official
- * ui-jobs header list.
+ * rows arrive from the client **jobs service** roster (`ctx.jobs.state`,
+ * watched per Session by ./use-jobs-row.ts) — nothing here issues requests,
+ * and the row ordering / status mapping mirror the official ui-jobs header
+ * list.
+ *
+ * 0.1.7 replaced the old `jobsBySession` list mirror with that service; the
+ * row shape is unchanged, so only the SOURCE moved.
  */
 import type { SidebarSessionList, SidebarJobStatus, SidebarJobView } from '../context-types.ts';
 import type { CopyKey } from './locales.ts';
+/** One Session's job rows, as the jobs service snapshot keys them. */
+export type JobsRows = Readonly<Record<string, readonly SidebarJobView[]>>;
 /** One row of the jobs section: the job plus its owning session's title. */
 export interface TreeJob {
     ownerSessionId: string;
@@ -26,19 +31,19 @@ export declare function isJobLive(job: SidebarJobView): boolean;
 export declare function treeSessionIds(byId: SidebarSessionList['byId'], rootId: string | undefined): Set<string>;
 /**
  * Whether a NEW background job appeared for one session between two
- * consecutive list snapshots (a job id the previous snapshot lacked).
+ * consecutive job rosters (a job id the previous roster lacked).
  * Unlike the subagent auto-open (0 → N only), ANY new job id triggers: the
  * agent may start several jobs over a session, and each new one should
  * surface the Jobs page (a fresh page load never triggers — its baseline
- * starts at the current snapshot).
+ * starts at the current roster).
  */
-export declare function detectNewJob(prev: SidebarSessionList, next: SidebarSessionList, sessionId: string): boolean;
+export declare function detectNewJob(prev: JobsRows | undefined, next: JobsRows | undefined, sessionId: string): boolean;
 /**
  * Collect the background jobs of the whole current tree, owner-labeled.
- * Sessions without a mirror entry contribute nothing; an absent mirror
- * (runtime older than the jobs feed) yields an empty list.
+ * Sessions without a roster entry contribute nothing; an absent roster
+ * (runtime without the jobs service) yields an empty list.
  */
-export declare function collectTreeJobs(byId: SidebarSessionList['byId'], jobsBySession: Readonly<Record<string, readonly SidebarJobView[]>> | undefined, rootId: string | undefined): TreeJob[];
+export declare function collectTreeJobs(byId: SidebarSessionList['byId'], jobsRows: JobsRows | undefined, rootId: string | undefined): TreeJob[];
 /**
  * Live rows first in start order, then settled rows newest-first (mirror of
  * the official ui-jobs ordering); a tie falls back to start order so the

@@ -1,8 +1,10 @@
 /**
  * Background-job routes of the /sidebar JSON API ('jobs.output' /
- * 'jobs.kill'). The job LIST needs no route: it arrives through the
- * harness's `session/jobs` push mirror (`jobsBySession` in the sessions
- * list feed). The routes:
+ * 'jobs.kill'). The job LIST needs no route: the client reads it from the
+ * harness's `jobs` client service roster (the api-job-controller client half,
+ * watched per Session by ./client/use-jobs-rows.ts). That service replaced the
+ * 0.1.6-era `session/jobs` push mirror (`jobsBySession` in the sessions list
+ * feed) in 0.1.7. The routes:
  *
  * - 'jobs.output' — REPLAYS the output the MODEL has read so far for one
  *   job. The source is the owner session's own event log: `tool/call` rows

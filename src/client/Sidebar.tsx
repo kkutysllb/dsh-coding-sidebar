@@ -53,7 +53,8 @@ import { OrphanedTab } from './OrphanedTab.tsx'
 import { RenderBoundary } from './RenderBoundary.tsx'
 import { tabContentCompare, type TabContentMemoKey } from './tab-content-memo.ts'
 import { detectNewDirectSubagent } from './subagent-detect.ts'
-import { detectNewJob } from './subagent-jobs.ts'
+import { detectNewJob, type JobsRows } from './subagent-jobs.ts'
+import { useJobsRows } from './use-jobs-rows.ts'
 import { t } from './locales.ts'
 import { api, type SessionScope } from './api.ts'
 import css from './sidebar.module.css'
@@ -574,14 +575,25 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
    * activity never forces the narrow full-screen drawer open. Unlike the
    * subagent trigger (0 → N only), ANY new job id triggers: the agent may
    * start several jobs in one session, and each should surface. A fresh page
-   * load never triggers — its baseline starts at the current snapshot.
+   * load never triggers — its baseline starts at the current roster.
+   *
+   * The baseline holds the JOB ROSTER, not the session list: 0.1.7 moved job
+   * rows from the list snapshot (`jobsBySession`, removed) to the client jobs
+   * service, so diffing list snapshots can no longer see a job appear.
    */
-  const jobBaselineRef = useRef<SidebarSessionList | undefined>(undefined)
+  // The current conversation's job roster. 0.1.7 removed the list-snapshot job
+  // mirror (`jobsBySession`) in favour of the client jobs service, which serves
+  // rows only for watched Sessions — so the sidebar watches its own session.
+  const jobsRows = useJobsRows(ctx, useMemo(
+    () => (sessionId === undefined ? [] : [sessionId]),
+    [sessionId],
+  ))
+  const jobBaselineRef = useRef<JobsRows | undefined>(undefined)
   useEffect(() => {
     const prev = jobBaselineRef.current
-    jobBaselineRef.current = sessionList
-    if (sessionId === undefined || prev === undefined) return
-    if (!detectNewJob(prev, sessionList, sessionId)) return
+    jobBaselineRef.current = jobsRows
+    if (sessionId === undefined || prev === undefined || jobsRows === undefined) return
+    if (!detectNewJob(prev, jobsRows, sessionId)) return
     if (!store.getPrefs().autoOpenJobs) return
     if (ctx.get('betterSidebar')?.isTabEnabled('subagent') === false) return
     if (!isNarrowWidth(window.innerWidth)) {
@@ -589,7 +601,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     }
     store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
     ctx.get('betterSidebar')?.openTab({ type: 'subagent', title: t('subagent') })
-  }, [sessionList, sessionId, store, ctx])
+  }, [jobsRows, sessionId, store, ctx])
 
   /**
    * Topology jump-back: clicking a subagent node on the Subagent page calls
