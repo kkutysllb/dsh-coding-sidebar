@@ -545,6 +545,24 @@ export declare const zh: {
     plansOpenInApp: string;
     plansOpenFailed: string;
     plansCapped: string;
+    schedPreviewTitle: string;
+    schedPreviewClose: string;
+    schedNext: string;
+    schedCadence: string;
+    schedPrompt: string;
+    schedEverySeconds: string;
+    schedEveryMinutes: string;
+    schedEveryHours: string;
+    schedKindAt: string;
+    schedKindAfter: string;
+    schedKindEvery: string;
+    schedKindDaily: string;
+    schedKindWeekly: string;
+    schedKindCron: string;
+    schedKindLegacy: string;
+    schedUnavailable: string;
+    schedGone: string;
+    schedLoadFailed: string;
 };
 /** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 export declare const en: Record<keyof typeof zh, string>;
