@@ -11,6 +11,12 @@
  *    缺少该面的载具上**整体不挂载**。⇒ 点分路径必须整体出现在 inject 清单里，
  *    否则只能走 `ctx.get('remote')` 或 `ctx.inject(['remote.<面>'], cb)`。
  *
+ * ③ **展开判据本身不得退化**：`service.ts` 里 `openTab` 的「内容型」条件必须同时认
+ *    `path` / `url` / `meta`（静态钉住形状）。为什么要这一条：行为级的抽取需要改
+ *    `lib/**`（运行时面）⇒ 按版本线规则就得 bump 版本、发布、平移声明、再发一次桌面版，
+ *    为一个「行为不变的可测性重构」不成比例。所以先钉形状（抓的正是 v0.6.17 那个回归：
+ *    `meta` 不在判据里），真行为测试并进下一次本来就要 bump 的版本。
+ *
  * ② **`openTab` 要「点了能看见」就必须带 `meta`**：引擎的展开判据只认
  *    `path` / `url` / `meta` 为「内容型」并自动展开面板；纯 `type` 的 open 是
  *    **静默落位**——面板收起时用户在界面上看不到任何变化（v0.6.17 现场：
@@ -34,6 +40,10 @@ const ENTRY = join(SRC, 'client', 'index.tsx')
 const MARKER = 'open-tab:type-only'
 /** 内容型 seed 字段：任一出现即「打开必须落在可见处」。 */
 const CONTENT_KEYS = new Set(['path', 'url', 'meta'])
+/** 展开判据必须同时认的 seed 字段（形状断言，见头部 ③）。 */
+const PREDICATE_KEYS = ['path', 'url', 'meta']
+/** 判据所在的模块（openTab 的实现处）。 */
+const SERVICE = join(SRC, 'client', 'service.ts')
 
 function walk(dir) {
   const out = []
@@ -156,6 +166,51 @@ for (const path of walk(SRC)) {
     ts.forEachChild(node, visit)
   }
   visit(file)
+}
+
+// ── ③ 展开判据的形状（静态钉住 `service.ts` 里 openTab 的「内容型」条件）──────────
+function predicateKeysIn(file, text) {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
+  let best = new Set()
+  const visit = (node) => {
+    if (ts.isIfStatement(node)) {
+      const found = new Set()
+      const scan = (child) => {
+        // 形如 `x.path !== undefined` / `x.url === undefined`
+        if (
+          ts.isBinaryExpression(child)
+          && (child.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken
+            || child.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken)
+        ) {
+          const sides = [child.left, child.right]
+          const isUndef = sides.some(s => s.kind === ts.SyntaxKind.Identifier && s.text === 'undefined')
+          const prop = sides.find(s => ts.isPropertyAccessExpression(s))
+          if (isUndef && prop !== undefined && PREDICATE_KEYS.includes(prop.name.text)) found.add(prop.name.text)
+        }
+        ts.forEachChild(child, scan)
+      }
+      scan(node.expression)
+      if (found.size > best.size) best = found
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return best
+}
+
+const serviceText = readFileSync(SERVICE, 'utf8')
+const predicateKeys = predicateKeysIn(SERVICE, serviceText)
+const missing = PREDICATE_KEYS.filter(k => !predicateKeys.has(k))
+if (missing.length > 0) {
+  violations.push(
+    `[③展开判据] src/client/service.ts —— openTab 的「内容型」条件里缺 ${missing.map(k => `\`${k}\``).join('、')}`
+    + `（当前只认 ${[...predicateKeys].join('/') || '空'}）。\n`
+    + `    该条件的语义：seed 带 path/url/meta 之一即「调用方把要显示的东西交出来了」⇒ 面板收起时必须展开。\n`
+    + `    现场（v0.6.17）：\`meta\` 不在判据里 ⇒ 引擎的定时任务导航开在收起的面板里，点「打开」像是没反应。\n`
+    + `    处置：把缺的字段加回该条件；若确实要改语义，先改 docs/plugin-dev-checklist.md §3 并说明理由。`,
+  )
+} else {
+  console.log(`[plugin-contract] 展开判据含 ${[...predicateKeys].join(" / ")} ✓（形状未退化）`)
 }
 
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
