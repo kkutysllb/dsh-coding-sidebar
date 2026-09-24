@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          # 本仓 package.json 没有 packageManager 字段，必须显式给版本；
+          # 用与本地/锁文件同大版本（本机 pnpm v11.x），否则 --frozen-lockfile 会因锁文件版本不符而失败。
+          version: 11
       - uses: actions/setup-node@v4
         with:
           node-version: 20
