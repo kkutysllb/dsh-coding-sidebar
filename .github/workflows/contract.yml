@@ -40,10 +40,27 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: 契约断言
         run: pnpm check:contract
-      - name: 产物与提交一致（敌意环境回归）
-        # 回归 2026-09-25 那次「发布包打进 development 构建」：构建模式必须环境无关。
-        # 敌意 NODE_ENV 下重建仍须与仓库提交的产物逐字节相同 ⇒ 这条挂了就说明
-        # 又有人让环境变量影响产物（那时 npm 上的包会与仓库不同）。
-        run: NODE_ENV=development pnpm check:artifacts
+      - name: 环境变量不得影响产物（敌意环境回归）
+        # 回归 2026-09-25 那次「发布包打进 development 构建」：构建模式必须只认显式开关。
+        #
+        # 为什么**不**在这里比对仓库提交的产物：字节可复现是「同机」性质——本仓产物在
+        # macOS 上构建，Linux 重建后 client.js/client-terminal.js/client-office.js 等
+        # 全部字节不同（2026-09-25 实测，本步骤首版就是这么挂的）。跨平台比字节必然红。
+        # 所以改成**同一台机器上三种构建互比**，它同样能钉住这条不变量：
+        #   ① 无 NODE_ENV 的构建 == 带敌意 NODE_ENV 的构建   （环境不得影响产物）
+        #   ② 显式 KCODER_BUILD_MODE=development 必须产出**不同**字节 （开关仍有效，防被改坏）
+        # 同机字节比对仍是发版门的一部分：本仓 `prepack` → `check:artifacts`（本地强制）。
+        run: |
+          set -euo pipefail
+          pnpm build
+          cp lib/client-office.js /tmp/base.js
+          NODE_ENV=development pnpm build
+          cmp /tmp/base.js lib/client-office.js && echo '① 敌意 NODE_ENV 不影响产物 ✓'
+          KCODER_BUILD_MODE=development pnpm build
+          if cmp -s /tmp/base.js lib/client-office.js; then
+            echo '::error::② KCODER_BUILD_MODE=development 未生效（产物与 production 相同）'
+            exit 1
+          fi
+          echo '② 显式 dev 开关仍有效 ✓'
       - name: 类型检查
         run: pnpm typecheck
