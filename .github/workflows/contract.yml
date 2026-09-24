@@ -31,9 +31,13 @@ jobs:
           version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # pnpm 11 要求 Node ≥ 22.13（setup-node 会调 pnpm 算 store 路径，Node 20 下直接报
+          # ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite）。
+          node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # --ignore-scripts：本 workflow 只需要 typescript 做 AST 解析与 tsc，
+      # 跳过 node-pty 之类原生构建（省时且免装编译工具链）。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: 契约断言
         run: pnpm check:contract
       - name: 类型检查
