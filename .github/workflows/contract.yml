@@ -40,5 +40,10 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: 契约断言
         run: pnpm check:contract
+      - name: 产物与提交一致（敌意环境回归）
+        # 回归 2026-09-25 那次「发布包打进 development 构建」：构建模式必须环境无关。
+        # 敌意 NODE_ENV 下重建仍须与仓库提交的产物逐字节相同 ⇒ 这条挂了就说明
+        # 又有人让环境变量影响产物（那时 npm 上的包会与仓库不同）。
+        run: NODE_ENV=development pnpm check:artifacts
       - name: 类型检查
         run: pnpm typecheck

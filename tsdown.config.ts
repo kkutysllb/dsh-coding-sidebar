@@ -1,4 +1,27 @@
 /**
+ * 发布构建模式：**只认显式开关，绝不继承环境里的 `NODE_ENV`**。
+ *
+ * 现场（2026-09-25）：`define` 原先内联 `process.env.NODE_ENV ?? 'production'`，
+ * 于是产物随开发机的环境变量变——`npm publish`（`prepack` 会重建）在
+ * `NODE_ENV=development` 的 shell 里跑，就把**开发版分支打进了发布包**
+ * （npm 上 1.0.33 的 `lib/client-office.js` 哈希与 dev 构建逐字节相同，而仓库提交的
+ * 是 production 那份），同时让 `check:artifacts` 在那种 shell 里恒报「产物不可复现」
+ * ——同一个根因，一直被当成误报。
+ *
+ * 现在：默认恒为 `production`；确需调试 dev 分支时显式开
+ * `KCODER_BUILD_MODE=development pnpm build`。环境里的 `NODE_ENV` 不再影响任何一个字节；
+ * 若它存在且与构建模式不一致，构建开头会打一行警告（把过去的静默失效变成可见）。
+ */
+const BUILD_MODE = process.env.KCODER_BUILD_MODE === 'development' ? 'development' : 'production'
+if (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== BUILD_MODE) {
+  console.warn(
+    `[tsdown] 忽略环境里的 NODE_ENV=${process.env.NODE_ENV}：本仓产物恒为 ${BUILD_MODE}`
+    + '（要 dev 构建请显式 KCODER_BUILD_MODE=development）。'
+    + '发布构建必须环境无关——否则 npm 上的包会与仓库提交的字节不同。',
+  )
+}
+
+/**
  * tsdown build for dsh-coding-sidebar: the host-half lib (lib/index.js and
  * the lib/invariant.js companion, ESM node) plus the two browser client
  * bundles (lib/client.js and lib/client-registry.js, CJS closure factory) —
@@ -144,9 +167,9 @@ function clientBundle(pluginId: string, entryFile: string): UserConfig {
     clean: false,
     external: [...CLIENT_EXTERNALS],
     define: {
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+      'process.env.NODE_ENV': JSON.stringify(BUILD_MODE),
+      'import.meta.env.MODE': JSON.stringify(BUILD_MODE),
+      'import.meta.env': JSON.stringify({ MODE: BUILD_MODE }),
       '__SIDEBAR_VERSION__': JSON.stringify(PKG_VERSION),
       // No bundled chunk uses import.meta.resolve; keep the stub so a stray
       // reference cannot resolve to Node's loader (browser CJS has none).
@@ -211,9 +234,9 @@ function chunkBundle(name: string): UserConfig {
     clean: false,
     external: [...CLIENT_EXTERNALS],
     define: {
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+      'process.env.NODE_ENV': JSON.stringify(BUILD_MODE),
+      'import.meta.env.MODE': JSON.stringify(BUILD_MODE),
+      'import.meta.env': JSON.stringify({ MODE: BUILD_MODE }),
       '__SIDEBAR_VERSION__': JSON.stringify(PKG_VERSION),
       'import.meta.resolve': 'undefined',
     },
