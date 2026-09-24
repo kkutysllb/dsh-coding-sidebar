@@ -160,6 +160,19 @@ ctx.effect(() => ctx.betterSidebar.registerFileIcon({
 
 ## 本地开发
 
+> **改这个插件之前先读下面三条**（完整版与判据见 KCoder 仓
+> [`docs/plugin-dev-checklist.md`](https://github.com/kkutysllb/KCoder/blob/main/docs/plugin-dev-checklist.md)）：
+>
+> 1. **可选面（服务 / remote 面）只能走 `ctx.get` / `ctx.inject`**。直接读
+>    `ctx.remote.<面>` 会抛（cordis 对整个点分路径做 inject 校验）；而把可选面写进
+>    `inject` 又会让插件在缺少该插件的载具上**整体不挂载**（inject 是 all-required）。
+> 2. **插件改动必须 bump 版本**。KCoder 的 bundle 物化按「源版本 > 实装版本」决定是否
+>    重拷，版本不变 ⇒ 代码在 `bundle/` 里、不在 profile 里 ⇒ **实机不生效，而
+>    typecheck / 单测 / 产物检查全绿**。（未发布时可用 `rm -rf` profile 实体走 `!intact`
+>    分支强制重拷。）
+> 3. **程序化 `openTab` 要用户看见就必须带 `meta`**。判据只认 `path` / `url` / `meta`
+>    为「内容型」并自动展开面板，纯 `type` 的 open 是静默落位（落在收起的面板里）。
+
 ### 环境
 
 - Node.js `>=20`
