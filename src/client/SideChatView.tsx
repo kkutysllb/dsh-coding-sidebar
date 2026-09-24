@@ -458,6 +458,7 @@ export function SideChatView(props: {
    *  creates the thread on mount). */
   const openNewThread = (): void => {
     setMenuOpen(false)
+    // open-tab:type-only — sidechat 视图自身菜单里的「新会话」：面板就在眼前，无需展开
     ctx.get('betterSidebar')?.openTab({ type: 'sidechat' }, scope)
   }
 
@@ -467,6 +468,7 @@ export function SideChatView(props: {
     setMenuOpen(false)
     if (id === threadId) return
     parkSidechatReopen(id)
+    // open-tab:type-only — 会话内头部菜单里切换线程：面板就在眼前
     ctx.get('betterSidebar')?.openTab({ type: 'sidechat' }, scope)
   }
 

@@ -78,16 +78,17 @@
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsdown",
-    "prepack": "pnpm check:artifacts && pnpm build && pnpm smoke",
+    "prepack": "pnpm check:contract && pnpm check:artifacts && pnpm build && pnpm smoke",
     "check:artifacts": "node scripts/check-artifacts.mjs",
     "smoke": "node scripts/smoke-plugin.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/run-openpath-tests.mjs",
+    "test": "pnpm check:contract && node tests/run-openpath-tests.mjs",
     "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
     "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
-    "prepare": "tsdown"
+    "prepare": "tsdown",
+    "check:contract": "node scripts/check-plugin-contract.mjs"
   },
   "license": "MIT",
   "peerDependencies": {

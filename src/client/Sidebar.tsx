@@ -555,6 +555,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
       // must be ready in the panel that just expanded, not wherever the user
       // last touched.
       store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
+      // open-tab:type-only — 自动开 Subagent 页：本函数上一行已显式 togglePanel 展开面板（展开归调用方）
       ctx.get('betterSidebar')?.openTab({ type: 'subagent', title: t('subagent') })
     }, AUTO_OPEN_DEBOUNCE_MS)
     autoOpenPendingRef.current = { baseline, timer }
@@ -600,6 +601,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
       store.reduce(s => s.panelOpen ? s : togglePanel(s))
     }
     store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
+    // open-tab:type-only — 同上：上一行已按宽度条件展开面板
     ctx.get('betterSidebar')?.openTab({ type: 'subagent', title: t('subagent') })
   }, [jobsRows, sessionId, store, ctx])
 
@@ -621,6 +623,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     subagentJumpRef.current = undefined
     store.reduce(s => s.panelOpen ? s : togglePanel(s))
     store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
+    // open-tab:type-only — 跳回子代理时重开页：上一行已展开面板
     ctx.get('betterSidebar')?.openTab({ type: 'subagent', title: t('subagent') })
   }, [sessionId, store, ctx])
 
@@ -1247,6 +1250,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     const title = typeof descriptor.title === 'function' ? descriptor.title() : descriptor.title
     // The session scope rides along: lifecycle callbacks receive it (and
     // the open stays in the current session, as before).
+    // open-tab:type-only — 「+」菜单新建页签：菜单本身就在面板里
     service.openTab({ type: optionId, title }, { sessionId, cwd })
   }
 

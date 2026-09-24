@@ -121,6 +121,7 @@ export function revealInExplorer(
   // reveal highlight renders. Read via ctx.get like every other internal
   // consumer (#357): the provider is not on this fiber chain, so a direct
   // ctx.betterSidebar read can throw before optional chaining applies.
+  // open-tab:type-only — reveal 流程已在本函数内展开面板（展开归调用方）
   ctx.get('betterSidebar')?.openTab({ type: 'editor', title: t('files') })
 }
 

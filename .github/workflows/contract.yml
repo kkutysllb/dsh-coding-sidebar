@@ -1,0 +1,36 @@
+# 插件契约断言（KCoder 仓 docs/plugin-dev-checklist.md §1 / §3 的执行点）。
+#
+# 两条规则都只能在这里查——KCoder 侧看的是**压缩后的 bundle**，读不出 `ctx.remote.x`
+# 这样的源码形态：
+#   ① 可选面（服务 / remote 面）只能走 ctx.get / ctx.inject：直接读 `ctx.remote.<面>`
+#      会被 cordis 的 inject 强制校验拦下并抛异常；写进 inject 又因 all-required 让插件
+#      在缺少该面的载具上整体不挂载。
+#   ② `openTab` 要「点了能看见」就必须带 meta：纯 type 的 open 是静默落位，面板收起时
+#      用户看不到任何变化（v0.6.17 现场：点任务卡「打开」像是没反应）。确实要有意
+#      type-only 的调用点必须就地标注 `// open-tab:type-only — <理由>`。
+#
+# 同一支脚本也挂在 `pnpm test` 与 `prepack`（发布前必过）上。
+name: Contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: 可选面读法 + openTab 定性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 契约断言
+        run: pnpm check:contract
+      - name: 类型检查
+        run: pnpm typecheck
