@@ -769,17 +769,28 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
       ) {
         return landed
       }
-      // A CONTENT open (file / browser) must land in sight: when the panel
-      // is collapsed, expand it. Type-only opens (+ menu, agent-terminal
-      // auto-tabs) never expand (the panel behavior is their caller's
-      // business). The check runs on the post-dedupe state, so a content
-      // open that merely FOCUSES an existing tab expands the panel too —
-      // the open must never land out of sight. Opens targeted at an
-      // INACTIVE session never expand (nothing is in sight for the user).
+      // A CONTENT open (file / browser / anything that hands the tab its own
+      // `meta`) must land in sight: when the panel is collapsed, expand it.
+      // Type-only opens (+ menu, agent-terminal auto-tabs) never expand (the
+      // panel behavior is their caller's business). The check runs on the
+      // post-dedupe state, so a content open that merely FOCUSES an existing
+      // tab expands the panel too — the open must never land out of sight.
+      // Opens targeted at an INACTIVE session never expand (nothing is in
+      // sight for the user).
+      //
+      // `meta` counts as content (2026-09-24): a caller passing it is handing
+      // the tab the state that decides WHAT it shows — the same role `path`
+      // plays for the editor. Before this, an open whose only payload was meta
+      // was classified type-only, so it landed in a collapsed panel: the
+      // engine's schedule navigation (`openTab({type:'plans', meta:{…task}})`)
+      // opened the task preview with nothing on screen, and the user's click
+      // read as "nothing happened". Sidechat's `meta:{threadId}` auto-open had
+      // the same latent gap. Neither the + menu (already inside the panel) nor
+      // the agent-terminal auto-tabs (they pass no meta) change behaviour.
       if (
         !targetsInactiveSession
         && typeof window !== 'undefined'
-        && (seed.path !== undefined || seed.url !== undefined)
+        && (seed.path !== undefined || seed.url !== undefined || seed.meta !== undefined)
       ) {
         if (!landed.panelOpen) return togglePanel(landed)
       }
