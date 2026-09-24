@@ -17,7 +17,7 @@
  *
  * @module dsh-coding-sidebar/client/ScheduleTaskPreview
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import { t } from './locales.ts'
@@ -58,11 +58,6 @@ interface ScheduleTaskView {
 /** The `schedule` Remote face this panel needs, as an optional lookup. */
 interface ScheduleRemoteFace {
   readonly list?: (request: { sessionId: string }) => Promise<{ ok?: boolean; value?: unknown }>
-}
-
-/** Resolve the schedule Remote face without requiring its plugin. */
-function scheduleFace(ctx: Context): ScheduleRemoteFace | undefined {
-  return (ctx.remote as unknown as { schedule?: ScheduleRemoteFace }).schedule
 }
 
 /** One record out of a `schedule.list` answer, or null when it is not there. */
@@ -120,31 +115,54 @@ export function ScheduleTaskPreview(props: ScheduleTaskPreviewProps) {
   // parent render (the same reason the plans list keys its own scope).
   const targetKey = `${target.sessionId}\u0000${target.taskId}`
 
-  const load = useCallback(async (): Promise<void> => {
-    setLoading(true)
-    try {
-      const face = scheduleFace(ctx)
-      if (face?.list === undefined) {
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    const load = async (face: ScheduleRemoteFace | undefined): Promise<void> => {
+      if (cancelled) return
+      setLoading(true)
+      try {
+        const list = face?.list
+        if (list === undefined) {
+          setTask(null)
+          setError(t('schedUnavailable'))
+          return
+        }
+        const result = await list({ sessionId: target.sessionId })
+        if (cancelled) return
+        const found = pickTask(result, target.taskId)
+        setTask(found)
+        setError(found === null ? t('schedGone') : null)
+      } catch (reason) {
+        if (cancelled) return
         setTask(null)
-        setError(t('schedUnavailable'))
-        return
+        setError(`${t('schedLoadFailed')}: ${reason instanceof Error ? reason.message : String(reason)}`)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      const result = await face.list({ sessionId: target.sessionId })
-      const found = pickTask(result, target.taskId)
-      setTask(found)
-      setError(found === null ? t('schedGone') : null)
-    } catch (reason) {
-      setTask(null)
-      setError(`${t('schedLoadFailed')}: ${reason instanceof Error ? reason.message : String(reason)}`)
-    } finally {
-      setLoading(false)
+    }
+    // `remote.schedule` is an OPTIONAL face: reading `ctx.remote.schedule`
+    // directly throws ("cannot get property ... without inject") because
+    // cordis enforces inject on the whole dotted path, while listing it in
+    // this plugin's `inject` would stop the plugin mounting at all on a carrier
+    // without the schedule plugins. `ctx.inject` is the middle ground the rest
+    // of this plugin already uses for optional services (intercept.tsx:
+    // sidebarRight / workspaces), and the engine uses for `remote.speech`
+    // (client-ui-voice-input/mount.ts): the callback runs as soon as the face
+    // is there — synchronously when it already is — and never when it is not.
+    const fiber = ctx.inject(['remote.schedule'], (scoped) => {
+      const face = (scoped as unknown as { remote?: { schedule?: ScheduleRemoteFace } }).remote?.schedule
+      void load(face)
+    })
+    return () => {
+      cancelled = true
+      // ctx.inject hands back a Fiber whose `dispose()` is async (this repo's
+      // cordis has no callable disposer return value) — same cleanup as
+      // intercept.tsx.
+      void (fiber as unknown as { dispose?: () => Promise<void> }).dispose?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx, targetKey])
-
-  useEffect(() => {
-    if (visible) void load()
-  }, [visible, load])
+  }, [ctx, targetKey, visible])
 
   const cadenceText = task === null ? null : cadence(task)
   const next = task === null ? null : nextFire(task.scheduledAt)
