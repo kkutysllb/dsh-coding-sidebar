@@ -3534,6 +3534,96 @@ body[data-dsh-sidebar-dragging] .panel {
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* ── Scheduled-task preview (top of the 任务计划 tab) ─────────────────────── */
+
+/* A bounded card pinned above the plans list: it is a detour into one task, so
+   it stays visually separate from the document rows below it. */
+.schedPreview {
+  flex: none;
+  margin: 8px 8px 4px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.schedPreviewHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.schedPreviewTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.schedPreviewClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.schedPreviewClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.schedPreviewClose:focus-visible {
+  outline: 2px solid var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -1px;
+}
+
+.schedPreviewRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.schedPreviewLabel {
+  flex: none;
+  width: 56px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.schedPreviewValue {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The stored prompt is arbitrary agent copy: clamp it so one long reminder
+   cannot push the plans list off the page. */
+.schedPreviewPrompt {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ── Task plans (the 任务计划 tab) ───────────────────────────────────────── */
 
 .plansView {

@@ -21,12 +21,24 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type PlanDoc, type SessionScope } from './api.ts'
 import { relativeTime, t } from './locales.ts'
+import { ScheduleTaskPreview, type ScheduleTaskTarget } from './ScheduleTaskPreview.tsx'
+import type { Context } from '../context-types.ts'
 import css from './sidebar.module.css'
 
 /** While the tab is on screen, re-scan the plan convention this often. */
 const POLL_MS = 4_000
 
 export interface PlansViewProps {
+  /** Plugin context (the preview reads the schedule Remote through it). */
+  ctx: Context
+  /**
+   * The scheduled task this tab was opened for, when the engine navigated here
+   * (the schedule Turn card's 打开 / the Session header's task menu). Null for
+   * every ordinary open, in which case the page is exactly the plans list.
+   */
+  scheduleTask: ScheduleTaskTarget | null
+  /** Drop the task marker so the page goes back to the plain plans list. */
+  onDismissSchedule: () => void
   /** Session scope (the workspace whose plan convention is scanned). */
   scope: SessionScope
   /** Whether this tab is the active one AND the panel is open. */
@@ -41,7 +53,7 @@ function when(ms: number): string {
 }
 
 export function PlansView(props: PlansViewProps) {
-  const { scope, visible, onOpenFile } = props
+  const { scope, visible, onOpenFile, scheduleTask } = props
   const [docs, setDocs] = useState<PlanDoc[]>([])
   /** The host's cap, echoed back so a truncated list can say so. */
   const [limit, setLimit] = useState(0)
@@ -100,6 +112,14 @@ export function PlansView(props: PlansViewProps) {
 
   return (
     <div className={css.plansView}>
+      {scheduleTask !== null && (
+        <ScheduleTaskPreview
+          ctx={props.ctx}
+          target={scheduleTask}
+          visible={visible}
+          onDismiss={props.onDismissSchedule}
+        />
+      )}
       <div className={css.plansToolbar}>
         <Input
           className={css.plansSearch}

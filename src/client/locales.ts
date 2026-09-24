@@ -551,6 +551,25 @@ export const zh = {
   plansOpenInApp: "用系统应用打开",
   plansOpenFailed: "打开失败",
   plansCapped: "仅显示最近 {n} 个文档",
+  // ---- 定时任务预览（引擎把「任务计划」tab 打开到某条定时任务时，显示在页顶）----
+  schedPreviewTitle: "定时任务",
+  schedPreviewClose: "收起",
+  schedNext: "下次触发",
+  schedCadence: "频率",
+  schedPrompt: "提示词",
+  schedEverySeconds: "每 {n} 秒",
+  schedEveryMinutes: "每 {n} 分钟",
+  schedEveryHours: "每 {n} 小时",
+  schedKindAt: "一次性（指定时刻）",
+  schedKindAfter: "一次性（延时）",
+  schedKindEvery: "固定间隔",
+  schedKindDaily: "每天",
+  schedKindWeekly: "每周",
+  schedKindCron: "Cron 表达式",
+  schedKindLegacy: "旧格式任务",
+  schedUnavailable: "读不到这条任务：schedule 插件未启用",
+  schedGone: "这条任务已不存在（可能已被删除）",
+  schedLoadFailed: "读取任务失败",
 }
 
 /** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
@@ -1083,6 +1102,25 @@ export const en: Record<keyof typeof zh, string> = {
   plansOpenInApp: "Open with system app",
   plansOpenFailed: "Open failed",
   plansCapped: "Showing the {n} most recent documents",
+  // ---- Scheduled-task preview (top of the task-plan tab when the engine opens it for one task) ----
+  schedPreviewTitle: "Scheduled task",
+  schedPreviewClose: "Dismiss",
+  schedNext: "Next occurrence",
+  schedCadence: "Cadence",
+  schedPrompt: "Prompt",
+  schedEverySeconds: "every {n} seconds",
+  schedEveryMinutes: "every {n} minutes",
+  schedEveryHours: "every {n} hours",
+  schedKindAt: "One-shot (fixed instant)",
+  schedKindAfter: "One-shot (delay)",
+  schedKindEvery: "Fixed interval",
+  schedKindDaily: "Daily",
+  schedKindWeekly: "Weekly",
+  schedKindCron: "Cron expression",
+  schedKindLegacy: "Legacy task",
+  schedUnavailable: "Cannot read this task: the schedule plugin is not enabled",
+  schedGone: "This task no longer exists (it may have been deleted)",
+  schedLoadFailed: "Reading the task failed",
 }
 
 /**

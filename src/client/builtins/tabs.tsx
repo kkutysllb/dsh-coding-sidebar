@@ -21,6 +21,7 @@ import { OpenWithSettings } from '../open-with-settings.tsx'
 import { lazyChunkComponent } from '../lazy-chunk.tsx'
 import { GitView } from '../GitView.tsx'
 import { PlansView } from '../PlansView.tsx'
+import { readScheduleTaskTarget } from '../ScheduleTaskPreview.tsx'
 import { DiffTab } from '../DiffTab.tsx'
 import { SubagentView } from '../SubagentView.tsx'
 import { TeamView } from '../TeamView.tsx'
@@ -219,15 +220,25 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
       // retired git panel carried this list as a section inside its card;
       // here it is a page of its own. Single instance — one list per panel,
       // always following the CURRENT session's workspace.
+      //
+      // The same page doubles as the destination for one scheduled task: the
+      // engine's schedule surfaces navigate here (a `kcScheduleTask` marker in
+      // the tab's meta) instead of expanding the right Sidebar column, and the
+      // page then shows that task's preview above its list. The marker is
+      // cleared on dismiss — `meta: {}` rather than `undefined`, because
+      // `updateTab` drops undefined fields instead of writing them.
       id: 'plans',
       title: () => t('plans'),
       icon: plansTabIcon,
       order: 32,
       single: true,
-      component: ({ ctx, store, scope, visible }) => (
+      component: ({ ctx, store, scope, visible, tab }) => (
         <PlansView
+          ctx={ctx}
           scope={scope}
           visible={visible}
+          scheduleTask={readScheduleTaskTarget(tab.meta)}
+          onDismissSchedule={() => { ctx.get('betterSidebar')?.updateTab(tab.id, { meta: {} }) }}
           // The tab opens a plan in the sidebar's OWN editor tab — the host's
           // TabComponentProps does not carry an onOpenFile (the editor and git
           // descriptors build theirs the same way).
