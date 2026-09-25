@@ -16,6 +16,7 @@
  */
 import type { SidebarHistoryEntry } from '../context-types.ts'
 import { isContextInjectionMessage, SIDE_BOUNDARY_PROMPT } from '../sidechat-core.ts'
+import type { SidechatLiveEvent } from '../sidechat-core.ts'
 
 /** One compact transcript row rendered in the thread view. `seq` is the
  *  source event's log sequence — stable row identity for React keys across
@@ -188,7 +189,10 @@ export async function collectOwnEvents(
  * @param entries - history rows (event + host-computed view) in seq order.
  * @returns display rows in log order.
  */
-export function transcriptRows(entries: readonly SidebarHistoryEntry[]): SidechatTranscriptRow[] {
+export function transcriptRows(
+  entries: readonly SidebarHistoryEntry[],
+  live: readonly SidechatLiveEvent[] = [],
+): SidechatTranscriptRow[] {
   const events = entries.map(entry => entry.event)
   const seedEnd = lastSeedEnd(events)
   const rows: SidechatTranscriptRow[] = []
@@ -196,6 +200,31 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
   const streamRows = new Map<string, number>()
   /** tool callId → index of its tool row in `rows` (result pairing). */
   const callRows = new Map<string, number>()
+
+  /**
+   * 累加一条流式增量（持久 `assistant/chunk` 与实时 `assistant/live-chunk` 共用这一条路径；
+   * 0.1.5 起前者不再出现，后者见 assistant-live.ts）。
+   */
+  const appendChunk = (turn: unknown, step: unknown, rawChunk: unknown, seq: number): void => {
+    const chunk = rawChunk as { type?: unknown; text?: unknown; index?: unknown } | undefined
+    if (chunk === null || typeof chunk !== 'object') return
+    const kind = chunk.type === 'text-delta' ? 'assistant' : chunk.type === 'reasoning-delta' ? 'reasoning' : null
+    if (kind === null || typeof chunk.text !== 'string' || chunk.text === '') return
+    const key = `${String(turn)}:${String(step)}:${String(chunk.index)}:${kind}`
+    const existing = streamRows.get(key)
+    if (existing !== undefined) {
+      const row = rows[existing]
+      if (row !== undefined && row.kind === kind && !row.settled) {
+        rows[existing] = { ...row, text: row.text + chunk.text }
+      }
+    } else {
+      streamRows.set(key, rows.length)
+      rows.push({ kind, seq, text: chunk.text, settled: false })
+    }
+  }
+
+  /** 已定稿的 `turn:step:` 前缀——实时行不再补进这些步骤，避免与持久消息重复。 */
+  const settledPrefixes = new Set<string>()
   for (let index = 0; index < events.length; index++) {
     if (index <= seedEnd) continue
     const event = events[index]
@@ -228,28 +257,13 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
         break
       }
       case 'assistant/chunk': {
-        const chunk = data.chunk as { type?: unknown; text?: unknown } | undefined
-        if (chunk === null || typeof chunk !== 'object') break
-        const kind = chunk.type === 'text-delta' ? 'assistant' : chunk.type === 'reasoning-delta' ? 'reasoning' : null
-        if (kind === null || typeof chunk.text !== 'string' || chunk.text === '') break
-        const turn = data.turn
-        const step = data.step
-        const blockIndex = (chunk as { index?: unknown }).index
-        const key = `${String(turn)}:${String(step)}:${String(blockIndex)}:${kind}`
-        const existing = streamRows.get(key)
-        if (existing !== undefined) {
-          const row = rows[existing]
-          if (row !== undefined && row.kind === kind && !row.settled) {
-            rows[existing] = { ...row, text: row.text + chunk.text }
-          }
-        } else {
-          streamRows.set(key, rows.length)
-          rows.push({ kind, seq: event.seq, text: chunk.text, settled: false })
-        }
+        appendChunk(data.turn, data.step, data.chunk, event.seq)
         break
       }
       case 'assistant/message': {
         const prefix = `${String(data.turn)}:${String(data.step)}:`
+        // 这一步已定稿：实时行不再补进来（缓冲清空与持久消息之间有极短竞态窗口）。
+        settledPrefixes.add(prefix)
         const streamed = [...streamRows.entries()]
           .filter(([key]) => key.startsWith(prefix))
           .map(([, rowIndex]) => rowIndex)
@@ -317,5 +331,14 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
       }
     }
   }
+
+  // 实时增量（DSH 0.1.5 起流式文本不进日志，见 assistant-live.ts）：补在持久行之后。
+  // 已定稿的 turn:step 跳过——那些步骤的文本已由 assistant/message 以 settled 行给出。
+  for (const event of live) {
+    const prefix = `${String(event.data.turn)}:${String(event.data.step)}:`
+    if (settledPrefixes.has(prefix)) continue
+    appendChunk(event.data.turn, event.data.step, event.data.chunk, event.seq)
+  }
+
   return rows
 }

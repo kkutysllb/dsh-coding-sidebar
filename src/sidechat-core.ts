@@ -476,3 +476,51 @@ export function resolvePresetId(
   }
   return header.agentPreset
 }
+
+/**
+ * 一条实时增量在插件自己的 wire 上的形状，**镜像 DSH 客户端专有的
+ * `assistant/live-chunk` 展示行**（0.1.5 起流式文本只以该行出现在客户端契约里，
+ * 不进会话日志）。
+ *
+ * 它不是持久数据：`sidechat.live` 每次轮询都返回**当前 attempt 的全部行**，客户端整体替换；
+ * 定稿后由持久 `assistant/message` 按 `turn:step` 覆盖。
+ */
+export interface SidechatLiveEvent {
+  readonly type: 'assistant/live-chunk'
+  /** 仅在实时行内部排序；持久 seq 始终权威（实时行排在持久尾部之后）。 */
+  readonly seq: number
+  readonly time: number
+  readonly data: {
+    readonly attemptId: string
+    readonly turn: number
+    readonly step: number
+    /** attempt 内从零开始的稠密位置。 */
+    readonly index: number
+    /** 原始模型流 chunk。 */
+    readonly chunk: Record<string, unknown>
+  }
+}
+
+/**
+ * 把缓冲里的实时增量投影成 wire 行。
+ * @param chunks - 该会话当前 attempt 的增量（已按 index 升序）。
+ * @param tailSeq - 该会话最后一个持久 seq；实时行排在其后。
+ * @returns 追加到 transcript 供给的实时行。
+ */
+export function liveEventsOf(
+  chunks: readonly { attemptId: string; turn: number; step: number; index: number; time: number; chunk: Record<string, unknown> }[],
+  tailSeq: number,
+): SidechatLiveEvent[] {
+  return chunks.map((delta, position) => ({
+    type: 'assistant/live-chunk',
+    seq: tailSeq + 1 + position,
+    time: delta.time,
+    data: {
+      attemptId: delta.attemptId,
+      turn: delta.turn,
+      step: delta.step,
+      index: delta.index,
+      chunk: delta.chunk,
+    },
+  }))
+}

@@ -28,23 +28,14 @@ import type { Context as CordisContext } from '@deepseek-ai/cordis'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SidebarSessionEvent } from './context-types.ts'
+import { AssistantLiveBuffer } from './assistant-live.ts'
 import type {
   Context,
   SidebarAgentPresetsService,
   SidebarSessionPersistenceService,
   SidebarSessionTitleService,
 } from './context-types.ts'
-import {
-  boundaryDelivered,
-  buildSidechatInheritance,
-  resolvePresetId,
-  SIDE_BOUNDARY_PROMPT,
-  SIDE_NEW_THREAD_TITLE,
-  sideLabel,
-  type SeedEvent,
-  type SidechatLogEvent,
-  type SidechatThreadInfo,
-} from './sidechat-core.ts'
+import { boundaryDelivered, buildSidechatInheritance, resolvePresetId, SIDE_BOUNDARY_PROMPT, SIDE_NEW_THREAD_TITLE, sideLabel, type SeedEvent, type SidechatLogEvent, type SidechatThreadInfo, type SidechatLiveEvent, liveEventsOf } from './sidechat-core.ts'
 import { requireString, SidebarError } from './wire.ts'
 
 /** The five Side Chat routes of the sidebar API (wire method names). */
@@ -62,6 +53,12 @@ export interface SidechatRoutes {
   'sidechat.dispose'(payload: unknown): Promise<{ accepted: true }>
   /** Live state + agent identity for the thread header. */
   'sidechat.info'(payload: unknown): Promise<SidechatThreadInfo>
+  /**
+   * 该线程**当前 attempt** 的实时增量（DSH 0.1.5 起流式文本不再写日志——见
+   * assistant-live.ts）。每次调用返回全部实时行，客户端整体替换；耐久事件仍走
+   * 通用 session.history，定稿后由 assistant/message 覆盖实时行。
+   */
+  'sidechat.live'(payload: unknown): Promise<{ live: SidechatLiveEvent[] }>
 }
 
 /** Timeout guarding the create call (the registry detaches it before the
@@ -169,6 +166,8 @@ function liveThreadAgent(ctx: Context, childId: string): Agent | undefined {
  *  error the tab surfaces inline). The record keys are the FULL wire method
  *  names the /sidebar/api dispatcher looks up (`api[method]`). */
 export function buildSidechatApi(ctx: Context): SidechatRoutes {
+  // 实时增量缓冲：随本 API 一起建立（监听 `agent/assistant-stream` 作用域帧）。
+  const live = new AssistantLiveBuffer(ctx)
   // 插件停用/卸载（HMR）收口：释放本 activation 仍存活的 sidechat 子 agent。
   // 插件管理器「等已移除插件释放资源及 Loader 树稳定」后才继续 pnpm remove，
   // 活跃子 agent 不能留在宿主 AgentRegistry 里继续跑（会话与历史保持持久化，
@@ -344,6 +343,14 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       return { accepted: true as const }
     },
 
+    'sidechat.live': async (payload: unknown): Promise<{ live: SidechatLiveEvent[] }> => {
+      const childId = requireString(payload, 'childId')
+      const rawTail = typeof payload === 'object' && payload !== null
+        ? (payload as { afterSeq?: unknown }).afterSeq
+        : undefined
+      const tailSeq = typeof rawTail === 'number' && Number.isFinite(rawTail) ? rawTail : -1
+      return { live: liveEventsOf(live.chunksOf(childId), tailSeq) }
+    },
     'sidechat.info': async (payload: unknown) => {
       const childId = requireString(payload, 'childId')
       const agent = liveThreadAgent(ctx, childId)

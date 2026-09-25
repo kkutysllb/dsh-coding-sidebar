@@ -46,6 +46,7 @@ import {
 } from '../sidechat-core.ts'
 import { collectOwnEvents, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
 import { api } from './api.ts'
+import type { SidechatLiveEvent } from '../sidechat-core.ts'
 import { openViaUiWorkspace } from './workspace-nav.ts'
 import { t } from './locales.ts'
 import type { SessionScope } from './api.ts'
@@ -283,6 +284,12 @@ export function SideChatView(props: {
 
   const cacheRef = useRef<ThreadCache>({ seedBoundary: null, entries: [] })
   const controllerRef = useRef<AbortController | null>(null)
+  /**
+   * 实时增量行（DSH 0.1.5 起流式文本不再进会话日志——时长文本只以 `assistant/live-chunk`
+   * 出现在客户端契约里，见 assistant-live.ts）。它**不是**持久数据：每轮整体替换，
+   * 定稿后由持久 assistant/message 覆盖。读取失败只清空它，绝不影响耐久路径。
+   */
+  const liveRef = useRef<readonly SidechatLiveEvent[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -376,6 +383,14 @@ export function SideChatView(props: {
         if (!response.result.ok) return false
         cache.entries = mergeBySeq(cache.entries, response.result.value.events)
       }
+      // 实时增量：独立小请求（只带当前 attempt 的行），失败退化为「没有实时文本」，
+      // 不影响上面已经拉到的持久行。
+      try {
+        const tail = cache.entries.at(-1)?.event.seq ?? -1
+        liveRef.current = (await api.sidechatLive(childId, tail)).live
+      } catch {
+        liveRef.current = []
+      }
       setRevision(value => value + 1)
       return cache.entries.length > before
     } catch {
@@ -397,6 +412,7 @@ export function SideChatView(props: {
   // the composer — it owns the first message of a fresh thread.
   useEffect(() => {
     cacheRef.current = { seedBoundary: null, entries: [] }
+    liveRef.current = []
     controllerRef.current?.abort()
     setError(null)
     setSaved(false)
@@ -438,7 +454,7 @@ export function SideChatView(props: {
   useEffect(() => () => { controllerRef.current?.abort() }, [])
 
   const rows = useMemo(
-    () => (threadId === undefined ? [] : transcriptRows(cacheRef.current.entries)),
+    () => (threadId === undefined ? [] : transcriptRows(cacheRef.current.entries, liveRef.current)),
     // The cache is a ref; revision bumps on every successful pull.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [threadId, revision],

@@ -1,5 +1,5 @@
 import type { Context } from './context-types.ts';
-import { type SidechatThreadInfo } from './sidechat-core.ts';
+import { type SidechatThreadInfo, type SidechatLiveEvent } from './sidechat-core.ts';
 /** The five Side Chat routes of the sidebar API (wire method names). */
 export interface SidechatRoutes {
     /** Create a side thread child seeded with the parent's log up to now.
@@ -23,6 +23,14 @@ export interface SidechatRoutes {
     }>;
     /** Live state + agent identity for the thread header. */
     'sidechat.info'(payload: unknown): Promise<SidechatThreadInfo>;
+    /**
+     * 该线程**当前 attempt** 的实时增量（DSH 0.1.5 起流式文本不再写日志——见
+     * assistant-live.ts）。每次调用返回全部实时行，客户端整体替换；耐久事件仍走
+     * 通用 session.history，定稿后由 assistant/message 覆盖实时行。
+     */
+    'sidechat.live'(payload: unknown): Promise<{
+        live: SidechatLiveEvent[];
+    }>;
 }
 /** Build the Side Chat routes (all optional services degrade to a wire
  *  error the tab surfaces inline). The record keys are the FULL wire method

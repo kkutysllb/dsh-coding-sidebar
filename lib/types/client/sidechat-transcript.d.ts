@@ -15,6 +15,7 @@
  * them with the assembled message once it lands (settled rows).
  */
 import type { SidebarHistoryEntry } from '../context-types.ts';
+import type { SidechatLiveEvent } from '../sidechat-core.ts';
 /** One compact transcript row rendered in the thread view. `seq` is the
  *  source event's log sequence — stable row identity for React keys across
  *  polls (streaming caches ride the key, so window slides must not re-key
@@ -100,4 +101,4 @@ export declare function collectOwnEvents(fetchPage: (beforeSeq?: number) => Prom
  * @param entries - history rows (event + host-computed view) in seq order.
  * @returns display rows in log order.
  */
-export declare function transcriptRows(entries: readonly SidebarHistoryEntry[]): SidechatTranscriptRow[];
+export declare function transcriptRows(entries: readonly SidebarHistoryEntry[], live?: readonly SidechatLiveEvent[]): SidechatTranscriptRow[];

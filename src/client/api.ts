@@ -8,7 +8,7 @@
  */
 import { encodeHtmlUrl } from '../html-route.ts'
 import type { LastActivity } from '../subagent-activity.ts'
-import type { SidechatThreadInfo } from '../sidechat-core.ts'
+import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts'
 import type { BrowserProbeResult } from './browser.ts'
 import type {
   CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest,
@@ -500,6 +500,14 @@ export const api = {
   /** Live state + agent identity (provider/model/preset) of a thread. */
   sidechatInfo: (childId: string) =>
     call<SidechatThreadInfo>('sidechat.info', { childId }),
+  /**
+   * The thread's CURRENT attempt as live rows. DSH 0.1.5 streams assistant deltas
+   * outside the session log (see `assistant-live.ts`), so the durable half keeps
+   * coming from `session.history` while these rows carry the in-flight text; a
+   * settled `assistant/message` supersedes them by `turn:step`.
+   */
+  sidechatLive: (childId: string, afterSeq: number) =>
+    call<{ live: SidechatLiveEvent[] }>('sidechat.live', { childId, afterSeq }),
   /** The effective terminal shell and its display name (plugin-global). */
   shellGet: () =>
     call<{ shell: string; name: string }>('shell.get', {}),
