@@ -441,7 +441,11 @@ export function SideChatView(props: {
       void api.sidechatDebug(`poll start thread=${threadId} visible=${String(visible)}`)
     }
     void fetchThread(threadId)
-    if (!running) return
+    // ⚠️ 这里曾有一道 `if (!running) return`：`running` 取自会话列表行，而**引擎不给
+    // subagent 来源的会话产生 running 状态**（侧边对话的子会话正是这一类）⇒ 它恒为假
+    // ⇒ 打开后只拉**一次**就不再轮询 ⇒ 回答只在定稿后出现（表现为「一次性蹦出来」而非流式）。
+    // 节拍本身已是自适应的（无增长就退避到 POLL_SLOW_MS），且只在 `visible` 时轮询，
+    // 故无需这道闸——「是否还在长」由下面每一拍自己判断（含实时行）。
     let timer = 0
     let quiet = 0
     const schedule = (delay: number): void => {
@@ -453,7 +457,9 @@ export function SideChatView(props: {
         } catch {
           quiet += 1
         }
-        quiet = grew ? 0 : quiet + 1
+        // 实时行也算「还在长」：流式期间 transcript 的持久行可能整段都不变，
+        // 只靠 grew 会立刻退避，正好错过流式窗口。
+        quiet = (grew || liveRef.current.length > 0) ? 0 : quiet + 1
         schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)))
       }, delay)
     }
