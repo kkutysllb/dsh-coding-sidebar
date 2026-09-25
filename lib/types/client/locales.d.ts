@@ -346,6 +346,11 @@ export declare const zh: {
     inputTokensLabel: string;
     outputTokensLabel: string;
     awaitingAnswerLabel: string;
+    answerSubmitLabel: string;
+    answerMultiSelectHint: string;
+    answerComposerHint: string;
+    answerComposerPlaceholder: string;
+    answerSendLabel: string;
     sideChatNew: string;
     sideChatUntitled: string;
     sideChatEmpty: string;

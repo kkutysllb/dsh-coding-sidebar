@@ -107,12 +107,16 @@ export type SidechatToolCard = {
     signal?: string;
 }
 /** `ask_user_question` 的提问内容：工具行此前只显示原始 JSON，而这一行正是**等用户回答**的
- *  阻塞点——看不出问题是什么，就一直卡在那儿。 */
+ *  阻塞点——看不出问题是什么，就一直卡在那儿。
+ *  `id`/`multiSelect` 必须带上：答案要按题目 id 回填宿主，「这一行就是当前待答的那批题」
+ *  也靠 id 序列配对（见 sidechat-questions.ts `matchesPending`）。 */
  | {
     type: 'question';
     questions: readonly {
-        header?: string;
+        id: string;
         question: string;
+        header?: string;
+        multiSelect?: boolean;
         options: readonly {
             label: string;
             description?: string;

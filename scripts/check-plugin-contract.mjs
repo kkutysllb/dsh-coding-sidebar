@@ -48,6 +48,8 @@ import ts from 'typescript'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = join(ROOT, 'src')
 const ENTRY = join(SRC, 'client', 'index.tsx')
+/** 客户端组件目录（CSS Modules 引用点/定义点的比对范围，见头部 ⑤）。 */
+const SRC_CLIENT = join(SRC, 'client')
 /** 就地豁免标注（说明该 open 有意 type-only）。 */
 const MARKER = 'open-tab:type-only'
 /** 内容型 seed 字段：任一出现即「打开必须落在可见处」。 */
@@ -270,6 +272,60 @@ const pins = [
 ]
 for (const pin of pins) if (!pin.ok) violations.push(`[④侧边对话] ${pin.why}`)
 if (pins.every(pin => pin.ok)) console.log('[plugin-contract] 侧边对话读/流/节拍四项回归闸 ✓')
+
+/**
+ * ⑥ **回答路径不得退化**（2026-09-25 现场：子会话提问后，在输入框敲答案回车毫无反应）：
+ *   引擎把每个提问登记成 Session 级 pending interaction（`uiSession.sessionStatus`），只有调它的
+ *   `answer()` 才把答案交回服务器；本插件此前只会 `sidechat.prompt`（把回答当追问送出去）——
+ *   子会话正卡在提问上，于是两边都不动。
+ *   - `SideChatView.tsx` 的提交路径必须**先判**待答提问（`answerFromComposer(`），
+ *     不得只有 prompt 一条路；
+ *   - 待答面必须用 waitable `ctx.inject(['uiSession']` 捕获（别的插件提供的服务，裸 `ctx.get`
+ *     读不到），且**不得**把 `uiSession` 写进全必需的 `inject` 清单（缺该面的载具会整体不挂载）。
+ */
+const entryText = stripComments(readFileSync(ENTRY, 'utf8'))
+const answerPins = [
+  {
+    ok: /answerFromComposer\(/.test(sideChat) && /answer\(answer\)|current\.answer\(/.test(sideChat),
+    why: 'src/client/SideChatView.tsx 的提交路径必须含回答分支（`answerFromComposer(` + 调 pending 的 `answer(`）：'
+      + '否则回车只会把答案当追问送出，提问永远无人作答',
+  },
+  {
+    ok: /ctx\.inject\(\['uiSession'\]/.test(entryText) && !/inject = \[[^\]]*'uiSession'/.test(entryText),
+    why: "src/client/index.tsx 必须以 `ctx.inject(['uiSession']` 捕获待答面，且不得写进 `export const inject`"
+      + '（all-required：没有该面的载具会整体不挂载）',
+  },
+]
+for (const pin of answerPins) if (!pin.ok) violations.push(`[⑥回答路径] ${pin.why}`)
+if (answerPins.every(pin => pin.ok)) console.log('[plugin-contract] 回答路径两项回归闸 ✓')
+
+/**
+ * ⑤ **CSS Modules 的 `css.<名>` 必须在本文件 import 的那张表里定义**（2026-09-25 现场）：
+ *    CSS Modules 按**文件**哈希类名，`SideChatView.tsx` 里写 `css.sidechatCard` 而类定义在
+ *    `sidebar.module.css` 时，运行时取到 `undefined`（`Record<string,string>` 声明让它静默通过
+ *    tsc）⇒ 卡片**无声无样式**。P3 的三张结构化卡就是这样上线且没人看出来的：内容照常显示，
+ *    只是没有排版。这条按「引用点 vs 定义点」静态比对，永久挡住这一类静默失败。
+ */
+const cssViolations = []
+for (const entry of readdirSync(SRC_CLIENT)) {
+  if (!entry.endsWith('.tsx')) continue
+  const file = join(SRC_CLIENT, entry)
+  const text = stripComments(readFileSync(file, 'utf8'))
+  const imported = /import\s+css\s+from\s+'\.\/([A-Za-z0-9_.-]+\.module\.css)'/.exec(text)
+  if (imported === null) continue
+  const sheet = readFileSync(join(SRC_CLIENT, imported[1]), 'utf8')
+  const defined = new Set(
+    [...sheet.matchAll(/^\s*\.([A-Za-z0-9_-]+)/gm)].map(match => match[1]),
+  )
+  const used = new Set([...text.matchAll(/\bcss\.([A-Za-z0-9_]+)\b/g)].map(match => match[1]))
+  const missing = [...used].filter(name => !defined.has(name))
+  if (missing.length > 0) {
+    cssViolations.push(`${entry} 引用了 ${imported[1]} 里不存在的类：${missing.join(', ')}`
+      + '（运行时是 undefined ⇒ 该处样式静默失效；定义要放进本组件 import 的那张表）')
+  }
+}
+for (const violation of cssViolations) violations.push(`[⑤CSS类名] ${violation}`)
+if (cssViolations.length === 0) console.log('[plugin-contract] css.<类名> 引用点均在各自 CSS 表内 ✓')
 
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
 console.log(`[plugin-contract] ctx.remote.<面> 直读 ${faceReads} 处；openTab 调用点：`)

@@ -94,8 +94,19 @@ export type SidechatToolCard =
   | { type: 'read'; label: string; lines: readonly { number: number; text: string }[]; totalLines: number }
   | { type: 'terminal'; command: string; cwd?: string; output?: string; exitCode?: number; signal?: string }
   /** `ask_user_question` 的提问内容：工具行此前只显示原始 JSON，而这一行正是**等用户回答**的
-   *  阻塞点——看不出问题是什么，就一直卡在那儿。 */
-  | { type: 'question'; questions: readonly { header?: string; question: string; options: readonly { label: string; description?: string }[] }[] }
+   *  阻塞点——看不出问题是什么，就一直卡在那儿。
+   *  `id`/`multiSelect` 必须带上：答案要按题目 id 回填宿主，「这一行就是当前待答的那批题」
+   *  也靠 id 序列配对（见 sidechat-questions.ts `matchesPending`）。 */
+  | {
+    type: 'question'
+    questions: readonly {
+      id: string
+      question: string
+      header?: string
+      multiSelect?: boolean
+      options: readonly { label: string; description?: string }[]
+    }[]
+  }
 
 /** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
 export function formatTokens(n: number): string {
@@ -143,10 +154,19 @@ function callCard(name: string, args: string | undefined): SidechatToolCard | un
   if (name === 'ask_user_question') {
     const raw = parsed.questions
     if (!Array.isArray(raw) || raw.length === 0) return undefined
-    const questions: { header?: string; question: string; options: { label: string; description?: string }[] }[] = []
+    type CardQuestion = {
+      id: string
+      question: string
+      header?: string
+      multiSelect?: boolean
+      options: { label: string; description?: string }[]
+    }
+    const questions: CardQuestion[] = []
     for (const item of raw) {
       if (item === null || typeof item !== 'object' || Array.isArray(item)) return undefined
-      const candidate = item as { header?: unknown; question?: unknown; options?: unknown }
+      const candidate = item as { id?: unknown; header?: unknown; question?: unknown; options?: unknown; multiSelect?: unknown }
+      // id 缺失就退回通用文本行：答案必须按 id 回填，猜 id 会把答案送到别的题上。
+      if (typeof candidate.id !== 'string' || candidate.id === '') return undefined
       if (typeof candidate.question !== 'string' || candidate.question === '') return undefined
       const options: { label: string; description?: string }[] = []
       if (Array.isArray(candidate.options)) {
@@ -158,8 +178,10 @@ function callCard(name: string, args: string | undefined): SidechatToolCard | un
         }
       }
       questions.push({
+        id: candidate.id,
         question: candidate.question,
         options,
+        ...(candidate.multiSelect === true ? { multiSelect: true } : {}),
         ...(typeof candidate.header === 'string' && candidate.header !== '' ? { header: candidate.header } : {}),
       })
     }

@@ -26,6 +26,7 @@ import { loadExternalDisable, loadPrefs } from './prefs.ts'
 import { SideCardSection } from './SideCardSection.tsx'
 import { api } from './api.ts'
 import { observeUiWorkspaceFace } from './workspace-nav.ts'
+import { observeUiSessionFace } from './sidechat-questions.ts'
 import { LOCALE_NS, attachLocale, attachBetterLocale, t, zh, en } from './locales.ts'
 import { loadChunk } from './chunk-loader.ts'
 import css from './sidebar.module.css'
@@ -78,6 +79,15 @@ export function apply(ctx: Context): void {
   // reload re-runs apply and re-captures cleanly.
   ctx.inject(['uiWorkspace'], (scope) => {
     observeUiWorkspaceFace((scope as { uiWorkspace?: unknown }).uiWorkspace)
+  })
+
+  // 0.1.6-alpha 待答交互席位：侧边对话的回答路径要读引擎的 Session 级待答面
+  // （`uiSession.sessionStatus` —— 引擎 ui-user-questions 把每个提问登记在那里，
+  // 只有调它的 `answer()` 才把答案交回宿主）。同样走 waitable inject：这是**别的
+  // 插件**（ui-session）提供的服务，裸 `ctx.get` 只读本 fiber 的本地 store 会静默
+  // 拿不到。拿不到就当「无待答」降级（提问卡退回静态选项），不影响其余功能。
+  ctx.inject(['uiSession'], (scope) => {
+    observeUiSessionFace((scope as { uiSession?: unknown }).uiSession)
   })
 
   // Build-identity banner: the FIRST line every debugging session looks for.

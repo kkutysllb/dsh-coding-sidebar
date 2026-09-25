@@ -626,7 +626,10 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
           <button
             key={kind}
             type="button"
-            className={cx(css.legendEdge, pinnedEdgeKind === kind && css.legendEdgeOn)}
+            // 「已钉住」的样式由 aria-pressed 承载（`.legendEdge[aria-pressed='true']`），
+            // 这里**不得**再拼一个类名：`css.legendEdgeOn` 在本表里并不存在，取到的是
+            // undefined（React 直接忽略）⇒ 只是无声的死代码，已由契约检查 ⑤ 抓出。
+            className={css.legendEdge}
             aria-pressed={pinnedEdgeKind === kind}
             title={t('trajEdgeLegendHint')}
             onClick={() => { setPinnedEdgeKind(current => (current === kind ? null : kind)) }}

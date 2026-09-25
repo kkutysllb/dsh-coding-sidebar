@@ -397,6 +397,114 @@
   cursor: default;
 }
 
+/* ── structured tool cards (the side chat's edit/read/question results) ─────
+ * These classes MUST live in THIS file: CSS Modules hash per file, so a class
+ * referenced as `css.sidechatCard` but defined in sidebar.module.css resolves
+ * to undefined at runtime and the card silently renders unstyled (the P3
+ * landing bug — `scripts/check-plugin-contract.mjs` now pins it). */
+/* Structured tool cards (P3): the side chat's edit/read results use the same host
+   Block data shapes the main conversation renders, so they read as content rather
+   than as JSON. Tokens only. */
+.sidechatCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sidechatCardPath {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.sidechatCardFail {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* One row per turn tail: token usage and wall duration, quieter than content. */
+.sidechatTurnSummary {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 2px 0;
+}
+
+.sidechatCardOptions {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sidechatCardOptionLabel {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 待答提问卡的选项：按钮就是答案（引擎按选项文本原样匹配），所以是可点的行，
+ * 不是列表项。选中态只影响本机草稿，提交才回传宿主。 */
+.sidechatAnswerOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidechatCardOption {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  border: 1px solid var(--dsw-alias-border-l);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sidechatCardOption:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sidechatCardOptionSelected {
+  border-color: var(--dsw-alias-interactive-bg-hover-accent, var(--dsw-alias-border-l));
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sidechatCardOption:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.sidechatAnswerSubmit {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-interactive-bg-hover-solid));
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sidechatAnswerSubmit:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.sidechatAnswerSubmit:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ── motion vocabulary (crossfade only, ≤200ms; loops reduced-motion off) */
 @keyframes sidechatRowIn {
   from { opacity: 0; transform: translateY(4px); }

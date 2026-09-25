@@ -222,19 +222,32 @@ check('每轮汇总：输出累加、输入取最后一次，时长取 turn 两�
   assert.equal(summary.durationMs, 2000)
 })
 
-check('ask_user_question 调用 → 提问卡（问题 + 选项），畸形则弃卡', () => {
+check('ask_user_question 调用 → 提问卡（题目 id + 问题 + 选项），畸形则弃卡', () => {
   const good = transcriptRows([
-    { event: { type: 'tool/call', seq: 60, time: 6000, data: { callId: 'q1', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ header: '确认方向', question: '要不要改？', options: [{ label: '改', description: '按新方案' }] }] }) } } },
+    { event: { type: 'tool/call', seq: 60, time: 6000, data: { callId: 'q1', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ id: 'q1', header: '确认方向', question: '要不要改？', options: [{ label: '改', description: '按新方案' }] }] }) } } },
   ], [])
   const card = good.find(r => r.kind === 'tool').card
   assert.equal(card.type, 'question')
+  // 题目 id 是回答路径的硬前提：答案按 id 回填宿主，缺 id 就不能出可点卡。
+  assert.equal(card.questions[0].id, 'q1')
   assert.equal(card.questions[0].question, '要不要改？')
   assert.equal(card.questions[0].options[0].label, '改')
 
+  // 多选题必须带上 multiSelect（否则单选语义会吞掉其余选择）。
+  const multi = transcriptRows([
+    { event: { type: 'tool/call', seq: 62, time: 6002, data: { callId: 'q3', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ id: 'm1', question: '都要哪些？', multiSelect: true, options: [{ label: '甲' }] }] }) } } },
+  ], [])
+  assert.equal(multi.find(r => r.kind === 'tool').card.questions[0].multiSelect, true)
+
+  // 无 id / 无题面 → 弃卡（退回通用文本行，绝不猜 id）。
   const bad = transcriptRows([
     { event: { type: 'tool/call', seq: 61, time: 6001, data: { callId: 'q2', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ id: 'x' }] }) } } },
   ], [])
   assert.equal(bad.find(r => r.kind === 'tool').card, undefined)
+  const noId = transcriptRows([
+    { event: { type: 'tool/call', seq: 63, time: 6003, data: { callId: 'q4', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ question: '没有 id 的题' }] }) } } },
+  ], [])
+  assert.equal(noId.find(r => r.kind === 'tool').card, undefined, '缺 id 必须弃卡（答案回填不了）')
 })
 
 console.log('[sidechat-live] 实时流路径（假 ctx 驱动真缓冲 + 真 transcript 映射）')
