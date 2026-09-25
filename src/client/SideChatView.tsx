@@ -476,7 +476,11 @@ export function SideChatView(props: {
         }
         // 实时行也算「还在长」：流式期间 transcript 的持久行可能整段都不变，
         // 只靠 grew 会立刻退避，正好错过流式窗口。
-        const quiet = (grew || liveRef.current.length > 0) ? 0 : quietRef.current + 1
+        // 「等回复」期间**不得退避**：末条是用户消息、尚无助手回复时，模型随时可能开始产出
+        // （实测发送到首个 chunk 有 ~3s 延迟），而退避到 2.5~5s 会让整个流式窗口（约 1.9s）
+        // 落在两次轮询之间——现场三次都是这么错过的。判据复用视图已有的 trailingPending。
+        const awaiting = threadTrailingPending(cacheRef.current.entries)
+        const quiet = (grew || liveRef.current.length > 0 || awaiting) ? 0 : quietRef.current + 1
         quietRef.current = quiet
         schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)))
       }, delay)
