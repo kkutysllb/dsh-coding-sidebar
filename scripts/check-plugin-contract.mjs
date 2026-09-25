@@ -333,15 +333,21 @@ if (cssViolations.length === 0) console.log('[plugin-contract] css.<类名> 引�
  *    `selectionFor(agent)`），装的是**会话自己日志投影出来的**模型（`pending ?? lastUsed`）；
  *    而 `agent.options` 只是 agent 创建时的启动参数（引擎自己传的是部署默认），用户在会话里
  *    换的模型从不回写它。插件的子会话 setup 是自己写的 ⇒ 少了这一步 ⇒ 退回启动参数。
- *    断言：主机侧必须调 `selectionFor(`，且两处 setup（新建 / 冷恢复）都要装订。
+ *    断言：主机侧必须用 `installModelSelection(` 装订、对齐必须改 `ref.current`、且每次投递前都要对齐。
  */
 const routesText = stripComments(readFileSync(join(SRC, 'sidechat-routes.ts'), 'utf8'))
 const installSites = (routesText.match(/installAgentModelSelection\(/g) ?? []).length
 const modelPins = [
   {
-    ok: /selectionFor\(/.test(routesText),
-    why: 'src/sidechat-routes.ts 必须调用 `selectionFor(`（引擎 composeAgent 的 installSelection 就是它）：'
-      + '不装订 ⇒ 子会话退回 agentOptions，即部署默认模型',
+    ok: /installModelSelection\(/.test(routesText),
+    why: 'src/sidechat-routes.ts 必须用引擎公开装配面 `installModelSelection(` 装订：'
+      + '`ctx.get("agents")` 是核心 AgentRegistry，**没有** selectionFor/selectForNextRequest'
+      + '（那两处在私有 controller 上，调用恒为 no-op——第一版就是这么错的）',
+  },
+  {
+    ok: /ref\.current = asAgentSelection\(/.test(routesText),
+    why: '对齐必须**改本插件持有的 ref.current**（引擎 agent/request 读它）：'
+      + '换模型若只写事件/只改其它状态，请求组装不会跟着变',
   },
   {
     ok: (routesText.match(/alignThreadModelToParent\(/g) ?? []).length >= 2,
@@ -355,7 +361,7 @@ const modelPins = [
   },
 ]
 for (const pin of modelPins) if (!pin.ok) violations.push(`[⑦模型跟随] ${pin.why}`)
-if (modelPins.every(pin => pin.ok)) console.log('[plugin-contract] 模型跟随两项回归闸 ✓')
+if (modelPins.every(pin => pin.ok)) console.log(`[plugin-contract] 模型跟随 ${String(modelPins.length)} 项回归闸 ✓`)
 
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
 console.log(`[plugin-contract] ctx.remote.<面> 直读 ${faceReads} 处；openTab 调用点：`)

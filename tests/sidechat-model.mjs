@@ -28,6 +28,7 @@ import {
   alignThreadModelToParent,
   installAgentModelSelection,
 } from '../src/sidechat-routes.ts'
+import { threadSelectionOf, threadSelectionsClear } from '../src/sidechat-routes.ts'
 
 let passed = 0
 const lines = []
@@ -163,7 +164,7 @@ check('resolveLoggedModelSelection: 取最后一次请求头用过的模型（�
   assert.equal(resolveLoggedModelSelection([{ type: 'request/header', data: { header: { config: 'x' } } }]), undefined)
 })
 
-/* ── 主机侧接线：真函数 + 假服务（测的是「有没有装订/有没有对齐」，不是形状） ── */
+/* ── 主机侧接线：真函数 + 假 ctx（测「有没有装订 / 有没有真的改 ref」） ── */
 
 /** 假 ctx：按名给服务；未给的即缺席（插件对缺席一律降级）。 */
 function fakeCtx(services) {
@@ -175,132 +176,93 @@ function fakeCtx(services) {
   }
 }
 
-const PARENT = { id: 'parent-1' }
-const CHILD = { session: { id: 'child-1', header: { parentSession: 'parent-1' } } }
+const PARENT = {
+  id: 'parent-1',
+  // 日志兜底读的就是它：父会话最后一条 model/selection = 用户刚切的模型。
+  snapshotEvents: () => [
+    { type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-flash' } } } },
+    { type: 'model/selection', data: { provider: 'qwen', model: 'qwen3.8-flash' } },
+  ],
+}
 
-/** 假 agents 服务：selectionFor 幂等、selectForNextRequest 记账。 */
-function fakeAgents(installed) {
-  const writes = []
+/** 假 agent：header 带 parentSession，session 记录 append。 */
+function fakeAgent() {
+  const appended = []
   return {
-    writes,
-    selectionFor: (agent) => ({ current: installed.get(agent) }),
-    selectForNextRequest: (agent, selection) => { writes.push({ agent, selection }) },
+    appended,
+    agent: {
+      session: {
+        id: 'child-1',
+        header: { parentSession: 'parent-1' },
+        append: (type, data) => { appended.push({ type, data }) },
+      },
+    },
   }
 }
 
-check('alignThreadModelToParent: 已一致 → 一个字节都不写', () => {
-  const agents = fakeAgents(new Map([[CHILD, { provider: 'p', model: 'm' }]]))
-  const ctx = fakeCtx({
-    agents,
-    sessions: { get: id => (id === 'parent-1' ? PARENT : undefined) },
-    sessionProjections: {
-      stateOf: session => (session === PARENT
-        ? { pending: { provider: 'p', model: 'm' }, lastUsed: null }
-        : undefined),
+/** 假 agentCtx：收 installModelSelection 的监听（真函数会注册三个 listener）。 */
+function fakeAgentCtx() {
+  const listeners = new Map()
+  return {
+    listeners,
+    on: (name, handler) => {
+      listeners.set(name, handler)
+      return () => { listeners.delete(name) }
     },
-  })
-  alignThreadModelToParent(ctx, CHILD)
-  assert.equal(agents.writes.length, 0)
-})
-
-check('alignThreadModelToParent: 父会话换了模型 → 写出父会话此刻的选择', () => {
-  const agents = fakeAgents(new Map([[CHILD, { provider: 'deepseek', model: 'deepseek-v4-flash' }]]))
-  const ctx = fakeCtx({
-    agents,
-    sessions: { get: () => PARENT },
-    sessionProjections: {
-      stateOf: () => ({
-        pending: { provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'high' },
-        lastUsed: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-      }),
-    },
-  })
-  alignThreadModelToParent(ctx, CHILD)
-  assert.equal(agents.writes.length, 1)
-  assert.deepEqual(agents.writes[0].selection, {
-    provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'high',
-  })
-})
-
-check('alignThreadModelToParent: 父会话/投影缺席 → 不写（降级，不抛）', () => {
-  const installed = new Map([[CHILD, { provider: 'p', model: 'm' }]])
-  const noParent = fakeAgents(installed)
-  alignThreadModelToParent(fakeCtx({
-    agents: noParent,
-    sessions: { get: () => undefined },
-    sessionProjections: { stateOf: () => undefined },
-  }), CHILD)
-  assert.equal(noParent.writes.length, 0)
-
-  const noProjection = fakeAgents(installed)
-  alignThreadModelToParent(fakeCtx({ agents: noProjection, sessions: { get: () => PARENT } }), CHILD)
-  assert.equal(noProjection.writes.length, 0)
-
-  const orphan = fakeAgents(installed)
-  alignThreadModelToParent(fakeCtx({ agents: orphan }), { session: { id: 'x', header: {} } })
-  assert.equal(orphan.writes.length, 0, '没有 parentSession 的会话不该被对齐')
-})
-
-check('alignThreadModelToParent: 服务抛错 → 只记一行警告，不把消息投递打断', () => {
-  const agents = {
-    selectionFor: () => { throw new Error('projection not registered') },
-    selectForNextRequest: () => { throw new Error('should not be reached') },
   }
-  const ctx = fakeCtx({
-    agents,
-    sessions: { get: () => PARENT },
-    sessionProjections: { stateOf: () => ({ pending: { provider: 'p', model: 'm' }, lastUsed: null }) },
-  })
-  alignThreadModelToParent(ctx, CHILD)
-  assert.equal(ctx.warnings.length, 1)
-  assert.match(ctx.warnings[0], /model follow skipped/)
-  assert.match(ctx.warnings[0], /align failed/)
+}
+
+check('installAgentModelSelection: 装订 ref 并把它交给引擎的 installModelSelection', () => {
+  const ctx = fakeCtx({})
+  const agentCtx = fakeAgentCtx()
+  const { agent } = fakeAgent()
+  const ref = installAgentModelSelection(agentCtx, 'child-1', { provider: 'qwen', model: 'qwen3.8-flash' })
+  assert.deepEqual(ref.current, { provider: 'qwen', model: 'qwen3.8-flash' })
+  // 引擎装的是三件套：prompt 变量、请求覆盖、换模型通知。
+  assert.deepEqual([...agentCtx.listeners.keys()].sort(), ['agent/pre-step', 'agent/request', 'system-prompt/assemble'])
+  assert.equal(threadSelectionOf('child-1'), ref)
+  threadSelectionsClear()
+  assert.equal(threadSelectionOf('child-1'), undefined)
 })
 
-check('alignThreadModelToParent: 投影服务缺席 → 走**日志兜底**（不许静默不跟随）', () => {
-  const events = [
-    { type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-flash' } } } },
-    { type: 'model/selection', data: { provider: 'glm', model: 'glm-5.3-flash' } },
-  ]
-  const parent = { id: 'parent-1', snapshotEvents: () => events }
-  const agents = fakeAgents(new Map([[CHILD, { provider: 'glm', model: 'glm-5.3-flash' }]]))
-  const ctx = fakeCtx({
-    agents,
-    sessions: { get: () => parent },
-    // 没有 sessionProjections：这正是现场很可能遇到的情况。
-  })
-  alignThreadModelToParent(ctx, CHILD)
-  assert.equal(agents.writes.length, 0, '已一致：即便走日志兜底也不该写')
-
-  const stale = fakeAgents(new Map([[CHILD, { provider: 'qwen', model: 'qwen3.8-flash' }]]))
-  alignThreadModelToParent(fakeCtx({
-    agents: stale,
-    sessions: { get: () => parent },
-  }), CHILD)
-  assert.equal(stale.writes.length, 1, '不一致就必须写：日志兜底也得能跟随')
-  assert.deepEqual(stale.writes[0].selection, { provider: 'glm', model: 'glm-5.3-flash' })
+check('alignThreadModelToParent: 改 ref.current + 落一条 model/selection（引擎下一步就用它）', () => {
+  const ctx = fakeCtx({ sessions: { get: () => PARENT } })
+  const agentCtx = fakeAgentCtx()
+  const { agent, appended } = fakeAgent()
+  const ref = installAgentModelSelection(agentCtx, 'child-1', { provider: 'deepseek', model: 'deepseek-v4-flash' })
+  const outcome = alignThreadModelToParent(ctx, agent)
+  assert.equal(outcome.ok, true)
+  assert.equal(outcome.switched, true)
+  assert.deepEqual(outcome.model, { provider: 'qwen', model: 'qwen3.8-flash' })
+  assert.deepEqual(ref.current, { provider: 'qwen', model: 'qwen3.8-flash' }, 'ref 必须真的改掉')
+  assert.deepEqual(appended, [{ type: 'model/selection', data: { provider: 'qwen', model: 'qwen3.8-flash' } }])
+  // 第二次：已一致 ⇒ 一个字节都不写。
+  const again = alignThreadModelToParent(ctx, agent)
+  assert.deepEqual(again, { ok: true, switched: false, model: { provider: 'qwen', model: 'qwen3.8-flash' } })
+  assert.equal(appended.length, 1, '一致时不得重复落事件')
+  threadSelectionsClear()
 })
 
-check('alignThreadModelToParent: 父会话取不到 → 明确记一行（不再无声跳过）', () => {
-  const ctx = fakeCtx({ agents: fakeAgents(new Map()) })
-  alignThreadModelToParent(ctx, CHILD)
-  assert.equal(ctx.warnings.length, 1)
-  assert.match(ctx.warnings[0], /parent session "parent-1" is not live/)
-})
+check('alignThreadModelToParent: 未装订 / 父会话不在 / 父会话读不到 → 明确原因，不抛', () => {
+  const ctxNoRef = fakeCtx({ sessions: { get: () => PARENT } })
+  const { agent } = fakeAgent()
+  const noRef = alignThreadModelToParent(ctxNoRef, agent)
+  assert.equal(noRef.ok, false)
+  assert.match(noRef.reason, /没有装订/)
 
-check('installAgentModelSelection: 调用 selectionFor（引擎 installSelection 同一入口）', () => {
-  let calls = 0
-  const ctx = fakeCtx({ agents: { selectionFor: () => { calls += 1; return { current: undefined } } } })
-  assert.equal(installAgentModelSelection(ctx, CHILD), true)
-  assert.equal(calls, 1)
-})
+  const agentCtx = fakeAgentCtx()
+  installAgentModelSelection(agentCtx, 'child-1', { provider: 'deepseek', model: 'deepseek-v4-flash' })
+  const noParent = alignThreadModelToParent(fakeCtx({}), agent)
+  assert.equal(noParent.ok, false)
+  assert.match(noParent.reason, /不在运行/)
 
-check('installAgentModelSelection: 老载具没有该面 / 抛错 → false 且不阻断建线程', () => {
-  assert.equal(installAgentModelSelection(fakeCtx({}), CHILD), false)
-  const ctx = fakeCtx({ agents: { selectionFor: () => { throw new Error('no projection') } } })
-  assert.equal(installAgentModelSelection(ctx, CHILD), false)
-  assert.equal(ctx.warnings.length, 1)
-  assert.match(ctx.warnings[0], /model selection was not installed/)
+  const noSelection = alignThreadModelToParent(
+    fakeCtx({ sessions: { get: () => ({ id: 'parent-1', snapshotEvents: () => [] }) } }),
+    agent,
+  )
+  assert.equal(noSelection.ok, false)
+  assert.match(noSelection.reason, /读不到模型选择/)
+  threadSelectionsClear()
 })
 
 const failed = lines.filter(line => line.startsWith('  FAIL'))

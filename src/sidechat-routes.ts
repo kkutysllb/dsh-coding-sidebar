@@ -22,7 +22,15 @@
  */
 import { randomUUID } from 'node:crypto'
 import { createUserMessage, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
-import type { Agent, AgentSetup, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import type {
+  Agent,
+  AgentSetup,
+  CreateAgentOptions,
+  ModelSelection,
+  ModelSelectionRef,
+  ResumeAgentOptions,
+} from '@deepseek-ai/dsh-agent'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import type { Context as CordisContext } from '@deepseek-ai/cordis'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -45,8 +53,9 @@ export interface SidechatRoutes {
    *  immediate create); the first `sidechat.prompt` then carries the
    *  boundary + snapshot and earns the thread its real label. */
   'sidechat.start'(payload: unknown): Promise<{ childId: string }>
-  /** Deliver one follow-up message to a thread (live, or cold-resumed). */
-  'sidechat.prompt'(payload: unknown): Promise<{ accepted: true }>
+  /** Deliver one follow-up message to a thread (live, or cold-resumed).
+   *  同时回传本次「跟随主会话模型」的结果（失败原因直接显示在面板上）。 */
+  'sidechat.prompt'(payload: unknown): Promise<{ accepted: true; modelFollow?: ModelFollowOutcome }>
   /** Abort the thread's running turn (queued work is preserved). */
   'sidechat.cancel'(payload: unknown): Promise<{ accepted: true }>
   /** Release the thread's live agent (session and history stay persisted). */
@@ -86,44 +95,60 @@ async function releaseAllThreads(): Promise<void> {
   const pending = [...threadDisposers.values()]
   threadDisposers.clear()
   pendingSnapshots.clear()
+  threadSelections.clear()
   await Promise.allSettled(pending.map((dispose) => dispose()))
 }
 
+/** 本插件为每个侧边线程持有的**可变**模型选择（引擎 `agent/request` 会读它，见下）。 */
+const threadSelections = new Map<string, ModelSelectionRef>()
+
 /**
- * 装订子会话的**模型选择**——引擎 `ApiSessionAgentController.composeAgent` 的 setup 第一步
- * 就是它（`packages/api/session-controller/src/agent.ts:393`：`installSelection(agent)`，
- * 即同一个服务的公开方法 `selectionFor(agent)`）。
+ * 装订子会话的**模型选择**——用引擎的公开装配面 `installModelSelection`
+ * （`@deepseek-ai/dsh-agent`，与引擎自己的 composeAgent 同一函数）。
  *
- * 为什么必须自己调：`AgentOptions`（`parent.options`）是 agent 创建时的**启动参数**，
- * 引擎创建主会话时传的是**部署默认**；用户在会话里用模型选择器换的模型走的是
- * `session.selectModel` → `session/selection` 投影 + agent 运行时的 installed selection，
- * **从不回写 `agent.options`**。而我们的子会话 setup 是自己写的（只挂 preset），于是引擎那步
- * install 被跳过 ⇒ 子会话退回到启动参数（默认模型）——这就是「侧边对话不跟随主会话模型」的根因。
+ * 为什么不是 `agents.selectionFor`（第一版就是这么写的，**错的**）：`ctx.get('agents')` 是
+ * **核心 AgentRegistry**（`create`/`get`/`resume`），而 `selectionFor` / `selectForNextRequest`
+ * 在 `ApiSessionAgentController` 上——那是个**私有实例**，根本不注册成服务。于是那两处调用
+ * **恒为 no-op**（可选链把 TypeError 吞了）：建线程时看着「跟上了」，靠的其实是
+ * `agentOptions` 带过去的 provider/model；而「已经开着的线程换模型」没有任何机制
+ * ⇒ 现场就是「第一次跟随、之后不跟随」。
  *
- * `selectionFor` 对子会话是**安全且正确**的：它按**会话自己的日志**投影解析
- * （`pending ?? lastUsed`），而子会话的日志带着父会话的 fork seed ⇒ 解析出来的正是父会话
- * 此刻生效的模型（含推理档位）。冷恢复同理：子会话自己的 `request/header` 就是上次真正用过的模型。
+ * `installModelSelection(agentCtx, ref)` 在 agent 作用域挂三件事（见其源码）：
+ * ① `system-prompt/assemble` 写入 provider/model 变量；
+ * ② **`agent/request` 用 `ref.assembled` 覆盖请求配置的 provider/model/effort**——真正决定
+ *    模型的那一步；
+ * ③ `agent/pre-step` 在换路由时追加一条「model changed」耐久通知。
+ * 而 ref 就是一个**可变对象**（`{ current, assembled }`）⇒ 换模型不需要任何服务配合：
+ * 改 `ref.current`，下一次 prompt 组装即生效（见 {@link alignThreadModelToParent}）。
  *
- * @param ctx - 插件上下文。
- * @param agent - 刚创建/恢复、尚未发布的子 agent。
- * @returns 是否装订成功（服务缺该面或投影缺席时不阻断建线程）。
+ * @param agentCtx - 子 agent 的作用域上下文（setup 的第一个参数）。
+ * @param sessionId - 子会话 id（线程身份的 key）。
+ * @param initial - 初始模型选择（通常来自父会话此刻的选择）。
+ * @returns 该线程的选择引用（归本插件所有）。
  */
-export function installAgentModelSelection(ctx: Context, agent: Agent): boolean {
-  const agents = ctx.get('agents') as {
-    selectionFor?: (agent: Agent) => unknown
-  } | undefined
-  if (typeof agents?.selectionFor !== 'function') return false
-  try {
-    agents.selectionFor(agent)
-    return true
-  } catch (error) {
-    // 投影缺席（老/异构载具）不该让侧边对话整条不可用：记一行，退回启动参数。
-    ctx.logger?.warn(
-      `[dsh-coding-sidebar] side chat: model selection was not installed for ${agent.session.id}:`
-      + ` ${error instanceof Error ? error.message : String(error)}`,
-    )
-    return false
+export function installAgentModelSelection(
+  agentCtx: CordisContext,
+  sessionId: string,
+  initial: SidechatModelSelection | undefined,
+): ModelSelectionRef {
+  const ref: ModelSelectionRef = {
+    current: initial === undefined ? undefined : asAgentSelection(initial),
+    assembled: undefined,
   }
+  threadSelections.set(sessionId, ref)
+  // 监听器随 agentCtx 一起销毁（引擎自己的入口也忽略这个 disposer）。
+  installModelSelection(agentCtx, ref)
+  return ref
+}
+
+/** 该线程本插件持有的选择引用（未装订/已释放即 undefined）。 */
+export function threadSelectionOf(sessionId: string): ModelSelectionRef | undefined {
+  return threadSelections.get(sessionId)
+}
+
+/** 测试钩子：清空装订表（真进程里由 dispose/release 路径逐个清）。 */
+export function threadSelectionsClear(): void {
+  threadSelections.clear()
 }
 
 /**
@@ -170,30 +195,9 @@ function parentSessionOf(ctx: Context, parentSessionId: string): unknown {
   return agents?.get?.(parentSessionId)?.session
 }
 
-/**
- * 读 agent **此刻装订**的模型选择（`selectionFor(agent).current`）。
- *
- * 与 {@link readSessionModelSelection} 的区别：投影是「日志说该用什么」，装订是「这个 agent
- * **真的会用**什么」。信息行/徽标要的是后者；两者并存时以装订为准。
- *
- * @param ctx - 插件上下文。
- * @param agent - 活 agent。
- * @returns 装订的选择，或 undefined（服务缺席/抛错）。
- */
-function installedSelectionOf(ctx: Context, agent: Agent): SidechatModelSelection | undefined {
-  const agents = ctx.get('agents') as {
-    selectionFor?: (agent: Agent) => { current?: unknown } | undefined
-  } | undefined
-  if (typeof agents?.selectionFor !== 'function') return undefined
-  try {
-    return effectiveModelSelection({ pending: agents.selectionFor(agent)?.current })
-  } catch {
-    return undefined
-  }
-}
-
 /** 两个选择是否同一套（provider + model + 档位）。 */
-function sameModelSelection(  left: SidechatModelSelection | undefined,
+function sameModelSelection(
+  left: SidechatModelSelection | undefined,
   right: SidechatModelSelection,
 ): boolean {
   return left !== undefined
@@ -202,8 +206,8 @@ function sameModelSelection(  left: SidechatModelSelection | undefined,
     && (left.reasoningEffort ?? '') === (right.reasoningEffort ?? '')
 }
 
-/** `{ provider, model, reasoningEffort? }` → 引擎 `AgentModelSelection`（档位是品牌类型，就地断言）。 */
-function asAgentSelection(selection: SidechatModelSelection): { provider: string; model: string; reasoningEffort?: never } {
+/** `{ provider, model, reasoningEffort? }` → 引擎 `ModelSelection`（档位是品牌类型，就地断言）。 */
+function asAgentSelection(selection: SidechatModelSelection): ModelSelection {
   return {
     provider: selection.provider,
     model: selection.model,
@@ -213,57 +217,78 @@ function asAgentSelection(selection: SidechatModelSelection): { provider: string
   }
 }
 
+/** 引擎 `ModelSelection`（或任意形状）→ 本插件的窄化选择。 */
+function fromEngineSelection(value: unknown): SidechatModelSelection | undefined {
+  return effectiveModelSelection({ pending: value })
+}
+
+/** 本插件持有的选择引用 → 窄化选择。 */
+function threadSelectionValue(sessionId: string): SidechatModelSelection | undefined {
+  return fromEngineSelection(threadSelectionOf(sessionId)?.current)
+}
+
+/** 「跟随主会话」的一次对齐结果——**要看得见**：prompt 把它带回客户端，失败原因直接显示在面板上。 */
+export interface ModelFollowOutcome {
+  /** 是否读到父会话此刻的选择。 */
+  ok: boolean
+  /** 本次是否真的换了路由（false = 本来就一致，没动任何东西）。 */
+  switched: boolean
+  /** 目标选择（ok 时为真值）。 */
+  model?: SidechatModelSelection
+  /** ok=false 的原因（中文短句，面板原样显示——不再让人去翻日志）。 */
+  reason?: string
+}
+
 /**
  * 把线程的模型**对齐到父会话此刻的选择**——「跟随主会话」的持续语义。
  *
- * 建线程时的装订只解决「开局用了对模型」；用户之后在主会话里换了模型，已存在的线程不会自己知道
+ * 建线程时的装订只解决「开局用对模型」；用户之后在主会话里换了模型，已经开着的线程不会自己知道
  * （子会话的模型选择是运行时装订的，而针对 subagent 的 `session.selectModel` 被引擎 fence 掉）。
- * 所以在**每次投递消息前**对齐一次：只有真的不同才写一条 `model/selection`（引擎
- * `selectForNextRequest` 自己会落日志 + 更新运行时选择），相同则一个字节都不写。
+ * 所以**每次投递消息前**对齐一次：改本插件持有的那个 ref（{@link installAgentModelSelection}），
+ * 并落一条 `model/selection` 事件（耐久 + 转录里那行「已跟随主会话切换到 X」就是它渲染的）。
+ * 本来就一致 ⇒ 一个字节都不写。
  *
  * @param ctx - 插件上下文。
  * @param agent - 即将收到消息的子 agent。
+ * @returns 对齐结果（ok/switched/原因），供 prompt 路由回给客户端显示。
  */
-export function alignThreadModelToParent(ctx: Context, agent: Agent): void {
-  const warn = (detail: string): void => {
-    ctx.logger?.warn(`[dsh-coding-sidebar] side chat: model follow skipped for ${agent.session.id}: ${detail}`)
+export function alignThreadModelToParent(ctx: Context, agent: Agent): ModelFollowOutcome {
+  const skip = (reason: string): ModelFollowOutcome => {
+    ctx.logger?.warn(`[dsh-coding-sidebar] side chat: model follow skipped for ${agent.session.id}: ${reason}`)
+    return { ok: false, switched: false, reason }
   }
   const parentSessionId = (agent.session.header as { parentSession?: unknown }).parentSession
   if (typeof parentSessionId !== 'string' || parentSessionId === '') {
-    warn('the thread records no parent session')
-    return
+    return skip('线程里没有记录父会话')
   }
   const parentSession = parentSessionOf(ctx, parentSessionId)
   if (parentSession === undefined || parentSession === null) {
-    warn(`parent session "${parentSessionId}" is not live`)
-    return
+    return skip(`父会话 ${parentSessionId} 不在运行`)
   }
   const target = readSessionModelSelection(ctx, parentSession)
-  if (target === undefined) {
-    warn(`parent session "${parentSessionId}" exposes no model selection`)
-    return
+  if (target === undefined) return skip('父会话读不到模型选择')
+  const ref = threadSelectionOf(agent.session.id)
+  if (ref === undefined) return skip('本线程没有装订模型选择（新建一个侧边对话即可）')
+  const previous = fromEngineSelection(ref.current)
+  if (sameModelSelection(previous, target)) {
+    return { ok: true, switched: false, model: target }
   }
-  const agents = ctx.get('agents') as {
-    selectionFor?: (agent: Agent) => { current: SidechatModelSelection } | undefined
-    selectForNextRequest?: (agent: Agent, selection: unknown) => void
-  } | undefined
-  if (typeof agents?.selectForNextRequest !== 'function') {
-    warn('the agents service exposes no selectForNextRequest')
-    return
-  }
+  // 改 ref 就是换模型本身：`agent/request` 会在下一次请求组装时读走它。
+  ref.current = asAgentSelection(target)
   try {
-    // selectionFor 幂等：已装订即返回缓存（顺带保证老线程也被装订上）。
-    const installed = agents.selectionFor?.(agent)?.current
-    if (sameModelSelection(installed, target)) return
-    agents.selectForNextRequest(agent, asAgentSelection(target))
-    // 换模型是要**看见**的：这行日志与转录里的「模型切换」行成对出现（用户此前只能靠徽标猜）。
-    ctx.logger?.info?.(
-      `[dsh-coding-sidebar] side chat ${agent.session.id} follows the parent model:`
-      + ` ${installed?.provider ?? '?'}/${installed?.model ?? '?'} → ${target.provider}/${target.model}`,
-    )
-  } catch (error) {
-    warn(`align failed: ${error instanceof Error ? error.message : String(error)}`)
+    // 耐久 + 可见：引擎自己的 selectForNextRequest 同样是「落一条事件 + 改运行时选择」。
+    // `model/selection` 的事件类型由 api-session-controller 声明合并；本插件的编译面看不到它，
+    // 形状与引擎自己的 selectForNextRequest 一致（`session.append('model/selection', selection)`）。
+    ;(agent.session as unknown as { append(type: string, data: unknown): unknown })
+      .append('model/selection', asAgentSelection(target))
+  } catch {
+    // 日志落不下不影响这次切换（ref 已经改了），下次投递会再对齐一次。
   }
+  ctx.logger?.info?.(
+    `[dsh-coding-sidebar] side chat ${agent.session.id} follows the parent model: `
+    + `${previous?.provider ?? '?'}/${previous?.model ?? '?'} → ${target.provider}/${target.model}`,
+  )
+  return { ok: true, switched: true, model: target }
 }
 
 /** Resolve the parent's preset and build the child's composition setup
@@ -273,17 +298,18 @@ export function alignThreadModelToParent(ctx: Context, agent: Agent): void {
 async function composeChildSetup(
   ctx: Context,
   presetId: string | undefined,
+  initial: SidechatModelSelection | undefined,
 ): Promise<{ agentPreset?: string; setup: AgentSetup }> {
   const presets = ctx.get('agentPresets') as SidebarAgentPresetsService | undefined
   if (presets === undefined) {
-    return { setup: (_agentCtx, agent) => { installAgentModelSelection(ctx, agent) } }
+    return { setup: (agentCtx, agent) => { installAgentModelSelection(agentCtx, agent.session.id, initial) } }
   }
   const resolved = await presets.resolve(presetId)
   return {
     agentPreset: resolved.id,
     setup: async (agentCtx: CordisContext, agent: Agent) => {
       // 与引擎同序：先装订模型选择，再挂 preset。
-      installAgentModelSelection(ctx, agent)
+      installAgentModelSelection(agentCtx, agent.session.id, initial)
       await presets.mount(agentCtx, resolved.id)
     },
   }
@@ -368,19 +394,22 @@ async function composePersistedSetup(
 ): Promise<AgentSetup> {
   const persistence = ctx.get('sessionPersistence') as SidebarSessionPersistenceService | undefined
   if (persistence === undefined) {
-    return (_agentCtx, agent) => { installAgentModelSelection(ctx, agent) }
+    return (agentCtx, agent) => { installAgentModelSelection(agentCtx, agent.session.id, undefined) }
   }
   const handle = await persistence.open(childId, 'read')
   const { events } = await handle.read()
+  const log = events as unknown as readonly SidechatLogEvent[]
   const presetId = resolvePresetId(handle.header as never, events as unknown as readonly SidebarSessionEvent[])
+  // 冷恢复的初始模型 = 线程自己日志里**生效**的那个（pending ?? 最后一次真正用过的）。
+  const initial = effectiveModelSelectionFromLog(log)
   await handle.close()
   const presets = ctx.get('agentPresets') as SidebarAgentPresetsService | undefined
   if (presets === undefined || presetId === undefined) {
-    return (_agentCtx, agent) => { installAgentModelSelection(ctx, agent) }
+    return (agentCtx, agent) => { installAgentModelSelection(agentCtx, agent.session.id, initial) }
   }
   const resolved = await presets.resolve(presetId)
   return async (agentCtx: CordisContext, agent: Agent) => {
-    installAgentModelSelection(ctx, agent)
+    installAgentModelSelection(agentCtx, agent.session.id, initial)
     await presets.mount(agentCtx, resolved.id)
   }
 }
@@ -470,9 +499,12 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       const inheritance = buildSidechatInheritance(
         parentSession.snapshotEvents() as unknown as readonly SidechatLogEvent[],
       )
+      // 父会话**此刻生效**的模型选择：既要装订给子会话（开局即同模型），也要写进描述符。
+      const parentSelection = readSessionModelSelection(ctx, parentSession)
       const { agentPreset, setup } = await composeChildSetup(
         ctx,
         resolvePresetId(parentSession.header, parentSession.snapshotEvents()),
+        parentSelection,
       )
       const childId = `session-${randomUUID()}` as SessionId
       const label = question === '' ? SIDE_NEW_THREAD_TITLE : sideLabel(question)
@@ -481,10 +513,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       // one is deterministically rendered as a 'corrupt' diagnostic. The
       // SubagentView filters the 'Side: ' label out, so the topology UI
       // stays noise-free; the row only serves enumeration correctness.
-      // 父会话**此刻生效**的模型选择（不是 agent 的启动参数，见
-      // installAgentModelSelection）：描述符写成它，agentOptions 也用它兜底——
-      // 真正的装订在 setup 里完成，这里两份记录只是让描述符与启动参数都不再说谎。
-      const parentSelection = readSessionModelSelection(ctx, parent.session)
+      // 描述符与 agentOptions 也按它写：装订（setup）才是权威，这两处只是不让人读到假信息。
       const childProvider = parentSelection?.provider ?? parent.options.provider
       const childModel = parentSelection?.model ?? parent.options.model
       const descriptor = snapshotSubagentDescriptor({
@@ -599,7 +628,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       }
       // 投递前对齐模型：用户在主会话换了模型，这一条消息就该用新模型（同则零写入）。
       // 冷恢复路径的装订已在 setup 里做过，这里幂等复用同一判据。
-      alignThreadModelToParent(ctx, agent)
+      const modelFollow = alignThreadModelToParent(ctx, agent)
       if (boundaryDelivered(agent.session.snapshotEvents() as unknown as readonly SidechatLogEvent[])) {
         admitFollowup(agent, textPrompt(text))
       } else {
@@ -620,7 +649,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
           }
         }
       }
-      return { accepted: true as const }
+      return { accepted: true as const, modelFollow }
     },
 
     'sidechat.cancel': async (payload: unknown) => {
@@ -635,6 +664,8 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
     'sidechat.dispose': async (payload: unknown) => {
       const childId = requireString(payload, 'childId')
       pendingSnapshots.delete(childId)
+      // 释放 agent 时一并丢掉本插件持有的选择引用（下次冷恢复的 setup 会重新装订）。
+      threadSelections.delete(childId)
       const dispose = threadDisposers.get(childId)
       if (dispose !== undefined) {
         threadDisposers.delete(childId)
@@ -660,7 +691,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
         // 信息行必须报**此刻生效**的模型，不能报 agent 的启动参数：`agent.options` 是创建时
         // 的默认（用户在会话里换的模型从不回写它），拿它当徽标会让界面说谎
         // （现场截图里主会话跑 GLM-5.3-Flash Max、侧边栏却显示 deepseek-v4-flash）。
-        const selection = installedSelectionOf(ctx, agent) ?? readSessionModelSelection(ctx, agent.session)
+        const selection = threadSelectionValue(childId) ?? readSessionModelSelection(ctx, agent.session)
         return {
           live: true,
           status: agent.status,

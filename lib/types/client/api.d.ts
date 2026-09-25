@@ -9,6 +9,17 @@ export declare class SidebarApiError extends Error {
     constructor(code: string, message: string);
 }
 /** Explorer row (host fs-tree shape). */
+/** 一次「跟随主会话模型」的结果（失败原因会显示在面板上）。 */
+export interface SidechatModelFollow {
+    ok: boolean;
+    switched: boolean;
+    model?: {
+        provider: string;
+        model: string;
+        reasoningEffort?: string;
+    };
+    reason?: string;
+}
 export interface FsEntry {
     name: string;
     path: string;
@@ -421,6 +432,7 @@ export declare const api: {
     /** Deliver one follow-up message to a Side Chat thread. */
     sidechatPrompt: (childId: string, text: string) => Promise<{
         accepted: true;
+        modelFollow?: SidechatModelFollow;
     }>;
     /** Abort a Side Chat thread's running turn (queued work is preserved). */
     sidechatCancel: (childId: string) => Promise<{

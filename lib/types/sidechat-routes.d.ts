@@ -1,7 +1,8 @@
-import type { Agent } from '@deepseek-ai/dsh-agent';
+import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent';
+import type { Context as CordisContext } from '@deepseek-ai/cordis';
 import type { SidebarHistoryEntry } from './context-types.ts';
 import type { Context } from './context-types.ts';
-import { type SidechatThreadInfo, type SidechatLiveEvent } from './sidechat-core.ts';
+import { type SidechatThreadInfo, type SidechatLiveEvent, type SidechatModelSelection } from './sidechat-core.ts';
 /** The five Side Chat routes of the sidebar API (wire method names). */
 export interface SidechatRoutes {
     /** Create a side thread child seeded with the parent's log up to now.
@@ -11,9 +12,11 @@ export interface SidechatRoutes {
     'sidechat.start'(payload: unknown): Promise<{
         childId: string;
     }>;
-    /** Deliver one follow-up message to a thread (live, or cold-resumed). */
+    /** Deliver one follow-up message to a thread (live, or cold-resumed).
+     *  同时回传本次「跟随主会话模型」的结果（失败原因直接显示在面板上）。 */
     'sidechat.prompt'(payload: unknown): Promise<{
         accepted: true;
+        modelFollow?: ModelFollowOutcome;
     }>;
     /** Abort the thread's running turn (queued work is preserved). */
     'sidechat.cancel'(payload: unknown): Promise<{
@@ -42,37 +45,59 @@ export interface SidechatRoutes {
     }>;
 }
 /**
- * 装订子会话的**模型选择**——引擎 `ApiSessionAgentController.composeAgent` 的 setup 第一步
- * 就是它（`packages/api/session-controller/src/agent.ts:393`：`installSelection(agent)`，
- * 即同一个服务的公开方法 `selectionFor(agent)`）。
+ * 装订子会话的**模型选择**——用引擎的公开装配面 `installModelSelection`
+ * （`@deepseek-ai/dsh-agent`，与引擎自己的 composeAgent 同一函数）。
  *
- * 为什么必须自己调：`AgentOptions`（`parent.options`）是 agent 创建时的**启动参数**，
- * 引擎创建主会话时传的是**部署默认**；用户在会话里用模型选择器换的模型走的是
- * `session.selectModel` → `session/selection` 投影 + agent 运行时的 installed selection，
- * **从不回写 `agent.options`**。而我们的子会话 setup 是自己写的（只挂 preset），于是引擎那步
- * install 被跳过 ⇒ 子会话退回到启动参数（默认模型）——这就是「侧边对话不跟随主会话模型」的根因。
+ * 为什么不是 `agents.selectionFor`（第一版就是这么写的，**错的**）：`ctx.get('agents')` 是
+ * **核心 AgentRegistry**（`create`/`get`/`resume`），而 `selectionFor` / `selectForNextRequest`
+ * 在 `ApiSessionAgentController` 上——那是个**私有实例**，根本不注册成服务。于是那两处调用
+ * **恒为 no-op**（可选链把 TypeError 吞了）：建线程时看着「跟上了」，靠的其实是
+ * `agentOptions` 带过去的 provider/model；而「已经开着的线程换模型」没有任何机制
+ * ⇒ 现场就是「第一次跟随、之后不跟随」。
  *
- * `selectionFor` 对子会话是**安全且正确**的：它按**会话自己的日志**投影解析
- * （`pending ?? lastUsed`），而子会话的日志带着父会话的 fork seed ⇒ 解析出来的正是父会话
- * 此刻生效的模型（含推理档位）。冷恢复同理：子会话自己的 `request/header` 就是上次真正用过的模型。
+ * `installModelSelection(agentCtx, ref)` 在 agent 作用域挂三件事（见其源码）：
+ * ① `system-prompt/assemble` 写入 provider/model 变量；
+ * ② **`agent/request` 用 `ref.assembled` 覆盖请求配置的 provider/model/effort**——真正决定
+ *    模型的那一步；
+ * ③ `agent/pre-step` 在换路由时追加一条「model changed」耐久通知。
+ * 而 ref 就是一个**可变对象**（`{ current, assembled }`）⇒ 换模型不需要任何服务配合：
+ * 改 `ref.current`，下一次 prompt 组装即生效（见 {@link alignThreadModelToParent}）。
  *
- * @param ctx - 插件上下文。
- * @param agent - 刚创建/恢复、尚未发布的子 agent。
- * @returns 是否装订成功（服务缺该面或投影缺席时不阻断建线程）。
+ * @param agentCtx - 子 agent 的作用域上下文（setup 的第一个参数）。
+ * @param sessionId - 子会话 id（线程身份的 key）。
+ * @param initial - 初始模型选择（通常来自父会话此刻的选择）。
+ * @returns 该线程的选择引用（归本插件所有）。
  */
-export declare function installAgentModelSelection(ctx: Context, agent: Agent): boolean;
+export declare function installAgentModelSelection(agentCtx: CordisContext, sessionId: string, initial: SidechatModelSelection | undefined): ModelSelectionRef;
+/** 该线程本插件持有的选择引用（未装订/已释放即 undefined）。 */
+export declare function threadSelectionOf(sessionId: string): ModelSelectionRef | undefined;
+/** 测试钩子：清空装订表（真进程里由 dispose/release 路径逐个清）。 */
+export declare function threadSelectionsClear(): void;
+/** 「跟随主会话」的一次对齐结果——**要看得见**：prompt 把它带回客户端，失败原因直接显示在面板上。 */
+export interface ModelFollowOutcome {
+    /** 是否读到父会话此刻的选择。 */
+    ok: boolean;
+    /** 本次是否真的换了路由（false = 本来就一致，没动任何东西）。 */
+    switched: boolean;
+    /** 目标选择（ok 时为真值）。 */
+    model?: SidechatModelSelection;
+    /** ok=false 的原因（中文短句，面板原样显示——不再让人去翻日志）。 */
+    reason?: string;
+}
 /**
  * 把线程的模型**对齐到父会话此刻的选择**——「跟随主会话」的持续语义。
  *
- * 建线程时的装订只解决「开局用了对模型」；用户之后在主会话里换了模型，已存在的线程不会自己知道
+ * 建线程时的装订只解决「开局用对模型」；用户之后在主会话里换了模型，已经开着的线程不会自己知道
  * （子会话的模型选择是运行时装订的，而针对 subagent 的 `session.selectModel` 被引擎 fence 掉）。
- * 所以在**每次投递消息前**对齐一次：只有真的不同才写一条 `model/selection`（引擎
- * `selectForNextRequest` 自己会落日志 + 更新运行时选择），相同则一个字节都不写。
+ * 所以**每次投递消息前**对齐一次：改本插件持有的那个 ref（{@link installAgentModelSelection}），
+ * 并落一条 `model/selection` 事件（耐久 + 转录里那行「已跟随主会话切换到 X」就是它渲染的）。
+ * 本来就一致 ⇒ 一个字节都不写。
  *
  * @param ctx - 插件上下文。
  * @param agent - 即将收到消息的子 agent。
+ * @returns 对齐结果（ok/switched/原因），供 prompt 路由回给客户端显示。
  */
-export declare function alignThreadModelToParent(ctx: Context, agent: Agent): void;
+export declare function alignThreadModelToParent(ctx: Context, agent: Agent): ModelFollowOutcome;
 /** Build the Side Chat routes (all optional services degrade to a wire
  *  error the tab surfaces inline). The record keys are the FULL wire method
  *  names the /sidebar/api dispatcher looks up (`api[method]`). */

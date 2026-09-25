@@ -46,7 +46,7 @@ import {
   type SidechatThreadInfo,
 } from '../sidechat-core.ts'
 import { collectOwnEvents, formatDurationMs, formatTokens, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
-import { api } from './api.ts'
+import { api, type SidechatModelFollow } from './api.ts'
 import type { SidechatLiveEvent } from '../sidechat-core.ts'
 import {
   answerFromComposer,
@@ -508,6 +508,8 @@ export function SideChatView(props: {
   const [revision, setRevision] = useState(0)
   const [info, setInfo] = useState<SidechatThreadInfo | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 最近一次「跟随主会话模型」的结果：失败时面板上直接说明原因（别让人去翻日志）。 */
+  const [modelFollow, setModelFollow] = useState<SidechatModelFollow | null>(null)
   /**
    * 引擎的待答提问（本会话）。它就是「回车到底是回答还是追问」的判据——没有它，
    * 输入框只会把答案当成追问送出去，而子会话正卡在提问上，于是两边都不动。
@@ -668,6 +670,7 @@ export function SideChatView(props: {
     setError(null)
     setSaved(false)
     setInfo(null)
+    setModelFollow(null)
     if (threadId !== undefined) {
       void fetchInfo(threadId)
       window.setTimeout(() => composerRef.current?.focus(), 0)
@@ -865,7 +868,8 @@ export function SideChatView(props: {
     setBusy('sending')
     setError(null)
     try {
-      await api.sidechatPrompt(threadId, text)
+      const sent = await api.sidechatPrompt(threadId, text)
+      setModelFollow(sent.modelFollow ?? null)
       setComposer('')
       const field = composerRef.current
       if (field !== null) field.style.height = ''
@@ -940,7 +944,10 @@ export function SideChatView(props: {
             {busy === 'starting' ? t('sideChatCreating') : t('sideChatEmpty')}
           </div>
           <div className={css.sidechatHeroDesc}>{t('sideChatEmptyDesc')}</div>
-          {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
+          {modelFollow !== null && !modelFollow.ok && (
+        <div className={css.sidechatHint}>{t('modelFollowFailed', { reason: modelFollow.reason ?? '' })}</div>
+      )}
+      {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
           {busy !== 'starting' && (
             <button
               type="button"
