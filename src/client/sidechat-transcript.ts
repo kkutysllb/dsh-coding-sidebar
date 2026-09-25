@@ -93,6 +93,9 @@ export type SidechatToolCard =
   | { type: 'diff'; diffs: readonly { path: string; oldText?: string | null; newText: string }[] }
   | { type: 'read'; label: string; lines: readonly { number: number; text: string }[]; totalLines: number }
   | { type: 'terminal'; command: string; cwd?: string; output?: string; exitCode?: number; signal?: string }
+  /** `ask_user_question` 的提问内容：工具行此前只显示原始 JSON，而这一行正是**等用户回答**的
+   *  阻塞点——看不出问题是什么，就一直卡在那儿。 */
+  | { type: 'question'; questions: readonly { header?: string; question: string; options: readonly { label: string; description?: string }[] }[] }
 
 /** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
 export function formatTokens(n: number): string {
@@ -136,6 +139,31 @@ function callCard(name: string, args: string | undefined): SidechatToolCard | un
     if (command === undefined || parsed.run_in_background === true) return undefined
     const cwd = typeof parsed.workdir === 'string' && parsed.workdir !== '' ? parsed.workdir : undefined
     return { type: 'terminal', command, ...(cwd === undefined ? {} : { cwd }) }
+  }
+  if (name === 'ask_user_question') {
+    const raw = parsed.questions
+    if (!Array.isArray(raw) || raw.length === 0) return undefined
+    const questions: { header?: string; question: string; options: { label: string; description?: string }[] }[] = []
+    for (const item of raw) {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) return undefined
+      const candidate = item as { header?: unknown; question?: unknown; options?: unknown }
+      if (typeof candidate.question !== 'string' || candidate.question === '') return undefined
+      const options: { label: string; description?: string }[] = []
+      if (Array.isArray(candidate.options)) {
+        for (const option of candidate.options) {
+          if (option === null || typeof option !== 'object') continue
+          const entry = option as { label?: unknown; description?: unknown }
+          if (typeof entry.label !== 'string' || entry.label === '') continue
+          options.push({ label: entry.label, ...(typeof entry.description === 'string' ? { description: entry.description } : {}) })
+        }
+      }
+      questions.push({
+        question: candidate.question,
+        options,
+        ...(typeof candidate.header === 'string' && candidate.header !== '' ? { header: candidate.header } : {}),
+      })
+    }
+    return { type: 'question', questions }
   }
   if (name === 'edit' || name === 'write') {
     const path = typeof parsed.file_path === 'string' && parsed.file_path !== '' ? parsed.file_path : undefined

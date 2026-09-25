@@ -222,6 +222,21 @@ check('每轮汇总：输出累加、输入取最后一次，时长取 turn 两�
   assert.equal(summary.durationMs, 2000)
 })
 
+check('ask_user_question 调用 → 提问卡（问题 + 选项），畸形则弃卡', () => {
+  const good = transcriptRows([
+    { event: { type: 'tool/call', seq: 60, time: 6000, data: { callId: 'q1', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ header: '确认方向', question: '要不要改？', options: [{ label: '改', description: '按新方案' }] }] }) } } },
+  ], [])
+  const card = good.find(r => r.kind === 'tool').card
+  assert.equal(card.type, 'question')
+  assert.equal(card.questions[0].question, '要不要改？')
+  assert.equal(card.questions[0].options[0].label, '改')
+
+  const bad = transcriptRows([
+    { event: { type: 'tool/call', seq: 61, time: 6001, data: { callId: 'q2', name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ id: 'x' }] }) } } },
+  ], [])
+  assert.equal(bad.find(r => r.kind === 'tool').card, undefined)
+})
+
 console.log('[sidechat-live] 实时流路径（假 ctx 驱动真缓冲 + 真 transcript 映射）')
 for (const line of lines) console.log(line)
 console.log(`[sidechat-live] ${passed}/${lines.length} ${process.exitCode === 1 ? '有失败' : 'ALL PASS'}`)

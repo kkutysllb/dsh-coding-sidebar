@@ -3712,6 +3712,18 @@ body[data-dsh-sidebar-dragging] .panel {
   padding: 2px 0;
 }
 
+.sidechatCardOptions {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sidechatCardOptionLabel {
+  color: var(--dsw-alias-label-primary);
+}
+
 /* ── Task plans (the 任务计划 tab) ───────────────────────────────────────── */
 
 .plansView {

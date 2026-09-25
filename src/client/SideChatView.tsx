@@ -113,6 +113,9 @@ interface RowLabels {
   copiedLabel: string
   thinkLabel: string
   injectionLabel: string
+  inputTokensLabel: string
+  outputTokensLabel: string
+  awaitingAnswerLabel: string
 }
 
 /** Merge history entries by event seq (newest wins), log order preserved. */
@@ -201,7 +204,7 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
     case 'turnSummary': {
       const parts: string[] = []
       if (row.inputTokens !== undefined || row.outputTokens !== undefined) {
-        parts.push(`${formatTokens(row.inputTokens ?? 0)} → ${formatTokens(row.outputTokens ?? 0)}`)
+        parts.push(`${labels.inputTokensLabel} ${formatTokens(row.inputTokens ?? 0)} · ${labels.outputTokensLabel} ${formatTokens(row.outputTokens ?? 0)}`)
       }
       if (row.durationMs !== undefined) parts.push(formatDurationMs(row.durationMs))
       if (parts.length === 0) return null
@@ -239,6 +242,23 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
             <div key={`${hunk.path}:${String(index)}`} className={css.sidechatCard}>
               <div className={css.sidechatCardPath}>{hunk.path}</div>
               <pre className={css.sidechatRowCode}>{hunk.newText}</pre>
+            </div>
+          ))}
+          {card?.type === 'question' && card.questions.map((question, index) => (
+            <div key={`q:${String(index)}`} className={css.sidechatCard}>
+              {question.header !== undefined && <div className={css.sidechatCardPath}>{question.header}</div>}
+              <div className={css.sidechatRowProse}>{question.question}</div>
+              {question.options.length > 0 && (
+                <ul className={css.sidechatCardOptions}>
+                  {question.options.map(option => (
+                    <li key={option.label}>
+                      <span className={css.sidechatCardOptionLabel}>{option.label}</span>
+                      {option.description !== undefined && <span className={css.sidechatCardPath}> — {option.description}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className={css.sidechatCardPath}>{labels.awaitingAnswerLabel}</div>
             </div>
           ))}
           {card?.type === 'terminal' && (
@@ -294,6 +314,9 @@ export function SideChatView(props: {
       copiedLabel: t('copied'),
       thinkLabel: t('sideChatThink'),
       injectionLabel: t('sideChatInjection'),
+      inputTokensLabel: t('inputTokensLabel'),
+      outputTokensLabel: t('outputTokensLabel'),
+      awaitingAnswerLabel: t('awaitingAnswerLabel'),
     }),
     [],
   )

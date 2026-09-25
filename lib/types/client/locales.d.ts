@@ -343,6 +343,9 @@ export declare const zh: {
     subagentShowHistory: string;
     subagentHideHistory: string;
     sideChat: string;
+    inputTokensLabel: string;
+    outputTokensLabel: string;
+    awaitingAnswerLabel: string;
     sideChatNew: string;
     sideChatUntitled: string;
     sideChatEmpty: string;

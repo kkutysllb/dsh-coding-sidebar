@@ -105,6 +105,19 @@ export type SidechatToolCard = {
     output?: string;
     exitCode?: number;
     signal?: string;
+}
+/** `ask_user_question` 的提问内容：工具行此前只显示原始 JSON，而这一行正是**等用户回答**的
+ *  阻塞点——看不出问题是什么，就一直卡在那儿。 */
+ | {
+    type: 'question';
+    questions: readonly {
+        header?: string;
+        question: string;
+        options: readonly {
+            label: string;
+            description?: string;
+        }[];
+    }[];
 };
 /** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
 export declare function formatTokens(n: number): string;
