@@ -47,6 +47,19 @@ check('必须用 { global: true } 订阅（作用域帧不带这个选项收不�
   assert.equal(ctx.listeners.get('agent/assistant-stream').options.global, true)
 })
 
+check('root 通道投递的帧同样进缓冲（宿主组合不同，通道边界不同）', () => {
+  const ctx = fakeCtx()
+  const root = fakeCtx()
+  ctx.root = root
+  const buffer = new AssistantLiveBuffer(ctx)
+  // 现场（0.1.7-rc.2）：两条通道都会收到同一帧——只要有一条生效就不该丢帧。
+  const viaRoot = root.listeners.get('agent/assistant-stream')
+  assert.equal(viaRoot.options.global, true)
+  viaRoot.fn({ agent: { session: { id: SID } }, frame: { type: 'start', attemptId: 'a1', turn: 1, step: 0 } })
+  viaRoot.fn({ agent: { session: { id: SID } }, frame: chunkFrame(0, 'R') })
+  assert.deepEqual(buffer.chunksOf(SID).map(c => c.chunk.text), ['R'])
+})
+
 check('start → chunk → end：按 index 升序给出实时增量，end 后清空', () => {
   const ctx = fakeCtx()
   const buffer = new AssistantLiveBuffer(ctx)

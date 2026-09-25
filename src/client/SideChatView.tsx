@@ -290,10 +290,6 @@ export function SideChatView(props: {
    * 定稿后由持久 assistant/message 覆盖。读取失败只清空它，绝不影响耐久路径。
    */
   const liveRef = useRef<readonly SidechatLiveEvent[]>([])
-  /** 临时诊断（定位后删）：把轮询决策上报到主机日志。 */
-  const debugOnce = useRef(false)
-  const debugCount = useRef(0)
-  const debugLive = useRef(0)
   /**
    * 轮询退避计数（连拍无增长则加大间隔）。放 ref 而不是 effect 局部变量：**用户动作必须能把它
    * 清零**——否则此前空轮询已退到 5s 时，发送后整段回答（实测只流 ~2.5s）会整个落在两次轮询
@@ -392,26 +388,13 @@ export function SideChatView(props: {
         // 实时半与耐久半同一次往返（定稿后由 assistant/message 覆盖）。
         liveRef.current = page.live
       }
-      if (debugCount.current < 3) {
-        debugCount.current += 1
-        void api.sidechatDebug(`poll ok thread=${childId} entries=${cache.entries.length} live=${liveRef.current.length}`)
-      } else if (liveRef.current.length > 0 && debugLive.current < 20) {
-        // 流式窗口是这条链最需要看见的一段：带实时行的轮询必须留痕。
-        debugLive.current += 1
-        void api.sidechatDebug(`poll LIVE thread=${childId} entries=${cache.entries.length} live=${liveRef.current.length}`)
-      }
       setRevision(value => value + 1)
       return cache.entries.length > before
     } catch (cause) {
       // 主动打断（更晚的一次拉取）不是错误；其余失败必须**说出来**——此前这里静默吞掉，
       // 表现是「面板一片空白、连报错都没有」，让现场排查多花了好几轮。
       if (!controller.signal.aborted) {
-        const message = cause instanceof Error ? cause.message : String(cause)
-        if (debugCount.current < 3) {
-          debugCount.current += 1
-          void api.sidechatDebug(`poll ERROR thread=${childId} ${message}`)
-        }
-        setError(message)
+        setError(cause instanceof Error ? cause.message : String(cause))
       }
       return false
     }
@@ -447,17 +430,7 @@ export function SideChatView(props: {
   // (reset the moment anything lands). Send/cancel kick an immediate pull,
   // so user actions never wait on the backoff.
   useEffect(() => {
-    if (!visible || threadId === undefined) {
-      if (threadId !== undefined && !debugOnce.current) {
-        debugOnce.current = true
-        void api.sidechatDebug(`poll skipped thread=${threadId} visible=${String(visible)}`) 
-      }
-      return
-    }
-    if (!debugOnce.current) {
-      debugOnce.current = true
-      void api.sidechatDebug(`poll start thread=${threadId} visible=${String(visible)}`)
-    }
+    if (!visible || threadId === undefined) return
     void fetchThread(threadId)
     // ⚠️ 这里曾有一道 `if (!running) return`：`running` 取自会话列表行，而**引擎不给
     // subagent 来源的会话产生 running 状态**（侧边对话的子会话正是这一类）⇒ 它恒为假

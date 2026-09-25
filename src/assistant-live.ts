@@ -15,15 +15,7 @@
  *
  * @module dsh-coding-sidebar/assistant-live
  */
-import { appendFileSync } from 'node:fs'
 import type { Context } from './context-types.ts'
-
-/** 诊断留痕（定位后删）：把一行文本追加到 /tmp 日志。 */
-function diagnose(text: string): void {
-  try {
-    appendFileSync('/tmp/dsh-sidechat-debug.log', `${new Date().toISOString()} live ${text}\n`)
-  } catch { /* 诊断失败不影响主流程 */ }
-}
 
 /** 一条归一化后的实时增量，按 attempt 与稠密位置定位。 */
 export interface AssistantLiveChunk {
@@ -86,36 +78,14 @@ export class AssistantLiveBuffer {
    * 挂上引擎的作用域帧与 agent 释放事件；随插件卸载清理。
    * @param ctx - 插件上下文（主机侧）。
    */
-  /** 诊断计数（定位后删）：收到的帧数与本模块丢弃的原因。 */
-  private frames = 0
-  private dropped: string | undefined
-
   constructor(ctx: Context) {
     const host = ctx as unknown as GlobalListenerHost
-    this.attach(host, 'ctx', (payload) => {
-      this.frames += 1
-      if (this.frames <= 12 || this.frames % 50 === 0) {
-        const frame = (payload as { frame?: { type?: unknown; attemptId?: unknown; index?: unknown } }).frame
-        const agent = (payload as { agent?: { session?: { id?: unknown } } }).agent
-        diagnose(`frame #${this.frames} session=${String(agent?.session?.id)} type=${String(frame?.type)} index=${String(frame?.index)}`)
-      }
-      this.accept(payload)
-    })
+    this.attach(host, (payload) => { this.accept(payload) })
     // 第二通道：若 ctx 有 root，也在 root 上挂一份（作用域帧的投递边界随宿主组合而异，
     // 两条通道任一收到即可用；哪条生效由留痕回答——定位后可只留生效的那条）。
     const root = (ctx as unknown as { root?: unknown }).root
     if (root !== undefined && root !== ctx) {
-      this.attach(root as GlobalListenerHost, 'root', (payload) => {
-        this.frames += 1
-        if (this.frames <= 12 || this.frames % 50 === 0) {
-          const frame = (payload as { frame?: { type?: unknown; index?: unknown } }).frame
-          const agent = (payload as { agent?: { session?: { id?: unknown } } }).agent
-          diagnose(`frame#${this.frames} via=root session=${String(agent?.session?.id)} type=${String(frame?.type)} index=${String(frame?.index)}`)
-        }
-        this.accept(payload)
-      })
-    } else {
-      diagnose('root channel unavailable (ctx.root missing or identical)')
+      this.attach(root as GlobalListenerHost, (payload) => { this.accept(payload) })
     }
     host.on('agent/disposed', (payload) => {
       const id = payload?.agent?.session?.id
@@ -135,21 +105,15 @@ export class AssistantLiveBuffer {
     return [...attempt.chunks.values()].sort((left, right) => left.index - right.index)
   }
 
-  /** 挂一条全局监听（诊断留痕记录通道名）。 */
-  private attach(host: GlobalListenerHost, via: string, listener: (payload: AssistantStreamPayload) => void): void {
+  /**
+   * 挂一条全局监听。两条通道（`ctx` 与 `ctx.root`）是**故意冗余**的：作用域帧的投递边界随
+   * 宿主组合而异（0.1.7-rc.2 实测两条都收到），而 `accept` 幂等（同一帧折两次结果相同）。
+   * 少挂一条的风险是「静默收不到帧」，代价只是每帧多做一次 set。
+   */
+  private attach(host: GlobalListenerHost, listener: (payload: AssistantStreamPayload) => void): void {
     try {
       host.on('agent/assistant-stream', listener, { global: true })
-      diagnose(`subscribed agent/assistant-stream via=${via} (global)`)
-    } catch (cause) {
-      diagnose(`subscribe FAILED via=${via} ${cause instanceof Error ? cause.message : String(cause)}`)
-    }
-  }
-
-  /** 只记第一次的丢弃原因（诊断）。 */
-  private note(reason: string): void {
-    if (this.dropped !== undefined) return
-    this.dropped = reason
-    diagnose(reason)
+    } catch { /* 宿主无该事件面：另一条通道仍在 */ }
   }
 
   /** 折叠一帧。 */
@@ -159,7 +123,6 @@ export class AssistantLiveBuffer {
     if (typeof sessionId !== 'string' || frame === null || typeof frame !== 'object') return
     const attemptId = frame.attemptId
     if (typeof attemptId !== 'string') {
-      this.note(`drop no-attemptId session=${sessionId} type=${String(frame.type)}`)
       return
     }
 
@@ -185,7 +148,6 @@ export class AssistantLiveBuffer {
     const attempt = this.attempts.get(sessionId)
     // 没有 start（或属于上一段 attempt）的 chunk 直接丢：宁可少一帧，也不错位。
     if (attempt === undefined || attempt.attemptId !== attemptId) {
-      this.note(`drop chunk-without-start session=${sessionId} attempt=${attemptId}`)
       return
     }
     const index = frame.index

@@ -11,6 +11,18 @@
  *    缺少该面的载具上**整体不挂载**。⇒ 点分路径必须整体出现在 inject 清单里，
  *    否则只能走 `ctx.get('remote')` 或 `ctx.inject(['remote.<面>'], cb)`。
  *
+ * ④ **侧边对话的读/流/节拍不得退化**（2026-09-25 现场，5 个真 bug 的回归闸）：
+ *    - 读路径必须是**插件自家路由** `sidechat.events`：通用 `session.history` 对 subagent 来源的
+ *      会话直接拒绝（`session/agent-busy` fencing），而侧边对话的子会话正是这一类；
+ *    - 不得再用 `connection.api` 做**前置能力探测**（当前载体没有该面 ⇒ 探测失败即 return，
+ *      表现是「面板永远空白」且**连自家路由都不会被调用**）；
+ *    - 轮询**不得以 `running` 为前提**：引擎不给 subagent 来源的会话产生 running 状态（恒假）
+ *      ⇒ 只拉一次 ⇒ 没有流式；
+ *    - 节拍的「还在长」判据必须含 `threadTrailingPending`（等回复期间不得退避，否则整个流式
+ *      窗口会落在两次轮询之间）；
+ *    - 实时缓冲必须 `{ global: true }` 订阅 `agent/assistant-stream`：帧是作用域事件，且
+ *      0.1.5 起流式文本**不进会话日志**（旧 `assistant/chunk` 永不再来）。
+ *
  * ③ **展开判据本身不得退化**：`service.ts` 里 `openTab` 的「内容型」条件必须同时认
  *    `path` / `url` / `meta`（静态钉住形状）。为什么要这一条：行为级的抽取需要改
  *    `lib/**`（运行时面）⇒ 按版本线规则就得 bump 版本、发布、平移声明、再发一次桌面版，
@@ -218,6 +230,46 @@ if (!/needsPanelExpansion\s*\(/.test(serviceText)) {
     + '    处置：改回 `needsPanelExpansion(seed, { targetsInactiveSession, hasWindow, panelOpen })`。',
   )
 }
+
+// ── ④ 侧边对话读/流/节拍的回归闸（见文件头）────────────────────────────────
+const SIDE_CHAT = join(SRC, 'client', 'SideChatView.tsx')
+const LIVE = join(SRC, 'assistant-live.ts')
+/**
+ * 剥掉行注释再断言：这些坑的**历史说明**就写在注释里（「这里曾有一道 `if (!running) return`」），
+ * 拿原文做正则必然误伤——注释不是代码，这条在本仓已经踩过好几次。
+ * @param text - 源文件内容。
+ * @returns 去掉 `//` 行注释与 `/* … *\/` 块注释后的文本。
+ */
+function stripComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+}
+const sideChat = stripComments(readFileSync(SIDE_CHAT, 'utf8'))
+const liveBuffer = stripComments(readFileSync(LIVE, 'utf8'))
+
+const pins = [
+  {
+    ok: sideChat.includes('sidechatEvents') && !/connection\.api\.sessions/.test(sideChat),
+    why: 'src/client/SideChatView.tsx 必须走自家路由 `sidechatEvents`，且不得再用 `connection.api.sessions`'
+      + '（当前载体没有该面；此前那段前置探测让 transcript 从不拉取 ⇒ 面板永远空白）',
+  },
+  {
+    ok: !/if \(!running\) return/.test(sideChat),
+    why: 'src/client/SideChatView.tsx 的轮询不得以 `!running` 提前返回（引擎不给 subagent 来源会话'
+      + '产生 running 状态 ⇒ 恒假 ⇒ 只拉一次 ⇒ 没有流式）',
+  },
+  {
+    ok: /threadTrailingPending\(/.test(sideChat),
+    why: 'src/client/SideChatView.tsx 的节拍判据必须含 `threadTrailingPending`（等回复期间不得退避：'
+      + '否则模型开始产出前的 ~3s 加上整段流式会一起落在两次轮询之间）',
+  },
+  {
+    ok: /'agent\/assistant-stream'/.test(liveBuffer) && /global: true/.test(liveBuffer),
+    why: 'src/assistant-live.ts 必须以 `{ global: true }` 订阅 `agent/assistant-stream`'
+      + '（作用域事件；0.1.5 起流式文本不进会话日志，旧 assistant/chunk 永不再来）',
+  },
+]
+for (const pin of pins) if (!pin.ok) violations.push(`[④侧边对话] ${pin.why}`)
+if (pins.every(pin => pin.ok)) console.log('[plugin-contract] 侧边对话读/流/节拍四项回归闸 ✓')
 
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
 console.log(`[plugin-contract] ctx.remote.<面> 直读 ${faceReads} 处；openTab 调用点：`)

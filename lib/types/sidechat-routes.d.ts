@@ -39,10 +39,6 @@ export interface SidechatRoutes {
         events: SidebarHistoryEntry[];
         live: SidechatLiveEvent[];
     }>;
-    /** 临时诊断（2026-09-25 面板空白现场排查；定位后删除）：把客户端状态追加到 /tmp 日志。 */
-    'sidechat.debug'(payload: unknown): Promise<{
-        accepted: true;
-    }>;
 }
 /** Build the Side Chat routes (all optional services degrade to a wire
  *  error the tab surfaces inline). The record keys are the FULL wire method
