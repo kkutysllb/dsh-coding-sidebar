@@ -54,6 +54,8 @@ export type SidechatTranscriptRow = {
     args?: string;
     /** Plain text of the paired result. */
     resultText?: string;
+    /** 结构化渲染载荷（宿主 Block 的数据形状）；缺省 = 通用文本行。 */
+    card?: SidechatToolCard;
     /** True while the call's result has not landed yet. */
     executing?: boolean;
 };
@@ -65,6 +67,30 @@ export declare function blockText(content: readonly unknown[]): string;
  * row: the first identifying string field when the JSON parses, else the
  * flattened raw text; empty when there is nothing worth showing.
  */
+/**
+ * 结构化工具卡（P3，移植自同源上游 DSH-better-sidebar 0.21.1）：把 `tool/result` 的 `meta`
+ * 收窄成宿主 Block 的**数据形状**，由视图渲染——与主对话渲染的是同一批原子，所以侧边对话里的
+ * 改动/读取不再是「一坨纯文本」。
+ *
+ * 一切字段都**防御式收窄**：meta 的形状由产出它的工具决定，任何畸形输入都退回通用文本行
+ * （宁可少一张卡，也不能让整条 transcript 崩掉）。
+ */
+export type SidechatToolCard = {
+    type: 'diff';
+    diffs: readonly {
+        path: string;
+        oldText?: string | null;
+        newText: string;
+    }[];
+} | {
+    type: 'read';
+    label: string;
+    lines: readonly {
+        number: number;
+        text: string;
+    }[];
+    totalLines: number;
+};
 export declare function toolArgsSummary(args: string | undefined): string;
 /**
  * Collect the thread's OWN events on first attach: walk backward from the

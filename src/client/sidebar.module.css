@@ -3681,6 +3681,23 @@ body[data-dsh-sidebar-dragging] .panel {
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* Structured tool cards (P3): the side chat's edit/read results use the same host
+   Block data shapes the main conversation renders, so they read as content rather
+   than as JSON. Tokens only. */
+.sidechatCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sidechatCardPath {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* ── Task plans (the 任务计划 tab) ───────────────────────────────────────── */
 
 .plansView {

@@ -41,7 +41,9 @@ export type SidechatTranscriptRow =
     args?: string
     /** Plain text of the paired result. */
     resultText?: string
-    /** True while the call's result has not landed yet. */
+    /** 结构化渲染载荷（宿主 Block 的数据形状）；缺省 = 通用文本行。 */
+  card?: SidechatToolCard
+  /** True while the call's result has not landed yet. */
     executing?: boolean
   }
 
@@ -77,6 +79,64 @@ function flatTruncate(text: string): string {
  * row: the first identifying string field when the JSON parses, else the
  * flattened raw text; empty when there is nothing worth showing.
  */
+/**
+ * 结构化工具卡（P3，移植自同源上游 DSH-better-sidebar 0.21.1）：把 `tool/result` 的 `meta`
+ * 收窄成宿主 Block 的**数据形状**，由视图渲染——与主对话渲染的是同一批原子，所以侧边对话里的
+ * 改动/读取不再是「一坨纯文本」。
+ *
+ * 一切字段都**防御式收窄**：meta 的形状由产出它的工具决定，任何畸形输入都退回通用文本行
+ * （宁可少一张卡，也不能让整条 transcript 崩掉）。
+ */
+export type SidechatToolCard =
+  | { type: 'diff'; diffs: readonly { path: string; oldText?: string | null; newText: string }[] }
+  | { type: 'read'; label: string; lines: readonly { number: number; text: string }[]; totalLines: number }
+
+/** `meta.diffs` → 改动卡（路径 + 新旧文本；任一条畸形即放弃整张卡）。 */
+function diffCardFromMeta(meta: Record<string, unknown>): SidechatToolCard | undefined {
+  const diffs = meta.diffs
+  if (!Array.isArray(diffs) || diffs.length === 0) return undefined
+  const hunks: { path: string; oldText?: string | null; newText: string }[] = []
+  for (const item of diffs) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) return undefined
+    const { path, oldText, newText } = item as Record<string, unknown>
+    if (typeof path !== 'string' || typeof newText !== 'string') return undefined
+    if (oldText !== null && oldText !== undefined && typeof oldText !== 'string') return undefined
+    hunks.push({ path, newText, ...(oldText === undefined ? {} : { oldText }) })
+  }
+  return { type: 'diff', diffs: hunks }
+}
+
+/** `meta` 的读取窗口 → 读取卡（1 基、严格递增、不超过 totalLines——与宿主同一契约）。 */
+function readCardFromMeta(meta: Record<string, unknown>): SidechatToolCard | undefined {
+  const { path, offset, lines, totalLines } = meta
+  if (typeof path !== 'string' || typeof offset !== 'number' || typeof totalLines !== 'number') return undefined
+  if (!Number.isInteger(offset) || offset < 1) return undefined
+  if (!Number.isInteger(totalLines) || totalLines < 0) return undefined
+  if (!Array.isArray(lines)) return undefined
+  const narrowed: { number: number; text: string }[] = []
+  let previous = offset - 1
+  for (const line of lines) {
+    if (line === null || typeof line !== 'object' || Array.isArray(line)) return undefined
+    const candidate = line as { number?: unknown; text?: unknown }
+    if (typeof candidate.number !== 'number' || !Number.isInteger(candidate.number)) return undefined
+    if (candidate.number <= previous || candidate.number > totalLines) return undefined
+    if (typeof candidate.text !== 'string') return undefined
+    narrowed.push({ number: candidate.number, text: candidate.text })
+    previous = candidate.number
+  }
+  return { type: 'read', label: path, lines: narrowed, totalLines }
+}
+
+/** 结果消息里的 `meta` 若有结构化信息，收窄成卡片（edit/write 的 hunks、read 的窗口）。 */
+function cardFromResultMeta(data: Record<string, unknown>): SidechatToolCard | undefined {
+  const message = data.message
+  if (message === null || typeof message !== 'object') return undefined
+  const meta = (message as { meta?: unknown }).meta
+  if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) return undefined
+  const record = meta as Record<string, unknown>
+  return diffCardFromMeta(record) ?? readCardFromMeta(record)
+}
+
 export function toolArgsSummary(args: string | undefined): string {
   if (args === undefined) return ''
   try {
@@ -306,11 +366,14 @@ export function transcriptRows(
         if (rowIndex !== undefined) {
           const row = rows[rowIndex]
           if (row !== undefined && row.kind === 'tool') {
+            // 失败结果退回通用文本行（与宿主一致：isError 路径不渲染结构化卡）。
+            const card = failed ? undefined : cardFromResultMeta(data as Record<string, unknown>)
             rows[rowIndex] = {
               ...row,
               failed: row.failed || failed,
               resultText: resultText === '' ? row.resultText : resultText,
               executing: false,
+              ...(card === undefined ? {} : { card }),
             }
           }
         } else if (failed || resultText !== '') {

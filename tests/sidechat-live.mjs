@@ -143,6 +143,50 @@ check('实时推理增量走 reasoning 行（与主对话同样的分块规则�
   assert.equal(rows[0].kind, 'reasoning')
 })
 
+// ── 工具卡（P3）：收窄 + 退化 ───────────────────────────────────────────────
+const toolResult = (callId, meta, text) => ({
+  event: {
+    type: 'tool/result',
+    seq: 30,
+    time: 3000,
+    data: { message: { source: { callId }, meta }, content: [{ type: 'text', text }] },
+  },
+})
+const toolCall = (callId, name) => ({
+  event: { type: 'tool/call', seq: 20, time: 2000, data: { callId, name, arguments: '{}' } },
+})
+
+check('★ 改动结果（meta.diffs）成结构化卡', () => {
+  const rows = transcriptRows([
+    toolCall('c1', 'edit'),
+    toolResult('c1', { diffs: [{ path: 'a.ts', oldText: 'x', newText: 'y' }] }, 'ok'),
+  ], [])
+  const row = rows.find(r => r.kind === 'tool')
+  assert.equal(row.card.type, 'diff')
+  assert.equal(row.card.diffs[0].path, 'a.ts')
+})
+
+check('读取结果（meta 行窗口）成结构化卡，行号契约照宿主', () => {
+  const rows = transcriptRows([
+    toolCall('c2', 'read'),
+    toolResult('c2', { path: 'b.ts', offset: 10, totalLines: 99, lines: [{ number: 10, text: 'L10' }, { number: 11, text: 'L11' }] }, 'ok'),
+  ], [])
+  const row = rows.find(r => r.kind === 'tool')
+  assert.equal(row.card.type, 'read')
+  assert.equal(row.card.lines.length, 2)
+})
+
+check('畸形 meta（行号不递增）⇒ 退回通用文本行，不崩', () => {
+  const rows = transcriptRows([
+    toolCall('c3', 'read'),
+    toolResult('c3', { path: 'c.ts', offset: 1, totalLines: 5, lines: [{ number: 3, text: 'a' }, { number: 2, text: 'b' }] }, 'ok'),
+  ], [])
+  const row = rows.find(r => r.kind === 'tool')
+  // 这张卡必须被拒（行号契约不满足）——通用文本行由行的 resultText 承担，
+  // 其形状取决于事件里 content 的挂载位置，不是本用例的断言点。
+  assert.equal(row.card, undefined)
+})
+
 console.log('[sidechat-live] 实时流路径（假 ctx 驱动真缓冲 + 真 transcript 映射）')
 for (const line of lines) console.log(line)
 console.log(`[sidechat-live] ${passed}/${lines.length} ${process.exitCode === 1 ? '有失败' : 'ALL PASS'}`)

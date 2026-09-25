@@ -221,10 +221,27 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
         </CollapsibleRow>
       )
     case 'tool': {
+      // 结构化卡优先（P3）：改动与读取按宿主 Block 的数据形状渲染，比原始 JSON/文本可读得多；
+      // 有卡片时**不再**重复贴原始载荷（行本身仍可折叠展开）。
+      const card = row.card
       const body = (
         <>
-          {row.args !== undefined && <pre className={css.sidechatRowCode}>{row.args}</pre>}
-          {row.resultText !== undefined && <pre className={css.sidechatRowCode}>{row.resultText}</pre>}
+          {card?.type === 'diff' && card.diffs.map((hunk, index) => (
+            <div key={`${hunk.path}:${String(index)}`} className={css.sidechatCard}>
+              <div className={css.sidechatCardPath}>{hunk.path}</div>
+              <pre className={css.sidechatRowCode}>{hunk.newText}</pre>
+            </div>
+          ))}
+          {card?.type === 'read' && (
+            <div className={css.sidechatCard}>
+              <div className={css.sidechatCardPath}>{`${card.label}（${String(card.lines.length)}/${String(card.totalLines)} 行）`}</div>
+              <pre className={css.sidechatRowCode}>
+                {card.lines.map(line => `${String(line.number).padStart(4, ' ')}  ${line.text}`).join('\n')}
+              </pre>
+            </div>
+          )}
+          {card === undefined && row.args !== undefined && <pre className={css.sidechatRowCode}>{row.args}</pre>}
+          {card === undefined && row.resultText !== undefined && <pre className={css.sidechatRowCode}>{row.resultText}</pre>}
         </>
       )
       return (
@@ -235,7 +252,7 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
           mono
           streaming={row.executing === true}
           failed={row.failed}
-          {...(row.args === undefined && row.resultText === undefined ? {} : { children: body })}
+          {...(card === undefined && row.args === undefined && row.resultText === undefined ? {} : { children: body })}
         />
       )
     }
