@@ -92,7 +92,7 @@ export class AssistantLiveBuffer {
 
   constructor(ctx: Context) {
     const host = ctx as unknown as GlobalListenerHost
-    host.on('agent/assistant-stream', (payload) => {
+    this.attach(host, 'ctx', (payload) => {
       this.frames += 1
       if (this.frames <= 12 || this.frames % 50 === 0) {
         const frame = (payload as { frame?: { type?: unknown; attemptId?: unknown; index?: unknown } }).frame
@@ -100,8 +100,23 @@ export class AssistantLiveBuffer {
         diagnose(`frame #${this.frames} session=${String(agent?.session?.id)} type=${String(frame?.type)} index=${String(frame?.index)}`)
       }
       this.accept(payload)
-    }, { global: true })
-    diagnose('subscribed agent/assistant-stream (global)')
+    })
+    // 第二通道：若 ctx 有 root，也在 root 上挂一份（作用域帧的投递边界随宿主组合而异，
+    // 两条通道任一收到即可用；哪条生效由留痕回答——定位后可只留生效的那条）。
+    const root = (ctx as unknown as { root?: unknown }).root
+    if (root !== undefined && root !== ctx) {
+      this.attach(root as GlobalListenerHost, 'root', (payload) => {
+        this.frames += 1
+        if (this.frames <= 12 || this.frames % 50 === 0) {
+          const frame = (payload as { frame?: { type?: unknown; index?: unknown } }).frame
+          const agent = (payload as { agent?: { session?: { id?: unknown } } }).agent
+          diagnose(`frame#${this.frames} via=root session=${String(agent?.session?.id)} type=${String(frame?.type)} index=${String(frame?.index)}`)
+        }
+        this.accept(payload)
+      })
+    } else {
+      diagnose('root channel unavailable (ctx.root missing or identical)')
+    }
     host.on('agent/disposed', (payload) => {
       const id = payload?.agent?.session?.id
       if (typeof id === 'string') this.attempts.delete(id)
@@ -118,6 +133,16 @@ export class AssistantLiveBuffer {
     const attempt = this.attempts.get(sessionId)
     if (attempt === undefined) return []
     return [...attempt.chunks.values()].sort((left, right) => left.index - right.index)
+  }
+
+  /** 挂一条全局监听（诊断留痕记录通道名）。 */
+  private attach(host: GlobalListenerHost, via: string, listener: (payload: AssistantStreamPayload) => void): void {
+    try {
+      host.on('agent/assistant-stream', listener, { global: true })
+      diagnose(`subscribed agent/assistant-stream via=${via} (global)`)
+    } catch (cause) {
+      diagnose(`subscribe FAILED via=${via} ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
   }
 
   /** 只记第一次的丢弃原因（诊断）。 */

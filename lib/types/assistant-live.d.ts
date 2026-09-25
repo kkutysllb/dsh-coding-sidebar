@@ -31,6 +31,8 @@ export declare class AssistantLiveBuffer {
      * @returns 增量列表；没有在途 attempt 时为空数组。
      */
     chunksOf(sessionId: string): readonly AssistantLiveChunk[];
+    /** 挂一条全局监听（诊断留痕记录通道名）。 */
+    private attach;
     /** 只记第一次的丢弃原因（诊断）。 */
     private note;
     /** 折叠一帧。 */
