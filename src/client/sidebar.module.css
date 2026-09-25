@@ -3624,6 +3624,63 @@ body[data-dsh-sidebar-dragging] .panel {
   overflow: hidden;
 }
 
+/* Retained runs (`schedule.history`): newest first, capped — the full list lives in
+   the 自动化任务 page. Kept visually quieter than the task's own fields: it is context,
+   not the thing being looked at. */
+.schedPreviewRuns {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.schedPreviewRun {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.schedPreviewNote {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.schedPreviewActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.schedPreviewButton {
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.schedPreviewButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.schedPreviewButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Only the CONFIRM step carries the danger colour — the first click is a plain
+   button, so a stray click never deletes anything. */
+.schedPreviewButtonDanger {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
 /* ── Task plans (the 任务计划 tab) ───────────────────────────────────────── */
 
 .plansView {

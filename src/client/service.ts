@@ -29,6 +29,7 @@ import {
 import type { SessionScope } from './api.ts'
 import type { SidebarPrefs } from '../prefs-shared.ts'
 import { createFileIconRegistry } from './file-icon-registry.ts'
+import { needsPanelExpansion } from './open-intent.ts'
 import type { FileIconDescriptor } from './file-icon-registry.ts'
 import { HOST_FILE_ICONS } from './file-icons.tsx'
 
@@ -793,12 +794,13 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
       // 断言而非行为测试：行为级验证要把判据抽成纯模块，那会改 `lib/**`（运行时面）
       // ⇒ 按版本线规则得 bump 版本 + 发布，为一个行为不变的重构不成比例——
       // 抽取与真行为测试并进下一次本来就要 bump 的版本。详见清单 §3。
-      if (
-        !targetsInactiveSession
-        && typeof window !== 'undefined'
-        && (seed.path !== undefined || seed.url !== undefined || seed.meta !== undefined)
-      ) {
-        if (!landed.panelOpen) return togglePanel(landed)
+      // 规则本体在 `./open-intent.ts`（无依赖纯函数，`tests/open-intent.mjs` 直接对真源码跑用例）
+      if (needsPanelExpansion(seed, {
+        targetsInactiveSession,
+        hasWindow: typeof window !== 'undefined',
+        panelOpen: landed.panelOpen,
+      })) {
+        return togglePanel(landed)
       }
       return landed
     }

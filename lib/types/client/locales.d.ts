@@ -563,6 +563,15 @@ export declare const zh: {
     schedUnavailable: string;
     schedGone: string;
     schedLoadFailed: string;
+    schedRunsTitle: string;
+    schedRunsEmpty: string;
+    schedRunsPruned: string;
+    schedRunPlanned: string;
+    schedRunDelivered: string;
+    schedDelete: string;
+    schedDeleteConfirm: string;
+    schedDeleteCancel: string;
+    schedDeleteFailed: string;
 };
 /** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 export declare const en: Record<keyof typeof zh, string>;

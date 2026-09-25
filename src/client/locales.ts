@@ -570,6 +570,15 @@ export const zh = {
   schedUnavailable: "读不到这条任务：schedule 插件未启用",
   schedGone: "这条任务已不存在（可能已被删除）",
   schedLoadFailed: "读取任务失败",
+  schedRunsTitle: "最近运行",
+  schedRunsEmpty: "尚无运行记录",
+  schedRunsPruned: "更早的记录已按保留策略清理",
+  schedRunPlanned: "计划",
+  schedRunDelivered: "投递",
+  schedDelete: "删除任务",
+  schedDeleteConfirm: "确认删除",
+  schedDeleteCancel: "取消",
+  schedDeleteFailed: "删除失败",
 }
 
 /** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
@@ -1121,6 +1130,15 @@ export const en: Record<keyof typeof zh, string> = {
   schedUnavailable: "Cannot read this task: the schedule plugin is not enabled",
   schedGone: "This task no longer exists (it may have been deleted)",
   schedLoadFailed: "Reading the task failed",
+  schedRunsTitle: "Recent runs",
+  schedRunsEmpty: "No runs yet",
+  schedRunsPruned: "Earlier records were pruned by the retention policy",
+  schedRunPlanned: "Planned",
+  schedRunDelivered: "Delivered",
+  schedDelete: "Delete task",
+  schedDeleteConfirm: "Confirm delete",
+  schedDeleteCancel: "Cancel",
+  schedDeleteFailed: "Delete failed",
 }
 
 /**
