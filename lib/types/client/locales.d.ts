@@ -348,6 +348,8 @@ export declare const zh: {
     awaitingAnswerLabel: string;
     modelSwitchLabel: string;
     modelFollowFailed: string;
+    sideChatQueueTitle: string;
+    sideChatQueueHint: string;
     answerSubmitLabel: string;
     answerMultiSelectHint: string;
     answerComposerHint: string;

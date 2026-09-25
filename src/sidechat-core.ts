@@ -423,6 +423,8 @@ export interface SidechatThreadInfo {
   model?: string
   /** The recorded agent preset (live header, or persisted on cold reads). */
   preset?: string
+  /** 排队中的追问（引擎收件箱里的 nextTurn；进日志之前转录里看不到）。 */
+  queued?: readonly SidechatQueuedMessage[]
 }
 
 /** The events a thread produced itself: everything after the LAST
@@ -549,6 +551,50 @@ function sameSelection(left: SidechatModelSelection, right: SidechatModelSelecti
   return left.provider === right.provider
     && left.model === right.model
     && (left.reasoningEffort ?? '') === (right.reasoningEffort ?? '')
+}
+
+/** 一条**排队中**的追问（还没进会话日志，因此转录里看不到——队列卡就是它的家）。 */
+export interface SidechatQueuedMessage {
+  /** 消息身份（引擎 MessageId；缺失时用下标兜底）。 */
+  id: string
+  /** 文本块拼出来的正文。 */
+  text: string
+}
+
+/**
+ * 读 agent 收件箱里**等待投递的追问**（`inbox.nextTurn`）。
+ *
+ * 为什么要有它：侧边对话的追问走 `agent.followup`，那是**排队**语义——消息在引擎领取之前
+ * **不进会话日志**，所以转录里什么都看不到，用户会以为「发出去了但没反应」。真正的队列只有
+ * 收件箱知道，把它读出来就能在输入框上方画成队列卡。
+ *
+ * 只读 `nextTurn`（「自成一轮的普通追问」）；`nextStep`（steering）不是本插件的提交路径。
+ *
+ * @param inbox - `agent.inbox`（形状未知，防御式收窄）。
+ * @returns 排队中的追问（按提交顺序），形状不符即空数组。
+ */
+export function queuedFollowups(inbox: unknown): SidechatQueuedMessage[] {
+  if (inbox === null || typeof inbox !== 'object') return []
+  const pending = (inbox as { nextTurn?: unknown }).nextTurn
+  if (!Array.isArray(pending)) return []
+  const queued: SidechatQueuedMessage[] = []
+  for (const [index, raw] of pending.entries()) {
+    if (raw === null || typeof raw !== 'object') continue
+    const message = raw as { id?: unknown; content?: unknown }
+    const blocks = Array.isArray(message.content) ? message.content : []
+    const text = blocks
+      .map(block => (block !== null && typeof block === 'object'
+        && (block as { type?: unknown }).type === 'text'
+        && typeof (block as { text?: unknown }).text === 'string'
+        ? (block as { text: string }).text
+        : ''))
+      .filter(part => part !== '')
+      .join('\n')
+      .trim()
+    if (text === '') continue
+    queued.push({ id: typeof message.id === 'string' && message.id !== '' ? message.id : `queued-${String(index)}`, text })
+  }
+  return queued
 }
 
 /**

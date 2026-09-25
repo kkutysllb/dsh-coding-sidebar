@@ -43,7 +43,7 @@ import type {
   SidebarSessionPersistenceService,
   SidebarSessionTitleService,
 } from './context-types.ts'
-import { boundaryDelivered, buildSidechatInheritance, effectiveModelSelection, effectiveModelSelectionFromLog, resolveLoggedModelSelection, resolvePresetId, SIDE_BOUNDARY_PROMPT, SIDE_NEW_THREAD_TITLE, sideLabel, type SeedEvent, type SidechatLogEvent, type SidechatThreadInfo, type SidechatLiveEvent, type SidechatModelSelection, liveEventsOf } from './sidechat-core.ts'
+import { boundaryDelivered, buildSidechatInheritance, effectiveModelSelection, effectiveModelSelectionFromLog, queuedFollowups, resolveLoggedModelSelection, resolvePresetId, SIDE_BOUNDARY_PROMPT, SIDE_NEW_THREAD_TITLE, sideLabel, type SeedEvent, type SidechatLogEvent, type SidechatThreadInfo, type SidechatLiveEvent, type SidechatModelSelection, liveEventsOf } from './sidechat-core.ts'
 import { requireString, SidebarError } from './wire.ts'
 
 /** The five Side Chat routes of the sidebar API (wire method names). */
@@ -692,12 +692,15 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
         // 的默认（用户在会话里换的模型从不回写它），拿它当徽标会让界面说谎
         // （现场截图里主会话跑 GLM-5.3-Flash Max、侧边栏却显示 deepseek-v4-flash）。
         const selection = threadSelectionValue(childId) ?? readSessionModelSelection(ctx, agent.session)
+        // 排队中的追问：引擎收件箱是唯一知道它的地方（进日志之前转录里没有）。
+        const queued = queuedFollowups((agent as { inbox?: unknown }).inbox)
         return {
           live: true,
           status: agent.status,
           ...(selection?.provider === undefined ? {} : { provider: selection.provider }),
           ...(selection?.model === undefined ? {} : { model: selection.model }),
           ...(preset === undefined ? {} : { preset }),
+          ...(queued.length === 0 ? {} : { queued }),
         }
       }
       // Cold thread: 读回持久记录里的 preset 与**最后一次请求真正用过的模型**。

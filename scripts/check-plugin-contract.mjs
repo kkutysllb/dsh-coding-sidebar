@@ -363,6 +363,24 @@ const modelPins = [
 for (const pin of modelPins) if (!pin.ok) violations.push(`[⑦模型跟随] ${pin.why}`)
 if (modelPins.every(pin => pin.ok)) console.log(`[plugin-contract] 模型跟随 ${String(modelPins.length)} 项回归闸 ✓`)
 
+/**
+ * ⑧ **队列卡不得消失**（2026-09-25 现场）：追问走 `agent.followup` 的**排队**语义，消息在引擎领取
+ *    前**不进会话日志** ⇒ 转录里看不到 ⇒ 用户以为「发出去了却没反应」。唯一知道队列的是收件箱的
+ *    `nextTurn`。断言：主机侧必须把它读出来（`queuedFollowups(`），客户端必须把它画出来。
+ */
+const queuePins = [
+  {
+    ok: /queuedFollowups\(/.test(routesText) && /queuedFollowups\(/.test(stripComments(readFileSync(join(SRC, 'sidechat-core.ts'), 'utf8'))),
+    why: 'src/sidechat-routes.ts 必须读 `queuedFollowups(`（收件箱 nextTurn）——不读，队列在界面上不存在',
+  },
+  {
+    ok: /info\?\.queued/.test(sideChat) && /sidechatQueue\b/.test(sideChat),
+    why: 'src/client/SideChatView.tsx 必须把 info.queued 渲染成队列卡（`css.sidechatQueue`）',
+  },
+]
+for (const pin of queuePins) if (!pin.ok) violations.push(`[⑧追问队列] ${pin.why}`)
+if (queuePins.every(pin => pin.ok)) console.log('[plugin-contract] 追问队列两项回归闸 ✓')
+
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
 console.log(`[plugin-contract] ctx.remote.<面> 直读 ${faceReads} 处；openTab 调用点：`)
 for (const site of openSites) console.log(site)

@@ -844,6 +844,9 @@ export function SideChatView(props: {
       onSubmit: handleSubmitAnswer,
     }
 
+  /** 排队中的追问（宿主的收件箱视图；`info` 每拍都刷）。 */
+  const queued = info?.queued ?? []
+
   const handleSend = async (): Promise<void> => {
     const text = composer.trim()
     if (text === '' || threadId === undefined || busy !== null) return
@@ -1012,6 +1015,20 @@ export function SideChatView(props: {
           <span className={css.sidechatStatusText}>
             {pending !== undefined ? t('awaitingAnswerLabel') : t('sideChatThinking')}
           </span>
+        </div>
+      )}
+      {queued.length > 0 && (
+        <div className={css.sidechatQueue}>
+          <div className={css.sidechatQueueHead}>
+            {t('sideChatQueueTitle', { count: String(queued.length) })}
+          </div>
+          {queued.map((item, index) => (
+            <div key={item.id} className={css.sidechatQueueRow}>
+              <span className={css.sidechatQueueIndex}>{index + 1}</span>
+              <span className={css.sidechatQueueText}>{item.text}</span>
+            </div>
+          ))}
+          <div className={css.sidechatQueueHint}>{t('sideChatQueueHint')}</div>
         </div>
       )}
       <div className={css.sidechatComposer}>

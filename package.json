@@ -82,7 +82,7 @@
     "check:artifacts": "node scripts/check-artifacts.mjs",
     "smoke": "node scripts/smoke-plugin.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm check:contract && unrun tests/open-intent.mjs && unrun tests/sidechat-questions.mjs && unrun tests/sidechat-model.mjs && unrun tests/sidechat-live.mjs && node tests/run-openpath-tests.mjs",
+    "test": "pnpm check:contract && unrun tests/open-intent.mjs && unrun tests/sidechat-questions.mjs && unrun tests/sidechat-model.mjs && unrun tests/sidechat-queue.mjs && unrun tests/sidechat-live.mjs && node tests/run-openpath-tests.mjs",
     "dev:sync": "pnpm build && node scripts/sync-to-dev.mjs",
   "dev:check": "node scripts/sync-to-dev.mjs --check",
   "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",

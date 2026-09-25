@@ -599,6 +599,55 @@
   cursor: default;
 }
 
+/* 追问队列卡：追问走引擎的**排队**语义，进日志之前转录里看不到——不给它一块地方，
+ * 用户就会以为「发出去了却没反应」。放在输入框正上方（它描述的就是「接下来会发什么」）。 */
+.sidechatQueue {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 12px 6px;
+  padding: 6px 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.sidechatQueueHead {
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sidechatQueueRow {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.sidechatQueueIndex {
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sidechatQueueText {
+  flex: 1;
+  min-width: 0;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sidechatQueueHint {
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* 模型切换行：跟随主会话换模型时留一行，安静但可见（此前只能靠徽标猜）。 */
 .sidechatModelSwitch {
   align-self: flex-start;
