@@ -300,6 +300,13 @@ export function SideChatView(props: {
    * 之间，表现就是「一次性蹦出来」。
    */
   const quietRef = useRef(0)
+  /**
+   * 「踢一拍」钩子：由轮询 effect 装配。用户动作必须能**取消已经armed的那一拍**并立刻重排——
+   * 光把退避计数清零只影响「之后怎么排」，管不了「已经排好的那一拍」：现场实测发送在 16.7s
+   * 设了计数 0，但下一次 tick 仍按旧的 5s 延迟在 21.9s 才触发，整个 1.5s 流式窗口落在两次
+   * 轮询之间 ⇒ 回答只能定稿后一次性出现。
+   */
+  const kickPollRef = useRef<() => void>(() => {})
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -474,8 +481,14 @@ export function SideChatView(props: {
         schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)))
       }, delay)
     }
+    kickPollRef.current = () => {
+      if (timer !== 0) window.clearTimeout(timer)
+      timer = 0
+      quietRef.current = 0
+      schedule(POLL_FAST_MS)
+    }
     schedule(POLL_FAST_MS)
-    return () => { window.clearTimeout(timer) }
+    return () => { window.clearTimeout(timer); kickPollRef.current = () => {} }
   }, [visible, threadId, running, fetchThread, fetchInfo])
 
   useEffect(() => () => { controllerRef.current?.abort() }, [])
@@ -551,6 +564,7 @@ export function SideChatView(props: {
       const field = composerRef.current
       if (field !== null) field.style.height = ''
       quietRef.current = 0
+      kickPollRef.current()
       void fetchThread(threadId)
       void fetchInfo(threadId)
     } catch (cause) {
@@ -566,6 +580,7 @@ export function SideChatView(props: {
       await api.sidechatCancel(threadId)
       // Reflect the abort immediately instead of waiting out the backoff.
       quietRef.current = 0
+      kickPollRef.current()
       void fetchThread(threadId)
       void fetchInfo(threadId)
     } catch (cause) {

@@ -267,7 +267,7 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
     const live0 = liveThreadAgent(ctx, childId) !== undefined
     const started = Date.now()
     const own = await readThreadOwnEntries(ctx, childId)
-    diagnose(ctx, `events child=${childId} live=${live0} own=${own.length} ms=${Date.now() - started}`)
+    diagnose(ctx, `events child=${childId} live=${live0} own=${own.length} liveRows=${liveEventsOf(live.chunksOf(childId), -1).length} ms=${Date.now() - started}`)
     const afterSeq = readCount(request.afterSeq)
     const beforeSeq = readCount(request.beforeSeq)
     const maxEvents = readCount(request.maxEvents)
