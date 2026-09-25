@@ -15,7 +15,15 @@
  *
  * @module dsh-coding-sidebar/assistant-live
  */
+import { appendFileSync } from 'node:fs'
 import type { Context } from './context-types.ts'
+
+/** 诊断留痕（定位后删）：把一行文本追加到 /tmp 日志。 */
+function diagnose(text: string): void {
+  try {
+    appendFileSync('/tmp/dsh-sidechat-debug.log', `${new Date().toISOString()} live ${text}\n`)
+  } catch { /* 诊断失败不影响主流程 */ }
+}
 
 /** 一条归一化后的实时增量，按 attempt 与稠密位置定位。 */
 export interface AssistantLiveChunk {
@@ -78,9 +86,22 @@ export class AssistantLiveBuffer {
    * 挂上引擎的作用域帧与 agent 释放事件；随插件卸载清理。
    * @param ctx - 插件上下文（主机侧）。
    */
+  /** 诊断计数（定位后删）：收到的帧数与本模块丢弃的原因。 */
+  private frames = 0
+  private dropped: string | undefined
+
   constructor(ctx: Context) {
     const host = ctx as unknown as GlobalListenerHost
-    host.on('agent/assistant-stream', (payload) => { this.accept(payload) }, { global: true })
+    host.on('agent/assistant-stream', (payload) => {
+      this.frames += 1
+      if (this.frames <= 12 || this.frames % 50 === 0) {
+        const frame = (payload as { frame?: { type?: unknown; attemptId?: unknown; index?: unknown } }).frame
+        const agent = (payload as { agent?: { session?: { id?: unknown } } }).agent
+        diagnose(`frame #${this.frames} session=${String(agent?.session?.id)} type=${String(frame?.type)} index=${String(frame?.index)}`)
+      }
+      this.accept(payload)
+    }, { global: true })
+    diagnose('subscribed agent/assistant-stream (global)')
     host.on('agent/disposed', (payload) => {
       const id = payload?.agent?.session?.id
       if (typeof id === 'string') this.attempts.delete(id)
@@ -99,13 +120,23 @@ export class AssistantLiveBuffer {
     return [...attempt.chunks.values()].sort((left, right) => left.index - right.index)
   }
 
+  /** 只记第一次的丢弃原因（诊断）。 */
+  private note(reason: string): void {
+    if (this.dropped !== undefined) return
+    this.dropped = reason
+    diagnose(reason)
+  }
+
   /** 折叠一帧。 */
   private accept(payload: AssistantStreamPayload): void {
     const sessionId = payload?.agent?.session?.id
     const frame = payload?.frame
     if (typeof sessionId !== 'string' || frame === null || typeof frame !== 'object') return
     const attemptId = frame.attemptId
-    if (typeof attemptId !== 'string') return
+    if (typeof attemptId !== 'string') {
+      this.note(`drop no-attemptId session=${sessionId} type=${String(frame.type)}`)
+      return
+    }
 
     if (frame.type === 'start') {
       // 新 attempt（或同一 attempt 重开）：整段替换，避免与上一段的残帧混在一起。
@@ -128,7 +159,10 @@ export class AssistantLiveBuffer {
     if (frame.type !== 'chunk') return
     const attempt = this.attempts.get(sessionId)
     // 没有 start（或属于上一段 attempt）的 chunk 直接丢：宁可少一帧，也不错位。
-    if (attempt === undefined || attempt.attemptId !== attemptId) return
+    if (attempt === undefined || attempt.attemptId !== attemptId) {
+      this.note(`drop chunk-without-start session=${sessionId} attempt=${attemptId}`)
+      return
+    }
     const index = frame.index
     const chunk = frame.chunk
     if (typeof index !== 'number' || chunk === null || typeof chunk !== 'object') return
