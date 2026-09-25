@@ -349,14 +349,11 @@ export function SideChatView(props: {
    *  one tail page and merge (seq-deduped).
    *  @returns whether the merged transcript grew (the poll's pacing signal). */
   const fetchThread = useCallback(async (childId: string): Promise<boolean> => {
-    // Capability probe: the transcript pull rides the carrier's legacy
-    // `connection.api.sessions.history` RPC. Hosts that moved to a remote-
-    // namespace carrier (QiLin) expose no `.api` face — keep the last rows
-    // instead of throwing on every poll (same policy as a wire failure).
-    const legacySessions = (ctx.connection as unknown as {
-      api?: { sessions?: { history?: unknown } }
-    }).api?.sessions?.history
-    if (legacySessions === undefined) return false
+    // ⚠️ 这里曾有一段「legacy 能力探测」：查 `ctx.connection.api.sessions.history`
+    // 是否存在，不存在就直接 return false。当前 rc 的载体**不再暴露 `connection.api`**，
+    // 于是这个守卫**每一轮都提前返回**——transcript 一次都不拉，面板永远空白、连自家路由
+    // 都不会被调用（2026-09-25 现场：主机侧零留痕）。
+    // P2 之后数据走**插件自家路由** `sidechat.events`，与 `connection.api` 再无关系，故删除该探测。
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller
