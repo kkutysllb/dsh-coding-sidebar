@@ -326,7 +326,7 @@ export const pl: Record<string, string> = {
   subagentThinking: 'Myśli…',
   subagentShowHistory: 'Pokaż {count} starszych podagentów',
   subagentHideHistory: 'Zwiń starszych podagentów',
-  sideChat: 'Czat boczny (beta)',
+  sideChat: 'Czat boczny ',
   sideChatNew: 'Nowy wątek',
   sideChatUntitled: 'Nowy wątek',
   sideChatEmpty: 'Brak rozmów bocznych',

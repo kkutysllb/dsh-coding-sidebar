@@ -315,7 +315,7 @@ export const it: Record<string, string> = {
   subagentThinking: 'In pensiero…',
   subagentShowHistory: 'Mostra {count} sottoagenti precedenti',
   subagentHideHistory: 'Comprimi sottoagenti precedenti',
-  sideChat: 'Chat laterale (beta)',
+  sideChat: 'Chat laterale ',
   sideChatNew: 'Nuova conversazione',
   sideChatUntitled: 'Nuova conversazione',
   sideChatEmpty: 'Nessuna conversazione laterale',

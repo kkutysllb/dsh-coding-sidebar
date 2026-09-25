@@ -322,7 +322,7 @@ export const id: Record<string, string> = {
   subagentThinking: 'Berpikir…',
   subagentShowHistory: 'Tampilkan {count} subagen sebelumnya',
   subagentHideHistory: 'Ciutkan subagen sebelumnya',
-  sideChat: 'Side Chat (beta)',
+  sideChat: 'Side Chat ',
   sideChatNew: 'Thread baru',
   sideChatUntitled: 'Thread baru',
   sideChatEmpty: 'Tidak ada obrolan samping',

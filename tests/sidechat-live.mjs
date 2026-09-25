@@ -187,6 +187,41 @@ check('畸形 meta（行号不递增）⇒ 退回通用文本行，不崩', () =
   assert.equal(row.card, undefined)
 })
 
+check('bash 调用即成终端卡（命令/工作目录），后台命令不成卡', () => {
+  const rows = transcriptRows([
+    { event: { type: 'tool/call', seq: 40, time: 4000, data: { callId: 'b1', name: 'bash', arguments: JSON.stringify({ command: 'ls -la', workdir: '/tmp' }) } } },
+    { event: { type: 'tool/call', seq: 41, time: 4001, data: { callId: 'b2', name: 'bash', arguments: JSON.stringify({ command: 'sleep 9', run_in_background: true }) } } },
+  ], [])
+  const cards = rows.filter(r => r.kind === 'tool')
+  assert.equal(cards[0].card.type, 'terminal')
+  assert.equal(cards[0].card.command, 'ls -la')
+  assert.equal(cards[0].card.cwd, '/tmp')
+  assert.equal(cards[1].card, undefined)
+})
+
+check('bash 结果剥出退出标记，输出不含标记行', () => {
+  const rows = transcriptRows([
+    { event: { type: 'tool/call', seq: 42, time: 4200, data: { callId: 'b3', name: 'bash', arguments: JSON.stringify({ command: 'false' }) } } },
+    { event: { type: 'tool/result', seq: 43, time: 4300, data: { message: { source: { callId: 'b3' }, content: [{ type: 'tool-result', content: [{ type: 'text', text: 'boom\n[exit code: 1]' }] }] } } } },
+  ], [])
+  const row = rows.find(r => r.kind === 'tool')
+  assert.equal(row.card.exitCode, 1)
+  assert.equal(row.card.output, 'boom')
+})
+
+check('每轮汇总：输出累加、输入取最后一次，时长取 turn 两端', () => {
+  const rows = transcriptRows([
+    { event: { type: 'turn/start', seq: 50, time: 1000, data: { turn: 1 } } },
+    { event: { type: 'assistant/message', seq: 51, time: 1500, data: { turn: 1, step: 0, message: { content: [{ type: 'text', text: 'a' }] }, usage: { inputTokens: 100, outputTokens: 10 } } } },
+    { event: { type: 'assistant/message', seq: 52, time: 2000, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'b' }] }, usage: { inputTokens: 150, outputTokens: 20 } } } },
+    { event: { type: 'turn/end', seq: 53, time: 3000, data: { turn: 1 } } },
+  ], [])
+  const summary = rows.find(r => r.kind === 'turnSummary')
+  assert.equal(summary.outputTokens, 30)
+  assert.equal(summary.inputTokens, 150)
+  assert.equal(summary.durationMs, 2000)
+})
+
 console.log('[sidechat-live] 实时流路径（假 ctx 驱动真缓冲 + 真 transcript 映射）')
 for (const line of lines) console.log(line)
 console.log(`[sidechat-live] ${passed}/${lines.length} ${process.exitCode === 1 ? '有失败' : 'ALL PASS'}`)

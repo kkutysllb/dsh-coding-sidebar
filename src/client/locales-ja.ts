@@ -324,7 +324,7 @@ export const ja: Record<string, string> = {
   subagentThinking: '思考中…',
   subagentShowHistory: '前のサブエージェント {count} 件を表示',
   subagentHideHistory: '前のサブエージェントを折りたたむ',
-  sideChat: 'サイドチャット(beta)',
+  sideChat: 'サイドチャット',
   sideChatNew: '新規スレッド',
   sideChatUntitled: '新規スレッド',
   sideChatEmpty: 'サイド会話なし',

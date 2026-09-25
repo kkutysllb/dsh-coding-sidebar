@@ -307,7 +307,7 @@ export const sv: Record<string, string> = {
   subagentThinking: 'Tänker…',
   subagentShowHistory: 'Visa {count} tidigare subagenter',
   subagentHideHistory: 'Fäll ihop tidigare subagenter',
-  sideChat: 'Sidochatt (beta)',
+  sideChat: 'Sidochatt ',
   sideChatNew: 'Ny tråd',
   sideChatUntitled: 'Ny tråd',
   sideChatEmpty: 'Inga sidokonversationer',

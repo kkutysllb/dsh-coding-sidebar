@@ -316,7 +316,7 @@ export const ko: Record<string, string> = {
   subagentThinking: '생각하는 중…',
   subagentShowHistory: '이전 서브 에이전트 {count}개 표시',
   subagentHideHistory: '이전 서브 에이전트 접기',
-  sideChat: '사이드 채팅(beta)',
+  sideChat: '사이드 채팅',
   sideChatNew: '새 대화',
   sideChatUntitled: '새 대화',
   sideChatEmpty: '사이드 대화 없음',

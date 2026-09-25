@@ -339,7 +339,7 @@ export const zhMO: Record<string, string> = {
   subagentThinking: '思考中…',
   subagentShowHistory: '展開較早的 {count} 個子代理',
   subagentHideHistory: '收起較早的子代理',
-  sideChat: '側邊對話(beta)',
+  sideChat: '側邊對話',
   sideChatNew: '新增對話',
   sideChatUntitled: '新對話',
   sideChatEmpty: '暫無側邊對話',

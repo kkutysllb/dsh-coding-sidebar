@@ -44,7 +44,7 @@ import {
   threadTrailingPending,
   type SidechatThreadInfo,
 } from '../sidechat-core.ts'
-import { collectOwnEvents, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
+import { collectOwnEvents, formatDurationMs, formatTokens, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
 import { api } from './api.ts'
 import type { SidechatLiveEvent } from '../sidechat-core.ts'
 import { openViaUiWorkspace } from './workspace-nav.ts'
@@ -198,6 +198,15 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
           <MarkdownText {...markdownTextProps(row.text, labels)} />
         </div>
       )
+    case 'turnSummary': {
+      const parts: string[] = []
+      if (row.inputTokens !== undefined || row.outputTokens !== undefined) {
+        parts.push(`${formatTokens(row.inputTokens ?? 0)} → ${formatTokens(row.outputTokens ?? 0)}`)
+      }
+      if (row.durationMs !== undefined) parts.push(formatDurationMs(row.durationMs))
+      if (parts.length === 0) return null
+      return <div key={`${row.kind}:${row.seq}`} className={css.sidechatTurnSummary}>{parts.join(' · ')}</div>
+    }
     case 'assistant':
       return (
         <div key={`${row.kind}:${row.seq}`} className={css.sidechatAssistant}>
@@ -232,6 +241,18 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
               <pre className={css.sidechatRowCode}>{hunk.newText}</pre>
             </div>
           ))}
+          {card?.type === 'terminal' && (
+            <div className={css.sidechatCard}>
+              {card.cwd !== undefined && <div className={css.sidechatCardPath}>{card.cwd}</div>}
+              <pre className={css.sidechatRowCode}>{`$ ${card.command}`}</pre>
+              {card.output !== undefined && card.output !== '' && <pre className={css.sidechatRowCode}>{card.output}</pre>}
+              {(card.exitCode !== undefined || card.signal !== undefined) && (
+                <div className={card.exitCode === 0 || card.exitCode === undefined ? css.sidechatCardPath : css.sidechatCardFail}>
+                  {card.signal !== undefined ? `signal: ${card.signal}` : `exit: ${String(card.exitCode)}`}
+                </div>
+              )}
+            </div>
+          )}
           {card?.type === 'read' && (
             <div className={css.sidechatCard}>
               <div className={css.sidechatCardPath}>{`${card.label}（${String(card.lines.length)}/${String(card.totalLines)} 行）`}</div>

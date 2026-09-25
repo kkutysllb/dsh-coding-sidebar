@@ -324,7 +324,7 @@ export const tr: Record<string, string> = {
   subagentThinking: 'Düşünüyor…',
   subagentShowHistory: 'Önceki {count} alt aracıyı göster',
   subagentHideHistory: 'Önceki alt araçları daralt',
-  sideChat: 'Yan sohbet (beta)',
+  sideChat: 'Yan sohbet ',
   sideChatNew: 'Yeni iş parçacığı',
   sideChatUntitled: 'Yeni iş parçacığı',
   sideChatEmpty: 'Yan sohbet yok',

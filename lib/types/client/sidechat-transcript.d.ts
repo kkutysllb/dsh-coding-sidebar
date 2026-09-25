@@ -25,6 +25,14 @@ export type SidechatTranscriptRow = {
     seq: number;
     text: string;
 }
+/** 每轮收尾的一行指标（`turn/end` 时发）：token 用量与墙钟时长，能算出来才有。 */
+ | {
+    kind: 'turnSummary';
+    seq: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    durationMs?: number;
+}
 /** A context injection (the side boundary prompt + the parked in-progress
  *  snapshot, or any plugin-sourced context): rendered as one collapsible
  *  row, never as a user bubble. */
@@ -90,7 +98,18 @@ export type SidechatToolCard = {
         text: string;
     }[];
     totalLines: number;
+} | {
+    type: 'terminal';
+    command: string;
+    cwd?: string;
+    output?: string;
+    exitCode?: number;
+    signal?: string;
 };
+/** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
+export declare function formatTokens(n: number): string;
+/** 紧凑时长（45.2s / 2m42s，与主对话同款：不足一分钟保留一位小数）。 */
+export declare function formatDurationMs(ms: number): string;
 export declare function toolArgsSummary(args: string | undefined): string;
 /**
  * Collect the thread's OWN events on first attach: walk backward from the

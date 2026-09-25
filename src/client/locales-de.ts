@@ -310,7 +310,7 @@ export const de: Record<string, string> = {
   subagentThinking: 'Denkt nach…',
   subagentShowHistory: '{count} ältere Subagenten anzeigen',
   subagentHideHistory: 'Ältere Subagenten einklappen',
-  sideChat: 'Seitenchat (beta)',
+  sideChat: 'Seitenchat ',
   sideChatNew: 'Neuer Thread',
   sideChatUntitled: 'Neuer Thread',
   sideChatEmpty: 'Keine Seitenunterhaltungen',

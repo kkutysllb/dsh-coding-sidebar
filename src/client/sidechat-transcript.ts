@@ -24,6 +24,8 @@ import type { SidechatLiveEvent } from '../sidechat-core.ts'
  *  rows). */
 export type SidechatTranscriptRow =
   | { kind: 'user'; seq: number; text: string }
+  /** 每轮收尾的一行指标（`turn/end` 时发）：token 用量与墙钟时长，能算出来才有。 */
+  | { kind: 'turnSummary'; seq: number; inputTokens?: number; outputTokens?: number; durationMs?: number }
   /** A context injection (the side boundary prompt + the parked in-progress
    *  snapshot, or any plugin-sourced context): rendered as one collapsible
    *  row, never as a user bubble. */
@@ -90,6 +92,86 @@ function flatTruncate(text: string): string {
 export type SidechatToolCard =
   | { type: 'diff'; diffs: readonly { path: string; oldText?: string | null; newText: string }[] }
   | { type: 'read'; label: string; lines: readonly { number: number; text: string }[]; totalLines: number }
+  | { type: 'terminal'; command: string; cwd?: string; output?: string; exitCode?: number; signal?: string }
+
+/** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
+export function formatTokens(n: number): string {
+  const scaled = (v: number): string => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10))
+  if (n < 1_000) return String(n)
+  if (n < 1_000_000) return `${scaled(n / 1_000)}K`
+  return `${scaled(n / 1_000_000)}M`
+}
+
+/** 紧凑时长（45.2s / 2m42s，与主对话同款：不足一分钟保留一位小数）。 */
+export function formatDurationMs(ms: number): string {
+  const seconds = ms / 1_000
+  if (seconds < 60) return `${Math.round(seconds * 10) / 10}s`
+  const whole = Math.round(seconds)
+  return `${Math.floor(whole / 60)}m${whole % 60}s`
+}
+
+/** 工具参数 JSON → 对象；非对象/解析失败即 undefined（形状由工具自己决定）。 */
+function parseArgsObject(args: string | undefined): Record<string, unknown> | undefined {
+  if (args === undefined || args === '') return undefined
+  try {
+    const parsed: unknown = JSON.parse(args)
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * **调用时**的卡片：`bash` 的命令/工作目录、`edit`/`write` 的目标与文本。
+ * 调用时就有卡，用户不必等结果落地才看见「在改哪个文件、跑什么命令」。
+ */
+function callCard(name: string, args: string | undefined): SidechatToolCard | undefined {
+  const parsed = parseArgsObject(args)
+  if (parsed === undefined) return undefined
+  if (name === 'bash') {
+    const command = typeof parsed.command === 'string' && parsed.command !== '' ? parsed.command : undefined
+    // 后台命令没有「跑完了」的语义，不生成终端卡。
+    if (command === undefined || parsed.run_in_background === true) return undefined
+    const cwd = typeof parsed.workdir === 'string' && parsed.workdir !== '' ? parsed.workdir : undefined
+    return { type: 'terminal', command, ...(cwd === undefined ? {} : { cwd }) }
+  }
+  if (name === 'edit' || name === 'write') {
+    const path = typeof parsed.file_path === 'string' && parsed.file_path !== '' ? parsed.file_path : undefined
+    if (path === undefined) return undefined
+    if (name === 'edit') {
+      const oldText = typeof parsed.old_string === 'string' ? parsed.old_string : ''
+      const newText = typeof parsed.new_string === 'string' ? parsed.new_string : ''
+      return { type: 'diff', diffs: [{ path, oldText: oldText === '' ? null : oldText, newText }] }
+    }
+    const newText = typeof parsed.content === 'string' ? parsed.content : ''
+    return { type: 'diff', diffs: [{ path, oldText: null, newText }] }
+  }
+  return undefined
+}
+
+/** bash 结果尾部的退出标记（模型可见文本里工具自己追加的），剥成退出药丸。 */
+const EXIT_SIGNAL_RE = /\n\[killed by signal: ([^\]\n]+)\]$/
+const EXIT_CODE_RE = /\n\[exit code: (\d+)\]$/
+
+/** **结果时**的精化：终端卡吃掉输出与退出标记；失败结果退回通用行（与宿主一致）。 */
+function refineCard(
+  name: string,
+  previous: SidechatToolCard | undefined,
+  resultText: string,
+): SidechatToolCard | undefined {
+  if (name !== 'bash' || previous === undefined || previous.type !== 'terminal' || resultText === '') return previous
+  const signal = EXIT_SIGNAL_RE.exec(resultText)
+  if (signal?.[1] !== undefined) {
+    return { ...previous, output: resultText.slice(0, signal.index), exitCode: undefined, signal: signal[1] }
+  }
+  const exit = EXIT_CODE_RE.exec(resultText)
+  if (exit?.[1] !== undefined) {
+    return { ...previous, output: resultText.slice(0, exit.index), exitCode: Number(exit[1]) }
+  }
+  return previous
+}
 
 /** `meta.diffs` → 改动卡（路径 + 新旧文本；任一条畸形即放弃整张卡）。 */
 function diffCardFromMeta(meta: Record<string, unknown>): SidechatToolCard | undefined {
@@ -260,6 +342,10 @@ export function transcriptRows(
   const streamRows = new Map<string, number>()
   /** tool callId → index of its tool row in `rows` (result pairing). */
   const callRows = new Map<string, number>()
+  /** turn → 累计用量（输出累加、输入取最后一次），在 turn/end 落成一行。 */
+  const turnUsage = new Map<number, { inputTokens: number; outputTokens: number }>()
+  /** turn → 起始时间（`turn/start` 的 envelope time），用于算墙钟时长。 */
+  const turnStartedAt = new Map<number, number>()
 
   /**
    * 累加一条流式增量（持久 `assistant/chunk` 与实时 `assistant/live-chunk` 共用这一条路径；
@@ -320,8 +406,41 @@ export function transcriptRows(
         appendChunk(data.turn, data.step, data.chunk, event.seq)
         break
       }
+      case 'turn/start': {
+        const turn = data.turn
+        if (typeof turn === 'number') turnStartedAt.set(turn, event.time)
+        break
+      }
+      case 'turn/end': {
+        const turn = data.turn
+        if (typeof turn !== 'number') break
+        const usage = turnUsage.get(turn)
+        const startedAt = turnStartedAt.get(turn)
+        const durationMs = startedAt === undefined ? undefined : Math.max(0, event.time - startedAt)
+        if (usage === undefined && durationMs === undefined) break
+        rows.push({
+          kind: 'turnSummary',
+          seq: event.seq,
+          ...(usage === undefined ? {} : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }),
+          ...(durationMs === undefined ? {} : { durationMs }),
+        })
+        turnUsage.delete(turn)
+        turnStartedAt.delete(turn)
+        break
+      }
       case 'assistant/message': {
         const prefix = `${String(data.turn)}:${String(data.step)}:`
+        // 该步的 token 用量：**输出累加**（每步各自产出），**输入取最后一次**
+        // （同轮里后续步骤的输入已包含前文，累加会重复计）。
+        const usageTurn = data.turn
+        const usage = data.usage as { inputTokens?: unknown; outputTokens?: unknown } | undefined
+        if (typeof usageTurn === 'number' && usage !== null && typeof usage === 'object') {
+          const before = turnUsage.get(usageTurn) ?? { inputTokens: 0, outputTokens: 0 }
+          turnUsage.set(usageTurn, {
+            inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : before.inputTokens,
+            outputTokens: before.outputTokens + (typeof usage.outputTokens === 'number' ? usage.outputTokens : 0),
+          })
+        }
         // 这一步已定稿：实时行不再补进来（缓冲清空与持久消息之间有极短竞态窗口）。
         settledPrefixes.add(prefix)
         const streamed = [...streamRows.entries()]
@@ -353,8 +472,9 @@ export function transcriptRows(
         const name = typeof data.name === 'string' ? data.name : 'tool'
         const args = typeof data.arguments === 'string' ? data.arguments : undefined
         const rowIndex = rows.length
+        const card = callCard(name, args)
         if (typeof callId === 'string') callRows.set(callId, rowIndex)
-        rows.push({ kind: 'tool', seq: event.seq, name, failed: false, args, executing: true })
+        rows.push({ kind: 'tool', seq: event.seq, name, failed: false, args, executing: true, ...(card === undefined ? {} : { card }) })
         break
       }
       case 'tool/result': {
@@ -367,7 +487,10 @@ export function transcriptRows(
           const row = rows[rowIndex]
           if (row !== undefined && row.kind === 'tool') {
             // 失败结果退回通用文本行（与宿主一致：isError 路径不渲染结构化卡）。
-            const card = failed ? undefined : cardFromResultMeta(data as Record<string, unknown>)
+            const refined = failed ? undefined : cardFromResultMeta(data as Record<string, unknown>)
+            const card = failed
+              ? undefined
+              : (refined ?? refineCard(row.name, row.card, resultText))
             rows[rowIndex] = {
               ...row,
               failed: row.failed || failed,

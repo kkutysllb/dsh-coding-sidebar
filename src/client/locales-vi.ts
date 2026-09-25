@@ -324,7 +324,7 @@ export const vi: Record<string, string> = {
   subagentThinking: 'Đang suy nghĩ…',
   subagentShowHistory: 'Hiện {count} tác nhân con cũ hơn',
   subagentHideHistory: 'Thu gọn tác nhân con cũ hơn',
-  sideChat: 'Chat bên (beta)',
+  sideChat: 'Chat bên ',
   sideChatNew: 'Luồng mới',
   sideChatUntitled: 'Luồng mới',
   sideChatEmpty: 'Không có cuộc trò chuyện bên',
