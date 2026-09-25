@@ -445,38 +445,89 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* 待答提问卡的选项：按钮就是答案（引擎按选项文本原样匹配），所以是可点的行，
- * 不是列表项。选中态只影响本机草稿，提交才回传宿主。 */
+/* ── 待答提问卡（选项卡样式） ─────────────────────────────────────────────
+ * 选项**就是答案本体**（引擎按选项文本原样匹配），所以每一行都必须一眼看出「能点」：
+ * 一张卡片 = 指示器 + 主文本 + 次说明，选中态换品牌色描边与底纹。放在独立卡面上，
+ * 与工具行正文分开——提问是**阻塞点**，不该淹没在缩进的灰色行里。
+ * 类名必须出现在本文件（CSS Modules 按文件哈希，跨文件引用是 undefined ⇒ 无声失效）。 */
+.sidechatAskCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+}
+
+.sidechatAskQuestion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sidechatAskHeader {
+  align-self: flex-start;
+  padding: 1px 6px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+  border-radius: 4px;
+}
+
+.sidechatAskPrompt {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
+}
+
+.sidechatAskDetail {
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+}
+
 .sidechatAnswerOptions {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .sidechatCardOption {
   display: flex;
-  align-items: baseline;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
-  padding: 4px 8px;
+  padding: 8px 10px;
   font: inherit;
-  font-size: 12px;
-  line-height: 18px;
   text-align: left;
   color: var(--dsw-alias-label-primary);
-  background: transparent;
-  border: 1px solid var(--dsw-alias-border-l);
-  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
   cursor: pointer;
+  transition: background 120ms ease-out, border-color 120ms ease-out;
 }
 
 .sidechatCardOption:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-border-l3);
 }
 
-.sidechatCardOptionSelected {
-  border-color: var(--dsw-alias-interactive-bg-hover-accent, var(--dsw-alias-border-l));
-  background: var(--dsw-alias-interactive-bg-hover);
+.sidechatCardOptionSelected,
+.sidechatCardOptionSelected:hover:not(:disabled) {
+  /* 深色主题里 brand-primary 是**浅色**（引擎的 primary 按钮就是浅底深字），做描边不够
+     「选中」；改用与发送键同一个信息蓝，两套主题下都是蓝，也和本插件其余按钮一致。 */
+  border-color: var(--dsw-alias-button-info-fill, var(--dsw-alias-brand-primary));
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.sidechatCardOption:focus-visible {
+  outline: 2px solid var(--dsw-alias-button-info-fill, var(--dsw-alias-brand-primary));
+  outline-offset: 1px;
 }
 
 .sidechatCardOption:disabled {
@@ -484,16 +535,59 @@
   cursor: default;
 }
 
+/* 单选圆点 / 多选方框；选中即填充品牌色。 */
+.sidechatAnswerMark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: #fff;
+  background: transparent;
+  border: 1.5px solid var(--dsw-alias-border-l3);
+  border-radius: 50%;
+}
+
+.sidechatAnswerMarkMulti {
+  border-radius: 4px;
+}
+
+.sidechatAnswerMarkOn {
+  border-color: var(--dsw-alias-button-info-fill, var(--dsw-alias-brand-primary));
+  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-brand-primary));
+}
+
+.sidechatAnswerText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sidechatAnswerLabel {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.sidechatAnswerDesc {
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
 .sidechatAnswerSubmit {
   align-self: flex-start;
-  padding: 4px 12px;
-  font: inherit;
-  font-size: 12px;
-  color: #fff;
-  background: var(--dsw-alias-button-info-fill, var(--dsw-alias-interactive-bg-hover-solid));
+  padding: 6px 14px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary-inverted, #fff);
+  background: var(--dsw-alias-brand-primary);
   border: none;
-  border-radius: 999px;
+  border-radius: 8px;
   cursor: pointer;
+  transition: opacity 120ms ease-out;
 }
 
 .sidechatAnswerSubmit:hover:not(:disabled) {

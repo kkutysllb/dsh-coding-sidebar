@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
+  IconCheckOutlineRegular,
   IconChevronRightOutlineRegular,
   IconNewChatOutlineRegular,
   IconPlusOutlineRegular,
@@ -250,18 +251,24 @@ function QuestionCard(props: {
 }): React.ReactNode {
   const complete = draftsComplete(props.drafts)
   return (
-    <>
+    <div className={css.sidechatAskCard}>
       {props.questions.map((question, index) => {
         const draft = props.drafts[index] ?? { selected: [], custom: '' }
         const multi = question.multiSelect === true
+        const options = question.options ?? []
         return (
-          <div key={`q:${question.id}`} className={css.sidechatCard}>
-            {question.header !== undefined && <div className={css.sidechatCardPath}>{question.header}</div>}
-            <div className={css.sidechatRowProse}>{question.question}</div>
+          <div key={`q:${question.id}`} className={css.sidechatAskQuestion}>
+            {question.header !== undefined && (
+              <div className={css.sidechatAskHeader}>{question.header}</div>
+            )}
+            <div className={css.sidechatAskPrompt}>{question.question}</div>
+            {question.detail !== undefined && (
+              <div className={css.sidechatAskDetail}>{question.detail}</div>
+            )}
             {multi && <div className={css.sidechatCardPath}>{props.labels.answerMultiSelectHint}</div>}
-            {(question.options ?? []).length > 0 && (
+            {options.length > 0 && (
               <div className={css.sidechatAnswerOptions} role={multi ? 'group' : 'radiogroup'}>
-                {(question.options ?? []).map(option => {
+                {options.map(option => {
                   const selected = draft.selected.includes(option.label)
                   return (
                     <button
@@ -273,10 +280,23 @@ function QuestionCard(props: {
                       disabled={props.submitting}
                       onClick={() => { props.onSelect(index, option.label) }}
                     >
-                      <span className={css.sidechatCardOptionLabel}>{option.label}</span>
-                      {option.description !== undefined && (
-                        <span className={css.sidechatCardPath}> — {option.description}</span>
-                      )}
+                      {/* 指示器是纯 CSS 画的：不引入图标依赖，也保证单选/多选只差一个圆角。 */}
+                      <span
+                        className={clsx(
+                          css.sidechatAnswerMark,
+                          multi && css.sidechatAnswerMarkMulti,
+                          selected && css.sidechatAnswerMarkOn,
+                        )}
+                        aria-hidden="true"
+                      >
+                        {selected && <IconCheckOutlineRegular size={12} />}
+                      </span>
+                      <span className={css.sidechatAnswerText}>
+                        <span className={css.sidechatAnswerLabel}>{option.label}</span>
+                        {option.description !== undefined && (
+                          <span className={css.sidechatAnswerDesc}>{option.description}</span>
+                        )}
+                      </span>
                     </button>
                   )
                 })}
@@ -296,7 +316,7 @@ function QuestionCard(props: {
           {props.labels.answerSubmitLabel}
         </button>
       )}
-    </>
+    </div>
   )
 }
 
@@ -366,7 +386,10 @@ function renderRow(
             if (bound !== undefined) {
               return (
                 <QuestionCard
-                  questions={card.questions}
+                  // 用**引擎的请求本体**（`pending.questions`）而不是工具行里那份副本：
+                  // 配对已按题目 id 序列成立，而请求本体才是权威（带 detail / multiSelect，
+                  // 也是宿主真正在等的那批题）。
+                  questions={bound.pending.questions}
                   drafts={bound.drafts}
                   labels={labels}
                   submitting={bound.submitting}
