@@ -293,6 +293,13 @@ export function SideChatView(props: {
   /** 临时诊断（定位后删）：把轮询决策上报到主机日志。 */
   const debugOnce = useRef(false)
   const debugCount = useRef(0)
+  const debugLive = useRef(0)
+  /**
+   * 轮询退避计数（连拍无增长则加大间隔）。放 ref 而不是 effect 局部变量：**用户动作必须能把它
+   * 清零**——否则此前空轮询已退到 5s 时，发送后整段回答（实测只流 ~2.5s）会整个落在两次轮询
+   * 之间，表现就是「一次性蹦出来」。
+   */
+  const quietRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -381,6 +388,10 @@ export function SideChatView(props: {
       if (debugCount.current < 3) {
         debugCount.current += 1
         void api.sidechatDebug(`poll ok thread=${childId} entries=${cache.entries.length} live=${liveRef.current.length}`)
+      } else if (liveRef.current.length > 0 && debugLive.current < 20) {
+        // 流式窗口是这条链最需要看见的一段：带实时行的轮询必须留痕。
+        debugLive.current += 1
+        void api.sidechatDebug(`poll LIVE thread=${childId} entries=${cache.entries.length} live=${liveRef.current.length}`)
       }
       setRevision(value => value + 1)
       return cache.entries.length > before
@@ -447,7 +458,6 @@ export function SideChatView(props: {
     // 节拍本身已是自适应的（无增长就退避到 POLL_SLOW_MS），且只在 `visible` 时轮询，
     // 故无需这道闸——「是否还在长」由下面每一拍自己判断（含实时行）。
     let timer = 0
-    let quiet = 0
     const schedule = (delay: number): void => {
       timer = window.setTimeout(async () => {
         let grew = false
@@ -455,11 +465,12 @@ export function SideChatView(props: {
           grew = await fetchThread(threadId)
           void fetchInfo(threadId)
         } catch {
-          quiet += 1
+          quietRef.current += 1
         }
         // 实时行也算「还在长」：流式期间 transcript 的持久行可能整段都不变，
         // 只靠 grew 会立刻退避，正好错过流式窗口。
-        quiet = (grew || liveRef.current.length > 0) ? 0 : quiet + 1
+        const quiet = (grew || liveRef.current.length > 0) ? 0 : quietRef.current + 1
+        quietRef.current = quiet
         schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)))
       }, delay)
     }
@@ -539,6 +550,7 @@ export function SideChatView(props: {
       setComposer('')
       const field = composerRef.current
       if (field !== null) field.style.height = ''
+      quietRef.current = 0
       void fetchThread(threadId)
       void fetchInfo(threadId)
     } catch (cause) {
@@ -553,6 +565,7 @@ export function SideChatView(props: {
     try {
       await api.sidechatCancel(threadId)
       // Reflect the abort immediately instead of waiting out the backoff.
+      quietRef.current = 0
       void fetchThread(threadId)
       void fetchInfo(threadId)
     } catch (cause) {
