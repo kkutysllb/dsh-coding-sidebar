@@ -290,6 +290,9 @@ export function SideChatView(props: {
    * 定稿后由持久 assistant/message 覆盖。读取失败只清空它，绝不影响耐久路径。
    */
   const liveRef = useRef<readonly SidechatLiveEvent[]>([])
+  /** 临时诊断（定位后删）：把轮询决策上报到主机日志。 */
+  const debugOnce = useRef(false)
+  const debugCount = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -378,10 +381,23 @@ export function SideChatView(props: {
         // 实时半与耐久半同一次往返（定稿后由 assistant/message 覆盖）。
         liveRef.current = page.live
       }
+      if (debugCount.current < 3) {
+        debugCount.current += 1
+        void api.sidechatDebug(`poll ok thread=${childId} entries=${cache.entries.length} live=${liveRef.current.length}`)
+      }
       setRevision(value => value + 1)
       return cache.entries.length > before
-    } catch {
-      // Aborted by a newer pull or a wire failure: keep the last rows.
+    } catch (cause) {
+      // 主动打断（更晚的一次拉取）不是错误；其余失败必须**说出来**——此前这里静默吞掉，
+      // 表现是「面板一片空白、连报错都没有」，让现场排查多花了好几轮。
+      if (!controller.signal.aborted) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        if (debugCount.current < 3) {
+          debugCount.current += 1
+          void api.sidechatDebug(`poll ERROR thread=${childId} ${message}`)
+        }
+        setError(message)
+      }
       return false
     }
   }, [ctx])
@@ -416,7 +432,17 @@ export function SideChatView(props: {
   // (reset the moment anything lands). Send/cancel kick an immediate pull,
   // so user actions never wait on the backoff.
   useEffect(() => {
-    if (!visible || threadId === undefined) return
+    if (!visible || threadId === undefined) {
+      if (threadId !== undefined && !debugOnce.current) {
+        debugOnce.current = true
+        void api.sidechatDebug(`poll skipped thread=${threadId} visible=${String(visible)}`) 
+      }
+      return
+    }
+    if (!debugOnce.current) {
+      debugOnce.current = true
+      void api.sidechatDebug(`poll start thread=${threadId} visible=${String(visible)}`)
+    }
     void fetchThread(threadId)
     if (!running) return
     let timer = 0

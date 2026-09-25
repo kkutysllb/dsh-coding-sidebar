@@ -65,6 +65,8 @@ export interface SidechatRoutes {
    * `live` 每次返回当前 attempt 的全部行、由客户端整体替换。
    */
   'sidechat.events'(payload: unknown): Promise<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }>
+  /** 临时诊断（2026-09-25 面板空白现场排查；定位后删除）：把客户端状态追加到 /tmp 日志。 */
+  'sidechat.debug'(payload: unknown): Promise<{ accepted: true }>
 }
 
 /** Timeout guarding the create call (the registry detaches it before the
@@ -211,6 +213,28 @@ function liveThreadAgent(ctx: Context, childId: string): Agent | undefined {
 export function buildSidechatApi(ctx: Context): SidechatRoutes {
   // 实时增量缓冲：随本 API 一起建立（监听 `agent/assistant-stream` 作用域帧）。
   const live = new AssistantLiveBuffer(ctx)
+
+  /** `sidechat.events` 的实现体（外层的 try/brand 只负责诊断留痕）。 */
+  const eventsOf = async (
+    childId: string,
+    payload: unknown,
+  ): Promise<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }> => {
+    const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
+      afterSeq?: unknown
+      beforeSeq?: unknown
+      maxEvents?: unknown
+    }
+    const own = await readThreadOwnEntries(ctx, childId)
+    const afterSeq = readCount(request.afterSeq)
+    const beforeSeq = readCount(request.beforeSeq)
+    const maxEvents = readCount(request.maxEvents)
+    let events = own
+    if (afterSeq !== undefined) events = events.filter(entry => entry.event.seq > afterSeq)
+    else if (beforeSeq !== undefined) events = events.filter(entry => entry.event.seq < beforeSeq)
+    if (maxEvents !== undefined && events.length > maxEvents) events = events.slice(-maxEvents)
+    const tail = events.at(-1)?.event.seq ?? own.at(-1)?.event.seq ?? -1
+    return { events, live: liveEventsOf(live.chunksOf(childId), tail) }
+  }
   // 插件停用/卸载（HMR）收口：释放本 activation 仍存活的 sidechat 子 agent。
   // 插件管理器「等已移除插件释放资源及 Loader 树稳定」后才继续 pnpm remove，
   // 活跃子 agent 不能留在宿主 AgentRegistry 里继续跑（会话与历史保持持久化，
@@ -386,24 +410,32 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       return { accepted: true as const }
     },
 
+    'sidechat.debug': async (payload: unknown): Promise<{ accepted: true }> => {
+      try {
+        const { appendFileSync } = await import('node:fs')
+        const text = typeof payload === 'object' && payload !== null
+          ? String((payload as { text?: unknown }).text ?? '')
+          : ''
+        appendFileSync('/tmp/dsh-sidechat-debug.log', `${new Date().toISOString()} client ${text}\n`)
+      } catch { /* 诊断失败不影响主流程 */ }
+      return { accepted: true as const }
+    },
+
     'sidechat.events': async (payload: unknown): Promise<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }> => {
       const childId = requireString(payload, 'childId')
-      const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
-        afterSeq?: unknown
-        beforeSeq?: unknown
-        maxEvents?: unknown
+      try {
+        return await eventsOf(childId, payload)
+      } catch (cause) {
+        // 诊断留痕（排查面板空白用）：读路由失败此前只会让客户端静默空白。
+        try {
+          const { appendFileSync } = await import('node:fs')
+          appendFileSync('/tmp/dsh-sidechat-debug.log',
+            `${new Date().toISOString()} events child=${childId} ERROR=${cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)}\n`)
+        } catch { /* 诊断失败不影响主流程 */ }
+        throw cause
       }
-      const own = await readThreadOwnEntries(ctx, childId)
-      const afterSeq = readCount(request.afterSeq)
-      const beforeSeq = readCount(request.beforeSeq)
-      const maxEvents = readCount(request.maxEvents)
-      let events = own
-      if (afterSeq !== undefined) events = events.filter(entry => entry.event.seq > afterSeq)
-      else if (beforeSeq !== undefined) events = events.filter(entry => entry.event.seq < beforeSeq)
-      if (maxEvents !== undefined && events.length > maxEvents) events = events.slice(-maxEvents)
-      const tail = events.at(-1)?.event.seq ?? own.at(-1)?.event.seq ?? -1
-      return { events, live: liveEventsOf(live.chunksOf(childId), tail) }
     },
+
     'sidechat.info': async (payload: unknown) => {
       const childId = requireString(payload, 'childId')
       const agent = liveThreadAgent(ctx, childId)

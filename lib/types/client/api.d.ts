@@ -442,6 +442,10 @@ export declare const api: {
      * panel permanently blank. Live rows are non-durable: they are replaced on
      * every poll and superseded by the settled `assistant/message`.
      */
+    /** 临时诊断（定位后删）：把客户端状态写到主机侧的 /tmp 日志。 */
+    sidechatDebug: (text: string) => Promise<{
+        accepted: true;
+    }>;
     sidechatEvents: (childId: string, options?: {
         afterSeq?: number;
         beforeSeq?: number;
