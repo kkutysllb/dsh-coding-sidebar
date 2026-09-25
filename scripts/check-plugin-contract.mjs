@@ -327,6 +327,36 @@ for (const entry of readdirSync(SRC_CLIENT)) {
 for (const violation of cssViolations) violations.push(`[⑤CSS类名] ${violation}`)
 if (cssViolations.length === 0) console.log('[plugin-contract] css.<类名> 引用点均在各自 CSS 表内 ✓')
 
+/**
+ * ⑦ **子会话必须装订模型选择**（2026-09-25 现场：侧边对话永远跑默认模型，不跟主会话）：
+ *    引擎 `composeAgent` 的 setup 第一步是 `installSelection(agent)`（= 服务公开方法
+ *    `selectionFor(agent)`），装的是**会话自己日志投影出来的**模型（`pending ?? lastUsed`）；
+ *    而 `agent.options` 只是 agent 创建时的启动参数（引擎自己传的是部署默认），用户在会话里
+ *    换的模型从不回写它。插件的子会话 setup 是自己写的 ⇒ 少了这一步 ⇒ 退回启动参数。
+ *    断言：主机侧必须调 `selectionFor(`，且两处 setup（新建 / 冷恢复）都要装订。
+ */
+const routesText = stripComments(readFileSync(join(SRC, 'sidechat-routes.ts'), 'utf8'))
+const installSites = (routesText.match(/installAgentModelSelection\(/g) ?? []).length
+const modelPins = [
+  {
+    ok: /selectionFor\(/.test(routesText),
+    why: 'src/sidechat-routes.ts 必须调用 `selectionFor(`（引擎 composeAgent 的 installSelection 就是它）：'
+      + '不装订 ⇒ 子会话退回 agentOptions，即部署默认模型',
+  },
+  {
+    ok: (routesText.match(/alignThreadModelToParent\(/g) ?? []).length >= 2,
+    why: 'src/sidechat-routes.ts 的 `sidechat.prompt` 每次投递前必须对齐模型'
+      + '（`alignThreadModelToParent(`）：只装订开局那一次，用户之后在主会话换模型时已有线程不会跟随',
+  },
+  {
+    ok: installSites >= 4,
+    why: `src/sidechat-routes.ts 的**两处** setup 都要装订模型选择（新建 + 冷恢复，含各自的服务缺席分支）：`
+      + `当前 installAgentModelSelection( 出现 ${String(installSites)} 处，期望 ≥ 4`,
+  },
+]
+for (const pin of modelPins) if (!pin.ok) violations.push(`[⑦模型跟随] ${pin.why}`)
+if (modelPins.every(pin => pin.ok)) console.log('[plugin-contract] 模型跟随两项回归闸 ✓')
+
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
 console.log(`[plugin-contract] ctx.remote.<面> 直读 ${faceReads} 处；openTab 调用点：`)
 for (const site of openSites) console.log(site)

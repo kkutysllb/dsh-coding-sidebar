@@ -174,6 +174,45 @@ export declare function threadHasCompletedTurn(entries: readonly SidebarHistoryE
  *  session (the fork cut is the last `turn/end`). */
 export declare function threadTrailingPending(entries: readonly SidebarHistoryEntry[]): boolean;
 /**
+ * 一条会话**当前生效**的模型选择（与引擎 `modelSelection` 投影的 wire 视图同形）。
+ */
+export interface SidechatModelSelection {
+    /** 供应商路由。 */
+    provider: string;
+    /** 供应商解释的模型 id。 */
+    model: string;
+    /** 适配器定义的推理档位（可选）。 */
+    reasoningEffort?: string;
+}
+/**
+ * 从引擎 `modelSelection` 投影状态里取**当前生效**的选择。
+ *
+ * 投影状态是 `{ lastUsed, pending }`（wire 视图折成 `next = pending ?? lastUsed`）：
+ * - `pending` = 最新一条 `model/selection` 事件（用户在模型选择器里点的那次），被一次
+ *   `request/header` 匹配上之后就清空；
+ * - `lastUsed` = 最后一次请求头里真正用过的 provider/model。
+ *
+ * ⇒ 生效值恒为 `pending ?? lastUsed`，与客户端选择器显示的完全一致。**这正是
+ * `agent.options` 给不出的东西**：`AgentOptions` 是 agent 创建时的启动参数（引擎自己传的
+ * 就是部署默认），用户在会话里换的模型从不回写它——所以「把 parent.options 抄给子会话」
+ * 拿到的永远是默认模型。
+ *
+ * @param state - `sessionProjections.stateOf(session, 'modelSelection')` 的返回值（形状未知）。
+ * @returns 生效选择，或 undefined（投影缺席/形状不符）。
+ */
+export declare function effectiveModelSelection(state: unknown): SidechatModelSelection | undefined;
+/**
+ * 日志里最后一次**真正用过**的模型（`request/header` 的 config）。
+ *
+ * 冷线程的信息行只有它可读：线程最后一次请求用的是哪个 provider/model 就写在那儿。
+ * 注意子会话的日志带父会话的 fork seed，所以「最后一条」天然是子会话自己的请求；一条都没有时
+ * 退回继承来的父会话请求——正是它开局会用的模型。
+ *
+ * @param events - 会话事件（升序）。
+ * @returns 最后一次请求的选择，或 undefined（日志里没有请求头/形状不符）。
+ */
+export declare function resolveLoggedModelSelection(events: readonly SidechatLogEvent[]): SidechatModelSelection | undefined;
+/**
  * The agent preset a session actually runs: newest `agent-preset/selected`
  * event wins, else the creation header (mirror of the dsh-agent-presets
  * resolveSessionPreset helper — replicated here to avoid a host dependency
