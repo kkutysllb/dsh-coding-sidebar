@@ -18,7 +18,11 @@
  * 跑法：`unrun tests/sidechat-model.mjs`（已挂进 `pnpm test`）。
  */
 import assert from 'node:assert/strict'
-import { effectiveModelSelection, resolveLoggedModelSelection } from '../src/sidechat-core.ts'
+import {
+  effectiveModelSelection,
+  effectiveModelSelectionFromLog,
+  resolveLoggedModelSelection,
+} from '../src/sidechat-core.ts'
 // 真源码的主机侧接线（引擎包是插件的运行时依赖，node 能直接解析）。
 import {
   alignThreadModelToParent,
@@ -103,6 +107,45 @@ check('不改写入参（投影状态是引擎的活对象）', () => {
   const picked = effectiveModelSelection(state)
   picked.model = 'tampered'
   assert.equal(JSON.stringify(state), before)
+})
+
+check('effectiveModelSelectionFromLog: 引擎投影的等价 fold（跟随功能的日志兜底）', () => {
+  const header = (provider, model, reasoningEffort) => ({
+    type: 'request/header',
+    data: { header: { config: { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } } },
+  })
+  const pick = (provider, model) => ({ type: 'model/selection', data: { provider, model } })
+
+  // 一条都没有 → undefined（调用方退回启动参数）。
+  assert.equal(effectiveModelSelectionFromLog([]), undefined)
+  // 只有历史请求 → lastUsed。
+  assert.deepEqual(
+    effectiveModelSelectionFromLog([header('deepseek', 'deepseek-v4-flash')]),
+    { provider: 'deepseek', model: 'deepseek-v4-flash' },
+  )
+  // 选了但还没发请求 → pending 生效。
+  assert.deepEqual(
+    effectiveModelSelectionFromLog([header('deepseek', 'deepseek-v4-flash'), pick('glm', 'glm-5.3-flash')]),
+    { provider: 'glm', model: 'glm-5.3-flash' },
+  )
+  // 选完确实用上了 → pending 被消费，退回 lastUsed（= 同一个，语义一致）。
+  assert.deepEqual(
+    effectiveModelSelectionFromLog([
+      header('deepseek', 'deepseek-v4-flash'),
+      pick('glm', 'glm-5.3-flash'),
+      header('glm', 'glm-5.3-flash'),
+      pick('qwen', 'qwen3.8-flash'),
+    ]),
+    { provider: 'qwen', model: 'qwen3.8-flash' },
+  )
+  // 档位跟着走；畸形事件跳过。
+  assert.deepEqual(
+    effectiveModelSelectionFromLog([
+      { type: 'model/selection', data: { provider: '', model: 'x' } },
+      header('glm', 'glm-5.3-flash', 'max'),
+    ]),
+    { provider: 'glm', model: 'glm-5.3-flash', reasoningEffort: 'max' },
+  )
 })
 
 check('resolveLoggedModelSelection: 取最后一次请求头用过的模型（冷线程徽标）', () => {
@@ -210,7 +253,39 @@ check('alignThreadModelToParent: 服务抛错 → 只记一行警告，不把消
   })
   alignThreadModelToParent(ctx, CHILD)
   assert.equal(ctx.warnings.length, 1)
-  assert.match(ctx.warnings[0], /could not align/)
+  assert.match(ctx.warnings[0], /model follow skipped/)
+  assert.match(ctx.warnings[0], /align failed/)
+})
+
+check('alignThreadModelToParent: 投影服务缺席 → 走**日志兜底**（不许静默不跟随）', () => {
+  const events = [
+    { type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-flash' } } } },
+    { type: 'model/selection', data: { provider: 'glm', model: 'glm-5.3-flash' } },
+  ]
+  const parent = { id: 'parent-1', snapshotEvents: () => events }
+  const agents = fakeAgents(new Map([[CHILD, { provider: 'glm', model: 'glm-5.3-flash' }]]))
+  const ctx = fakeCtx({
+    agents,
+    sessions: { get: () => parent },
+    // 没有 sessionProjections：这正是现场很可能遇到的情况。
+  })
+  alignThreadModelToParent(ctx, CHILD)
+  assert.equal(agents.writes.length, 0, '已一致：即便走日志兜底也不该写')
+
+  const stale = fakeAgents(new Map([[CHILD, { provider: 'qwen', model: 'qwen3.8-flash' }]]))
+  alignThreadModelToParent(fakeCtx({
+    agents: stale,
+    sessions: { get: () => parent },
+  }), CHILD)
+  assert.equal(stale.writes.length, 1, '不一致就必须写：日志兜底也得能跟随')
+  assert.deepEqual(stale.writes[0].selection, { provider: 'glm', model: 'glm-5.3-flash' })
+})
+
+check('alignThreadModelToParent: 父会话取不到 → 明确记一行（不再无声跳过）', () => {
+  const ctx = fakeCtx({ agents: fakeAgents(new Map()) })
+  alignThreadModelToParent(ctx, CHILD)
+  assert.equal(ctx.warnings.length, 1)
+  assert.match(ctx.warnings[0], /parent session "parent-1" is not live/)
 })
 
 check('installAgentModelSelection: 调用 selectionFor（引擎 installSelection 同一入口）', () => {

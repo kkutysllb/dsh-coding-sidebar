@@ -132,6 +132,7 @@ interface RowLabels {
   inputTokensLabel: string
   outputTokensLabel: string
   awaitingAnswerLabel: string
+  modelSwitchLabel: string
   answerSubmitLabel: string
   answerMultiSelectHint: string
   answerComposerHint: string
@@ -364,6 +365,13 @@ function renderRow(
           <div className={css.sidechatRowProse}>{row.text}</div>
         </CollapsibleRow>
       )
+    case 'modelSwitch':
+      return (
+        <div key={`${row.kind}:${row.seq}`} className={css.sidechatModelSwitch}>
+          {t('modelSwitchLabel', { model: row.model, provider: row.provider })}
+          {row.reasoningEffort !== undefined ? ` · ${row.reasoningEffort}` : ''}
+        </div>
+      )
     case 'tool': {
       // 结构化卡优先（P3）：改动与读取按宿主 Block 的数据形状渲染，比原始 JSON/文本可读得多；
       // 有卡片时**不再**重复贴原始载荷（行本身仍可折叠展开）。
@@ -471,6 +479,7 @@ export function SideChatView(props: {
       inputTokensLabel: t('inputTokensLabel'),
       outputTokensLabel: t('outputTokensLabel'),
       awaitingAnswerLabel: t('awaitingAnswerLabel'),
+      modelSwitchLabel: t('modelSwitchLabel'),
       answerSubmitLabel: t('answerSubmitLabel'),
       answerMultiSelectHint: t('answerMultiSelectHint'),
       answerComposerHint: t('answerComposerHint'),

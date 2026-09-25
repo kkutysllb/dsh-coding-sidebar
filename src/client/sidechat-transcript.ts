@@ -30,6 +30,9 @@ export type SidechatTranscriptRow =
    *  snapshot, or any plugin-sourced context): rendered as one collapsible
    *  row, never as a user bubble. */
   | { kind: 'injection'; seq: number; text: string }
+  /** 模型切换（`model/selection`）：侧边对话跟随主会话换模型时留下的一行。
+   *  没有它，用户在侧边栏只能靠头部徽标猜——而徽标此前还会说谎。 */
+  | { kind: 'modelSwitch'; seq: number; provider: string; model: string; reasoningEffort?: string }
   /** `settled` distinguishes an assembled message from a still-streaming
    *  chunk accumulation (streaming rows are superseded by the settle). */
   | { kind: 'assistant'; seq: number; text: string; settled: boolean }
@@ -450,6 +453,21 @@ export function transcriptRows(
           break
         }
         rows.push({ kind: 'user', seq: event.seq, text })
+        break
+      }
+      case 'model/selection': {
+        const provider = data.provider
+        const model = data.model
+        if (typeof provider !== 'string' || provider === '') break
+        if (typeof model !== 'string' || model === '') break
+        const effort = data.reasoningEffort
+        rows.push({
+          kind: 'modelSwitch',
+          seq: event.seq,
+          provider,
+          model,
+          ...(typeof effort === 'string' && effort !== '' ? { reasoningEffort: effort } : {}),
+        })
         break
       }
       case 'assistant/chunk': {

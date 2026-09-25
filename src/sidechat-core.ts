@@ -510,6 +510,48 @@ export function effectiveModelSelection(state: unknown): SidechatModelSelection 
 }
 
 /**
+ * 从**会话日志**里折出当前生效的模型选择（引擎 `modelSelection` 投影的等价实现）。
+ *
+ * 为什么要这份等价实现：投影服务在某些载具/挂载顺序下取不到（裸 `ctx.get` 只读本 fiber 的
+ * 本地 store），而「跟随主会话」绝不能因为一个服务取不到就**静默失效**。日志是同一份事实源
+ * （投影本身就是它折出来的），照抄引擎的 fold（`model-selection-projection.ts`）：
+ *
+ * - `model/selection` → `pending` = 该选择（用户点的那次）；
+ * - `request/header` → `lastUsed` = 该请求头真正用的 provider/model，且当它与 `pending` 相同时
+ *   把 `pending` 清空（「已经被消费掉了」）。
+ *
+ * @param events - 会话事件（升序）。
+ * @returns `pending ?? lastUsed`，或 undefined（两者都没有）。
+ */
+export function effectiveModelSelectionFromLog(
+  events: readonly SidechatLogEvent[],
+): SidechatModelSelection | undefined {
+  let pending: SidechatModelSelection | undefined
+  let lastUsed: SidechatModelSelection | undefined
+  for (const event of events) {
+    if (event.type === 'model/selection') {
+      const picked = asModelSelection(dataOf(event))
+      if (picked !== undefined) pending = picked
+      continue
+    }
+    if (event.type !== 'request/header') continue
+    const config = (dataOf(event).header as { config?: unknown } | undefined)?.config
+    const used = asModelSelection(config)
+    if (used === undefined) continue
+    lastUsed = used
+    if (pending !== undefined && sameSelection(pending, used)) pending = undefined
+  }
+  return pending ?? lastUsed
+}
+
+/** 两个选择是否同一套（provider + model + 档位）。 */
+function sameSelection(left: SidechatModelSelection, right: SidechatModelSelection): boolean {
+  return left.provider === right.provider
+    && left.model === right.model
+    && (left.reasoningEffort ?? '') === (right.reasoningEffort ?? '')
+}
+
+/**
  * 日志里最后一次**真正用过**的模型（`request/header` 的 config）。
  *
  * 冷线程的信息行只有它可读：线程最后一次请求用的是哪个 provider/model 就写在那儿。

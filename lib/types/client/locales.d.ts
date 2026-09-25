@@ -346,6 +346,7 @@ export declare const zh: {
     inputTokensLabel: string;
     outputTokensLabel: string;
     awaitingAnswerLabel: string;
+    modelSwitchLabel: string;
     answerSubmitLabel: string;
     answerMultiSelectHint: string;
     answerComposerHint: string;

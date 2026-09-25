@@ -35,7 +35,7 @@ import type {
   SidebarSessionPersistenceService,
   SidebarSessionTitleService,
 } from './context-types.ts'
-import { boundaryDelivered, buildSidechatInheritance, effectiveModelSelection, resolveLoggedModelSelection, resolvePresetId, SIDE_BOUNDARY_PROMPT, SIDE_NEW_THREAD_TITLE, sideLabel, type SeedEvent, type SidechatLogEvent, type SidechatThreadInfo, type SidechatLiveEvent, type SidechatModelSelection, liveEventsOf } from './sidechat-core.ts'
+import { boundaryDelivered, buildSidechatInheritance, effectiveModelSelection, effectiveModelSelectionFromLog, resolveLoggedModelSelection, resolvePresetId, SIDE_BOUNDARY_PROMPT, SIDE_NEW_THREAD_TITLE, sideLabel, type SeedEvent, type SidechatLogEvent, type SidechatThreadInfo, type SidechatLiveEvent, type SidechatModelSelection, liveEventsOf } from './sidechat-core.ts'
 import { requireString, SidebarError } from './wire.ts'
 
 /** The five Side Chat routes of the sidebar API (wire method names). */
@@ -126,7 +126,17 @@ export function installAgentModelSelection(ctx: Context, agent: Agent): boolean 
   }
 }
 
-/** 读父会话**当前生效**的模型选择（引擎 modelSelection 投影；缺席即 undefined）。 */
+/**
+ * 读一个会话**当前生效**的模型选择。
+ *
+ * 两条路，先投影后日志：投影服务（`sessionProjections`）是最快的，但它在某些载具/挂载顺序下
+ * 裸 `ctx.get` 取不到；日志是同一份事实源（投影就是它折出来的），所以**必须**有这条兜底——
+ * 跟随功能绝不能因为一个可选服务取不到就静默失效（现场就是这样：徽标一直不换、也没有任何提示）。
+ *
+ * @param ctx - 插件上下文。
+ * @param session - 会话对象（活 agent 的 session）。
+ * @returns 生效选择，或 undefined（两条路都读不到）。
+ */
 function readSessionModelSelection(
   ctx: Context,
   session: unknown,
@@ -134,12 +144,30 @@ function readSessionModelSelection(
   const projections = ctx.get('sessionProjections') as {
     stateOf?: (session: unknown, key: string) => unknown
   } | undefined
-  if (typeof projections?.stateOf !== 'function') return undefined
+  if (typeof projections?.stateOf === 'function') {
+    try {
+      const projected = effectiveModelSelection(projections.stateOf(session, 'modelSelection'))
+      if (projected !== undefined) return projected
+    } catch {
+      // 落到日志兜底。
+    }
+  }
+  const events = (session as { snapshotEvents?: () => unknown } | undefined)?.snapshotEvents
+  if (typeof events !== 'function') return undefined
   try {
-    return effectiveModelSelection(projections.stateOf(session, 'modelSelection'))
+    return effectiveModelSelectionFromLog(events.call(session) as readonly SidechatLogEvent[])
   } catch {
     return undefined
   }
+}
+
+/** 父会话对象：先走 sessions 注册表，再退回 agents 注册表（两者上任一可用即可）。 */
+function parentSessionOf(ctx: Context, parentSessionId: string): unknown {
+  const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
+  const fromSessions = sessions?.get?.(parentSessionId)
+  if (fromSessions !== undefined && fromSessions !== null) return fromSessions
+  const agents = ctx.get('agents') as { get?: (id: string) => { session?: unknown } | undefined } | undefined
+  return agents?.get?.(parentSessionId)?.session
 }
 
 /**
@@ -197,28 +225,44 @@ function asAgentSelection(selection: SidechatModelSelection): { provider: string
  * @param agent - 即将收到消息的子 agent。
  */
 export function alignThreadModelToParent(ctx: Context, agent: Agent): void {
+  const warn = (detail: string): void => {
+    ctx.logger?.warn(`[dsh-coding-sidebar] side chat: model follow skipped for ${agent.session.id}: ${detail}`)
+  }
   const parentSessionId = (agent.session.header as { parentSession?: unknown }).parentSession
-  if (typeof parentSessionId !== 'string' || parentSessionId === '') return
-  const sessions = ctx.get('sessions') as { get?: (id: string) => unknown } | undefined
-  const parentSession = sessions?.get?.(parentSessionId)
-  if (parentSession === undefined || parentSession === null) return
+  if (typeof parentSessionId !== 'string' || parentSessionId === '') {
+    warn('the thread records no parent session')
+    return
+  }
+  const parentSession = parentSessionOf(ctx, parentSessionId)
+  if (parentSession === undefined || parentSession === null) {
+    warn(`parent session "${parentSessionId}" is not live`)
+    return
+  }
   const target = readSessionModelSelection(ctx, parentSession)
-  if (target === undefined) return
+  if (target === undefined) {
+    warn(`parent session "${parentSessionId}" exposes no model selection`)
+    return
+  }
   const agents = ctx.get('agents') as {
     selectionFor?: (agent: Agent) => { current: SidechatModelSelection } | undefined
     selectForNextRequest?: (agent: Agent, selection: unknown) => void
   } | undefined
-  if (typeof agents?.selectForNextRequest !== 'function') return
+  if (typeof agents?.selectForNextRequest !== 'function') {
+    warn('the agents service exposes no selectForNextRequest')
+    return
+  }
   try {
     // selectionFor 幂等：已装订即返回缓存（顺带保证老线程也被装订上）。
     const installed = agents.selectionFor?.(agent)?.current
     if (sameModelSelection(installed, target)) return
     agents.selectForNextRequest(agent, asAgentSelection(target))
-  } catch (error) {
-    ctx.logger?.warn(
-      `[dsh-coding-sidebar] side chat: could not align ${agent.session.id} to the parent model:`
-      + ` ${error instanceof Error ? error.message : String(error)}`,
+    // 换模型是要**看见**的：这行日志与转录里的「模型切换」行成对出现（用户此前只能靠徽标猜）。
+    ctx.logger?.info?.(
+      `[dsh-coding-sidebar] side chat ${agent.session.id} follows the parent model:`
+      + ` ${installed?.provider ?? '?'}/${installed?.model ?? '?'} → ${target.provider}/${target.model}`,
     )
+  } catch (error) {
+    warn(`align failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 

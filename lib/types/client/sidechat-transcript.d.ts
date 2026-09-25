@@ -41,6 +41,15 @@ export type SidechatTranscriptRow = {
     seq: number;
     text: string;
 }
+/** 模型切换（`model/selection`）：侧边对话跟随主会话换模型时留下的一行。
+ *  没有它，用户在侧边栏只能靠头部徽标猜——而徽标此前还会说谎。 */
+ | {
+    kind: 'modelSwitch';
+    seq: number;
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+}
 /** `settled` distinguishes an assembled message from a still-streaming
  *  chunk accumulation (streaming rows are superseded by the settle). */
  | {

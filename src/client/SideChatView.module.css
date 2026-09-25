@@ -599,6 +599,17 @@
   cursor: default;
 }
 
+/* 模型切换行：跟随主会话换模型时留一行，安静但可见（此前只能靠徽标猜）。 */
+.sidechatModelSwitch {
+  align-self: flex-start;
+  padding: 2px 8px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+}
+
 /* ── motion vocabulary (crossfade only, ≤200ms; loops reduced-motion off) */
 @keyframes sidechatRowIn {
   from { opacity: 0; transform: translateY(4px); }
