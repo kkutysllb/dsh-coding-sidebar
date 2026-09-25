@@ -27,7 +27,7 @@ import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import type { Context as CordisContext } from '@deepseek-ai/cordis'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { SidebarSessionEvent } from './context-types.ts'
+import type { SidebarHistoryEntry, SidebarSessionEvent } from './context-types.ts'
 import { AssistantLiveBuffer } from './assistant-live.ts'
 import type {
   Context,
@@ -54,11 +54,17 @@ export interface SidechatRoutes {
   /** Live state + agent identity for the thread header. */
   'sidechat.info'(payload: unknown): Promise<SidechatThreadInfo>
   /**
-   * 该线程**当前 attempt** 的实时增量（DSH 0.1.5 起流式文本不再写日志——见
-   * assistant-live.ts）。每次调用返回全部实时行，客户端整体替换；耐久事件仍走
-   * 通用 session.history，定稿后由 assistant/message 覆盖实时行。
+   * 该线程自己的事件（已切掉继承的 fork seed）+ **当前 attempt 的实时增量**。
+   *
+   * 为什么必须走这条自家路由而不是通用 `session.history`：后者对 **subagent 来源**的会话
+   * 直接抛 `session/agent-busy`（`session-controller/src/history.ts` 的 fencing）——而侧边
+   * 对话的子会话正是 subagent 来源，于是插件此前的历史轮询**每次都失败、面板永远空白**
+   * （2026-09-25 现场：主机日志里对话完整，界面什么都不显示）。
+   *
+   * 实时半见 `assistant-live.ts`（0.1.5 起流式文本不进日志）；`events` 是耐久半，
+   * `live` 每次返回当前 attempt 的全部行、由客户端整体替换。
    */
-  'sidechat.live'(payload: unknown): Promise<{ live: SidechatLiveEvent[] }>
+  'sidechat.events'(payload: unknown): Promise<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }>
 }
 
 /** Timeout guarding the create call (the registry detaches it before the
@@ -99,6 +105,43 @@ async function composeChildSetup(
     agentPreset: resolved.id,
     setup: async (agentCtx: CordisContext) => { await presets.mount(agentCtx, resolved.id) },
   }
+}
+
+/**
+ * 线程**自己**产生的事件（继承的 fork seed 已切掉）。
+ *
+ * 活线程读快照、冷线程读持久句柄——两条路都不激活子会话；子会话是 subagent 来源，
+ * 通用会话 RPC 对它一律拒绝（见接口注释），所以这里必须自己读。
+ * @param ctx - 插件上下文（主机侧）。
+ * @param childId - 子会话 id。
+ * @returns 该线程自有事件（按 seq 升序）。
+ */
+async function readThreadOwnEntries(ctx: Context, childId: string): Promise<SidebarHistoryEntry[]> {
+  const cut = (entries: SidebarHistoryEntry[]): SidebarHistoryEntry[] => {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index]?.event.type === 'session/end-seed') return entries.slice(index + 1)
+    }
+    return entries
+  }
+  const agent = liveThreadAgent(ctx, childId)
+  if (agent !== undefined) {
+    const events = agent.session.snapshotEvents() as unknown as SidebarSessionEvent[]
+    return cut(events.map(event => ({ event })))
+  }
+  const persistence = ctx.get('sessionPersistence') as SidebarSessionPersistenceService | undefined
+  if (persistence === undefined) return []
+  const handle = await persistence.open(childId, 'read')
+  try {
+    const { events } = await handle.read()
+    return cut((events as unknown as SidebarSessionEvent[]).map(event => ({ event })))
+  } finally {
+    await handle.close()
+  }
+}
+
+/** 读一个可选的非负整数负载字段。 */
+function readCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 /** Build the cold-resume setup from the thread's PERSISTED record (the
@@ -343,13 +386,23 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       return { accepted: true as const }
     },
 
-    'sidechat.live': async (payload: unknown): Promise<{ live: SidechatLiveEvent[] }> => {
+    'sidechat.events': async (payload: unknown): Promise<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }> => {
       const childId = requireString(payload, 'childId')
-      const rawTail = typeof payload === 'object' && payload !== null
-        ? (payload as { afterSeq?: unknown }).afterSeq
-        : undefined
-      const tailSeq = typeof rawTail === 'number' && Number.isFinite(rawTail) ? rawTail : -1
-      return { live: liveEventsOf(live.chunksOf(childId), tailSeq) }
+      const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
+        afterSeq?: unknown
+        beforeSeq?: unknown
+        maxEvents?: unknown
+      }
+      const own = await readThreadOwnEntries(ctx, childId)
+      const afterSeq = readCount(request.afterSeq)
+      const beforeSeq = readCount(request.beforeSeq)
+      const maxEvents = readCount(request.maxEvents)
+      let events = own
+      if (afterSeq !== undefined) events = events.filter(entry => entry.event.seq > afterSeq)
+      else if (beforeSeq !== undefined) events = events.filter(entry => entry.event.seq < beforeSeq)
+      if (maxEvents !== undefined && events.length > maxEvents) events = events.slice(-maxEvents)
+      const tail = events.at(-1)?.event.seq ?? own.at(-1)?.event.seq ?? -1
+      return { events, live: liveEventsOf(live.chunksOf(childId), tail) }
     },
     'sidechat.info': async (payload: unknown) => {
       const childId = requireString(payload, 'childId')

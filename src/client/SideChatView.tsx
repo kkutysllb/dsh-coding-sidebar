@@ -362,34 +362,21 @@ export function SideChatView(props: {
     try {
       if (cache.seedBoundary === null) {
         const walk = await collectOwnEvents(async (beforeSeq) => {
-          const response = await ctx.connection.api.sessions.history(
-            {
-              sessionId: childId,
-              maxMessages: WALK_PAGE_EVENTS,
-              ...(beforeSeq === undefined ? {} : { beforeSeq }),
-            },
-            controller.signal,
-          )
-          if (!response.result.ok) throw new Error('history walk failed')
-          return response.result.value.events
+          // 自家路由：子会话是 subagent 来源，通用 session.history 对它一律拒绝
+          // （`session/agent-busy` fencing）——走那条路会让面板永远空白。
+          const page = await api.sidechatEvents(childId, {
+            maxEvents: WALK_PAGE_EVENTS,
+            ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          })
+          return page.events
         })
         cache.seedBoundary = walk.seedBoundary
         cache.entries = mergeBySeq(cache.entries, walk.entries)
       } else {
-        const response = await ctx.connection.api.sessions.history(
-          { sessionId: childId, maxMessages: PAGE_MESSAGES },
-          controller.signal,
-        )
-        if (!response.result.ok) return false
-        cache.entries = mergeBySeq(cache.entries, response.result.value.events)
-      }
-      // 实时增量：独立小请求（只带当前 attempt 的行），失败退化为「没有实时文本」，
-      // 不影响上面已经拉到的持久行。
-      try {
-        const tail = cache.entries.at(-1)?.event.seq ?? -1
-        liveRef.current = (await api.sidechatLive(childId, tail)).live
-      } catch {
-        liveRef.current = []
+        const page = await api.sidechatEvents(childId, { maxEvents: PAGE_MESSAGES })
+        cache.entries = mergeBySeq(cache.entries, page.events)
+        // 实时半与耐久半同一次往返（定稿后由 assistant/message 覆盖）。
+        liveRef.current = page.live
       }
       setRevision(value => value + 1)
       return cache.entries.length > before

@@ -1,4 +1,5 @@
 import type { LastActivity } from '../subagent-activity.ts';
+import type { SidebarHistoryEntry } from '../context-types.ts';
 import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts';
 import type { BrowserProbeResult } from './browser.ts';
 import type { CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest } from '../team-types.ts';
@@ -432,12 +433,21 @@ export declare const api: {
     /** Live state + agent identity (provider/model/preset) of a thread. */
     sidechatInfo: (childId: string) => Promise<SidechatThreadInfo>;
     /**
-     * The thread's CURRENT attempt as live rows. DSH 0.1.5 streams assistant deltas
-     * outside the session log (see `assistant-live.ts`), so the durable half keeps
-     * coming from `session.history` while these rows carry the in-flight text; a
-     * settled `assistant/message` supersedes them by `turn:step`.
+     * The thread's own events (inherited fork seed already cut host-side) plus the
+     * CURRENT attempt's live rows.
+     *
+     * This must not be the generic `session.history` RPC: that one **rejects
+     * subagent-origin sessions** (`session/agent-busy` fencing in the session
+     * controller), and side-chat children are exactly that — polling it left the
+     * panel permanently blank. Live rows are non-durable: they are replaced on
+     * every poll and superseded by the settled `assistant/message`.
      */
-    sidechatLive: (childId: string, afterSeq: number) => Promise<{
+    sidechatEvents: (childId: string, options?: {
+        afterSeq?: number;
+        beforeSeq?: number;
+        maxEvents?: number;
+    }) => Promise<{
+        events: SidebarHistoryEntry[];
         live: SidechatLiveEvent[];
     }>;
     /** The effective terminal shell and its display name (plugin-global). */
