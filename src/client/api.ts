@@ -224,6 +224,32 @@ export type TerminalDepsStatus =
     note?: string
   }
 
+/**
+ * Bound one route call so a stuck host read cannot leave the panel blank forever.
+ *
+ * Why this exists: the route reads a subagent-origin session through the host
+ * persistence service, and a blocking read there made `sidechat.events` never
+ * settle — the panel stayed empty with no error, because the client had no
+ * deadline of its own. Reads that exceed the deadline fail loudly instead.
+ * @param promise - the route call.
+ * @param label - diagnostic label (the thread id).
+ * @returns the call's result, or a rejection when the deadline passes.
+ */
+function withDeadline<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`sidechat.events timed out after ${EVENTS_DEADLINE_MS}ms (${label})`))
+    }, EVENTS_DEADLINE_MS)
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))) },
+    )
+  })
+}
+
+/** Client-side deadline for one `sidechat.events` read. */
+const EVENTS_DEADLINE_MS = 5000
+
 async function call<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   let response: Response
   try {
@@ -516,7 +542,10 @@ export const api = {
   sidechatEvents: (
     childId: string,
     options: { afterSeq?: number; beforeSeq?: number; maxEvents?: number } = {},
-  ) => call<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }>('sidechat.events', { childId, ...options }),
+  ) => withDeadline(
+    call<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }>('sidechat.events', { childId, ...options }),
+    childId,
+  ),
   /** The effective terminal shell and its display name (plugin-global). */
   shellGet: () =>
     call<{ shell: string; name: string }>('shell.get', {}),

@@ -21,6 +21,7 @@
  *   AgentRegistry.resume, composing the preset the child recorded.
  */
 import { randomUUID } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
 import { createUserMessage, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentSetup, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
@@ -132,13 +133,52 @@ async function readThreadOwnEntries(ctx: Context, childId: string): Promise<Side
   }
   const persistence = ctx.get('sessionPersistence') as SidebarSessionPersistenceService | undefined
   if (persistence === undefined) return []
-  const handle = await persistence.open(childId, 'read')
+  // 冷读可能**阻塞**（现场：路由永不返回 ⇒ 客户端 `call` 不设超时 ⇒ 面板永远空白）。
+  // 这里给它一个上限：超时就放弃本次读（返回空，交给上层按「读到 0 条」处理），
+  // 绝不把整条轮询拖死。
+  const opened = await withTimeout(persistence.open(childId, 'read'), COLD_READ_TIMEOUT_MS, () => diagnose(ctx, `cold open timeout child=${childId}`))
+  if (opened === undefined) return []
   try {
-    const { events } = await handle.read()
+    const read = await withTimeout(opened.read(), COLD_READ_TIMEOUT_MS, () => diagnose(ctx, `cold read timeout child=${childId}`))
+    if (read === undefined) return []
+    const { events } = read
     return cut((events as unknown as SidebarSessionEvent[]).map(event => ({ event })))
   } finally {
-    await handle.close()
+    void opened.close().catch(() => {})
   }
+}
+
+/** 冷读上限：超过就当这次读失败（见调用的理由）。 */
+const COLD_READ_TIMEOUT_MS = 2500
+
+/**
+ * 给一个 promise 加上限；超时（或拒绝）返回 `undefined`，并调用 `onTimeout` 留痕。
+ * @param promise - 被限时的操作。
+ * @param ms - 上限毫秒。
+ * @param onTimeout - 超时回调（诊断）。
+ * @returns 结果或 `undefined`。
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => { onTimeout(); resolve(undefined) }, ms)
+      }),
+    ])
+  } catch {
+    return undefined
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** 诊断留痕（定位后删）：把一行文本追加到 /tmp 日志。 */
+function diagnose(_ctx: Context, text: string): void {
+  try {
+    appendFileSync('/tmp/dsh-sidechat-debug.log', `${new Date().toISOString()} host ${text}\n`)
+  } catch { /* 诊断失败不影响主流程 */ }
 }
 
 /** 读一个可选的非负整数负载字段。 */
@@ -224,7 +264,10 @@ export function buildSidechatApi(ctx: Context): SidechatRoutes {
       beforeSeq?: unknown
       maxEvents?: unknown
     }
+    const live0 = liveThreadAgent(ctx, childId) !== undefined
+    const started = Date.now()
     const own = await readThreadOwnEntries(ctx, childId)
+    diagnose(ctx, `events child=${childId} live=${live0} own=${own.length} ms=${Date.now() - started}`)
     const afterSeq = readCount(request.afterSeq)
     const beforeSeq = readCount(request.beforeSeq)
     const maxEvents = readCount(request.maxEvents)
