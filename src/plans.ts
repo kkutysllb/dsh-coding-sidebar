@@ -5,9 +5,12 @@
  *
  * Scanning convention (unchanged from the retired panel, so the same files
  * keep showing up): the agent-facing planning docs live in `plans/`,
- * `docs/plans/` or `.plans/` (ONE level of `*.md`) plus a root `plan.md`,
- * `PLAN.md` or `docs/plan.md`. Deeper nesting is deliberately ignored — a
- * plan tree is a convention, not a filesystem walk.
+ * `docs/plans/` or `.plans/` plus a root `plan.md`, `PLAN.md` or
+ * `docs/plan.md`. The convention directories are walked **recursively** — a
+ * plan that lives under a subdirectory (`plans/2026-09/rollout.md`,
+ * `plans/upstream/0.2.0/plan.md`) is listed like any other — bounded by
+ * `PLAN_SCAN_MAX_DEPTH` so one poll can never become an unbounded filesystem
+ * walk, and `node_modules` is never descended into.
  *
  * Identity is deduped by `dev:ino`, never by path: on a case-insensitive
  * volume (macOS) `plan.md` and `PLAN.md` are ONE file under two spellings, so
@@ -26,11 +29,22 @@
  *
  * @module dsh-coding-sidebar/plans
  */
+import type { Dirent } from 'node:fs'
 import { open, readdir, stat, type FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 
-/** Directories whose TOP level is scanned for `*.md` plan documents. */
+/** Directories whose tree is scanned for `*.md` plan documents. */
 export const PLAN_DIRS = ['plans', 'docs/plans', '.plans'] as const
+
+/**
+ * How deep below a convention directory the walk descends. Depth 1 is the
+ * convention directory's own entries, so the default reaches six levels of
+ * nesting — far past any real plan tree, while still bounding one poll.
+ */
+export const PLAN_SCAN_MAX_DEPTH = 6
+
+/** Directory names the walk never descends into. */
+const PLAN_SCAN_SKIP_DIRS = new Set(['node_modules'])
 
 /** Well-known plan document paths (workspace-root relative). */
 export const PLAN_FILES = ['plan.md', 'PLAN.md', 'docs/plan.md'] as const
@@ -125,46 +139,65 @@ async function titleOf(path: string, base: string): Promise<string> {
   }
 }
 
+/** Record one real file as a candidate; a vanished or unreadable path is skipped. */
+async function pushCandidate(dir: string, rel: string, name: string, found: PlanCandidate[]): Promise<void> {
+  const path = join(dir, name)
+  try {
+    const info = await stat(path)
+    if (!info.isFile()) return
+    found.push({
+      path,
+      base: name,
+      rel: rel === '' ? name : `${rel}/${name}`,
+      mtimeMs: info.mtimeMs,
+      size: info.size,
+      dev: info.dev,
+      ino: info.ino,
+    })
+  } catch { /* not part of this workspace's convention */ }
+}
+
 /**
- * Scan one workspace for plan documents: the convention directories' top
- * level, then the well-known paths, deduped/sorted/capped, with each
- * surviving document's title resolved. A missing directory or file is the
- * normal case (any subset of the convention may exist) and is skipped.
+ * Collect the `*.md` documents under one convention directory, at every level.
+ * `depth` counts from 1 for the convention directory's own entries; the walk
+ * stops below `PLAN_SCAN_MAX_DEPTH`. Only real entries are entered — a
+ * `Dirent` for a symlink satisfies neither `isDirectory()` nor `isFile()` —
+ * which is what keeps the walk free of loops.
+ */
+async function collectPlanDir(dir: string, rel: string, depth: number, found: PlanCandidate[]): Promise<void> {
+  if (depth > PLAN_SCAN_MAX_DEPTH) return
+  let entries: Dirent[]
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return // a missing convention directory is the normal case
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (PLAN_SCAN_SKIP_DIRS.has(entry.name)) continue
+      await collectPlanDir(join(dir, entry.name), `${rel}/${entry.name}`, depth + 1, found)
+      continue
+    }
+    if (!entry.isFile()) continue
+    if (!entry.name.toLowerCase().endsWith('.md')) continue
+    await pushCandidate(dir, rel, entry.name, found)
+  }
+}
+
+/**
+ * Scan one workspace for plan documents: every `*.md` under the convention
+ * directories (recursively), then the well-known paths,
+ * deduped/sorted/capped, with each surviving document's title resolved. A
+ * missing directory or file is the normal case (any subset of the convention
+ * may exist) and is skipped.
  */
 export async function scanPlans(cwd: string, limit: number = PLAN_LIMIT): Promise<PlanDoc[]> {
   const found: PlanCandidate[] = []
-  const push = async (dir: string, rel: string, name: string): Promise<void> => {
-    const path = join(dir, name)
-    try {
-      const info = await stat(path)
-      if (!info.isFile()) return
-      found.push({
-        path,
-        base: name,
-        rel: rel === '' ? name : `${rel}/${name}`,
-        mtimeMs: info.mtimeMs,
-        size: info.size,
-        dev: info.dev,
-        ino: info.ino,
-      })
-    } catch { /* not part of this workspace's convention */ }
-  }
-  for (const rel of PLAN_DIRS) {
-    const dir = join(cwd, rel)
-    let names: string[]
-    try {
-      names = await readdir(dir)
-    } catch {
-      continue
-    }
-    for (const name of names) {
-      if (name.toLowerCase().endsWith('.md')) await push(dir, rel, name)
-    }
-  }
+  for (const rel of PLAN_DIRS) await collectPlanDir(join(cwd, rel), rel, 1, found)
   for (const rel of PLAN_FILES) {
     const at = rel.lastIndexOf('/')
     const dir = at === -1 ? '' : rel.slice(0, at)
-    await push(join(cwd, dir), dir, at === -1 ? rel : rel.slice(at + 1))
+    await pushCandidate(join(cwd, dir), dir, at === -1 ? rel : rel.slice(at + 1), found)
   }
   const top = selectPlans(found, limit)
   return Promise.all(top.map(async item => ({

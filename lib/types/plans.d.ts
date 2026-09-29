@@ -1,5 +1,11 @@
-/** Directories whose TOP level is scanned for `*.md` plan documents. */
+/** Directories whose tree is scanned for `*.md` plan documents. */
 export declare const PLAN_DIRS: readonly ["plans", "docs/plans", ".plans"];
+/**
+ * How deep below a convention directory the walk descends. Depth 1 is the
+ * convention directory's own entries, so the default reaches six levels of
+ * nesting — far past any real plan tree, while still bounding one poll.
+ */
+export declare const PLAN_SCAN_MAX_DEPTH = 6;
 /** Well-known plan document paths (workspace-root relative). */
 export declare const PLAN_FILES: readonly ["plan.md", "PLAN.md", "docs/plan.md"];
 /**
@@ -46,9 +52,10 @@ export declare function selectPlans(found: readonly PlanCandidate[], limit?: num
 /** Whether a path may be handed to the OS default application. */
 export declare function isOpenablePlanDocument(path: string): boolean;
 /**
- * Scan one workspace for plan documents: the convention directories' top
- * level, then the well-known paths, deduped/sorted/capped, with each
- * surviving document's title resolved. A missing directory or file is the
- * normal case (any subset of the convention may exist) and is skipped.
+ * Scan one workspace for plan documents: every `*.md` under the convention
+ * directories (recursively), then the well-known paths,
+ * deduped/sorted/capped, with each surviving document's title resolved. A
+ * missing directory or file is the normal case (any subset of the convention
+ * may exist) and is skipped.
  */
 export declare function scanPlans(cwd: string, limit?: number): Promise<PlanDoc[]>;

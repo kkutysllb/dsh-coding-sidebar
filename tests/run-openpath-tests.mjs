@@ -118,7 +118,7 @@ import {
   pushBranch, summary,
 } from './git-helpers.mjs'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1255,7 +1255,7 @@ console.log('[plans helpers]')
     ok(selectPlans(found, -1).length === 3, 'limit 负数 → 不截断')
   }
 
-  // 真临时目录：约定位置扫描 + 非约定位置忽略
+  // 真临时目录：约定位置递归扫描 + 跳过项（非 md / node_modules / 符号链接）忽略
   {
     const root = mkdtempSync(join(tmpdir(), 'csb-plans-'))
     const empty = mkdtempSync(join(tmpdir(), 'csb-plans-empty-'))
@@ -1272,22 +1272,32 @@ console.log('[plans helpers]')
       put('docs/plans/b.md', 'no heading here\n', 300)
       put('.plans/c.md', '## Charlie\n', 400)
       put('docs/plan.md', '# Docs plan\n', 200)
-      // 非约定位置：嵌套子目录与非 .md 都不该出现
+      // 约定目录递归：次级与更深层的 *.md 都要出现（0.2 起不再只扫顶层）
       put('plans/sub/deep.md', '# Deep\n', 50)
+      put('plans/sub/level2/level3.md', '# Level three\n', 25)
+      // 仍不该出现的两类：非 .md，以及跳过目录 node_modules 之内
       put('plans/notes.txt', 'not a plan\n', 50)
+      put('plans/node_modules/pkg/vendored.md', '# Vendored\n', 10)
+      // 符号链接目录不得被跟随（否则会绕环）：指向工作区根
+      symlinkSync(root, join(root, 'plans', 'loop'), 'dir')
 
       const docs = await scanPlans(root)
-      ok(docs.length === 5, `约定位置 5 份（实际 ${docs.length}）`)
-      ok(docs.map(d => d.rel).join(',') === 'plan.md,docs/plan.md,docs/plans/b.md,.plans/c.md,plans/a.md',
-        `最新在前且嵌套/非 md 被忽略（${docs.map(d => d.rel).join(',')}）`)
+      ok(docs.length === 7, `约定位置 7 份（含递归，实际 ${docs.length}）`)
+      ok(docs.map(d => d.rel).join(',')
+        === 'plans/sub/level2/level3.md,plans/sub/deep.md,plan.md,docs/plan.md,docs/plans/b.md,.plans/c.md,plans/a.md',
+        `最新在前且递归收录（${docs.map(d => d.rel).join(',')}）`)
       ok(docs.find(d => d.rel === 'plan.md').title === 'Root plan', '根 plan.md 标题取自 H1')
       ok(docs.find(d => d.rel === 'docs/plan.md')?.title === 'Docs plan', 'docs/plan.md 也在约定文件清单里')
       ok(docs.find(d => d.rel === 'docs/plans/b.md').title === 'b', '无标题文档回退文件名')
       ok(docs.find(d => d.rel === '.plans/c.md').title === 'Charlie', '隐藏目录 .plans 也被扫描')
-      ok(!docs.some(d => d.rel.includes('deep') || d.rel.includes('notes')), '子目录/非 md 未混入')
+      ok(docs.find(d => d.rel === 'plans/sub/deep.md')?.title === 'Deep', '次级目录的文档被收录且取到标题')
+      ok(docs.find(d => d.rel === 'plans/sub/level2/level3.md')?.title === 'Level three', '三层嵌套同样被收录')
+      ok(!docs.some(d => d.rel.includes('notes')), '非 .md 未混入')
+      ok(!docs.some(d => d.rel.includes('node_modules')), 'node_modules 之内不被下钻')
+      ok(!docs.some(d => d.rel.includes('loop')), '符号链接目录不被跟随')
 
       const two = await scanPlans(root, 2)
-      ok(two.length === 2 && two[0].rel === 'plan.md', 'limit 作用于磁盘扫描')
+      ok(two.length === 2 && two[0].rel === 'plans/sub/level2/level3.md', 'limit 作用于磁盘扫描')
 
       ok((await scanPlans(empty)).length === 0, '空工作区 → 空列表')
       ok((await scanPlans(join(empty, 'does-not-exist'))).length === 0, '不存在的 cwd 不抛错')
