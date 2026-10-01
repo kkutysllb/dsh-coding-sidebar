@@ -36,6 +36,38 @@ const CLICK_SLOP = 4
 const K_MIN = 0.2
 const K_MAX = 2.5
 
+/** The canvas camera: zoom + translate + whether the user took over. */
+interface CameraState {
+  k: number
+  tx: number
+  ty: number
+  /** The user panned/zoomed: auto-fit must stop steering this tree. */
+  userAdjusted: boolean
+}
+
+/**
+ * Per-tree-root sticky camera. Switching 图/树 remounts this component (the
+ * two modes render different trees of the same view model), and the camera is
+ * part of what the user set up — so it is cached by root id instead of dying
+ * with the mount. Bounded LRU-ish: the oldest root is dropped past the cap.
+ */
+const cameraByRoot = new Map<string, CameraState>()
+const CAMERA_CACHE_MAX = 12
+
+function readCamera(rootKey: string): CameraState | undefined {
+  return cameraByRoot.get(rootKey)
+}
+
+function writeCamera(rootKey: string, camera: CameraState): void {
+  cameraByRoot.delete(rootKey)
+  cameraByRoot.set(rootKey, camera)
+  while (cameraByRoot.size > CAMERA_CACHE_MAX) {
+    const oldest = cameraByRoot.keys().next().value
+    if (oldest === undefined) break
+    cameraByRoot.delete(oldest)
+  }
+}
+
 /** Truncate a display string to roughly fit one node-card line. */
 function ellipsize(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
@@ -72,12 +104,25 @@ export function WorkflowGraph(props: {
 }): ReactNode {
   const { model, onNodeClick, live } = props
   const wrapRef = useRef<HTMLDivElement | null>(null)
-  const [view, setView] = useState<{ k: number; tx: number; ty: number }>({ k: 1, tx: 0, ty: 0 })
+  /** The tree this camera belongs to (the model's root node id). */
+  const rootKey = model.nodes[0]?.id ?? ''
+  // React state stays the plain view (the per-frame render path); the
+  // `userAdjusted` flag rides the ref + the cache only.
+  const [view, setView] = useState<{ k: number; tx: number; ty: number }>(() => {
+    const cached = readCamera(rootKey)
+    return cached === undefined ? { k: 1, tx: 0, ty: 0 } : { k: cached.k, tx: cached.tx, ty: cached.ty }
+  })
   const dragRef = useRef<{ x: number; y: number; moved: number } | null>(null)
   const [dragging, setDragging] = useState(false)
   /** 用户是否手动平移/缩放过：手动之后不再被自动适配抢走视图。 */
-  const userAdjustedRef = useRef(false)
+  const userAdjustedRef = useRef(readCamera(rootKey)?.userAdjusted ?? false)
   const layout = useMemo(() => layoutTasksViewModel(model), [model])
+
+  /** Apply a camera change locally AND write it through to the per-root cache. */
+  const commit = useCallback((next: { k: number; tx: number; ty: number }): void => {
+    setView(next)
+    writeCamera(rootKey, { ...next, userAdjusted: userAdjustedRef.current })
+  }, [rootKey])
 
   /** Center the content box in the viewport at a readable zoom. */
   const fit = useCallback((): void => {
@@ -104,13 +149,26 @@ export function WorkflowGraph(props: {
    *   back to the default box (and why content could sit off-screen).
    * The 适配 button and the ResizeObserver path reuse the same policy.
    */
-  const rootId = model.nodes[0]?.id
   const lastRootRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    const rootChanged = lastRootRef.current !== rootId
-    if (rootChanged) lastRootRef.current = rootId
-    if (rootChanged || !userAdjustedRef.current) fit()
-  }, [fit, rootId])
+    const rootChanged = lastRootRef.current !== rootKey
+    if (rootChanged) {
+      lastRootRef.current = rootKey
+      // A different tree: restore ITS cached camera when it has one (the user
+      // already framed that tree), otherwise start in auto mode.
+      const cached = readCamera(rootKey)
+      if (cached !== undefined) {
+        userAdjustedRef.current = cached.userAdjusted
+        setView({ k: cached.k, tx: cached.tx, ty: cached.ty })
+        if (!cached.userAdjusted) fit()
+        return
+      }
+      userAdjustedRef.current = false
+      fit()
+      return
+    }
+    if (!userAdjustedRef.current) fit()
+  }, [fit, rootKey])
 
   // 容器尺寸变化（面板展开/拖动分隔条/作业区出现）后重新适配；用户手动
   // 平移缩放过的视图不抢。
@@ -139,16 +197,18 @@ export function WorkflowGraph(props: {
         const py = event.clientY - rect.top
         // Keep the canvas point under the cursor stationary: adjust the
         // translate by (zoom-1) × cursor-offset-from-canvas-origin.
-        return {
+        const next = {
           k: nextK,
           tx: px - ((px - current.tx) / current.k) * nextK,
           ty: py - ((py - current.ty) / current.k) * nextK,
         }
+        writeCamera(rootKey, { ...next, userAdjusted: true })
+        return next
       })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => { el.removeEventListener('wheel', onWheel) }
-  }, [])
+  }, [rootKey])
 
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return
@@ -173,7 +233,11 @@ export function WorkflowGraph(props: {
       drag.x = event.clientX
       drag.y = event.clientY
       if (drag.moved > CLICK_SLOP) userAdjustedRef.current = true
-      setView((current) => ({ ...current, tx: current.tx + dx, ty: current.ty + dy }))
+      setView((current) => {
+        const next = { ...current, tx: current.tx + dx, ty: current.ty + dy }
+        writeCamera(rootKey, { ...next, userAdjusted: userAdjustedRef.current })
+        return next
+      })
     }
     const onUp = (): void => { setDragging(false) }
     window.addEventListener('pointermove', onMove)
@@ -184,7 +248,7 @@ export function WorkflowGraph(props: {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [dragging])
+  }, [dragging, rootKey])
 
   const zoomBy = useCallback((factor: number): void => {
     userAdjustedRef.current = true
@@ -193,13 +257,15 @@ export function WorkflowGraph(props: {
     const cy = (el?.clientHeight ?? 0) / 2
     setView((current) => {
       const nextK = Math.min(K_MAX, Math.max(K_MIN, current.k * factor))
-      return {
+      const next = {
         k: nextK,
         tx: cx - ((cx - current.tx) / current.k) * nextK,
         ty: cy - ((cy - current.ty) / current.k) * nextK,
       }
+      writeCamera(rootKey, { ...next, userAdjusted: true })
+      return next
     })
-  }, [])
+  }, [rootKey])
 
   return (
     <div
