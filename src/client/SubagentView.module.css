@@ -618,9 +618,20 @@
   stroke-width: 1.6;
 }
 
-.wfNodeDone .wfTop,
+/* 已完成组：整张卡片压暗（`.wfTop` 早已改名为 `.wfSep`，这条选择器随之失效过一阵） */
+.wfNodeDone .wfSep,
 .wfNodeDone .wfBar {
   opacity: 0.4;
+}
+
+/* 待命组（可续跑）：同样压暗，但用虚线描边与"已完成"区分 */
+.wfNodeStandby .wfCard {
+  stroke-dasharray: 2 2;
+  opacity: 0.75;
+}
+
+.wfNodeStandby .wfBar {
+  opacity: 0.5;
 }
 
 .wfNodePlaceholder .wfCard {
