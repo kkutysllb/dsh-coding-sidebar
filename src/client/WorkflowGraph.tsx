@@ -66,6 +66,9 @@ export function WorkflowGraph(props: {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<{ k: number; tx: number; ty: number }>({ k: 1, tx: 0, ty: 0 })
   const dragRef = useRef<{ x: number; y: number; moved: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  /** 用户是否手动平移/缩放过：手动之后不再被自动适配抢走视图。 */
+  const userAdjustedRef = useRef(false)
   const layout = useMemo(() => layoutTasksViewModel(model), [model])
 
   /** Center the content box in the viewport at a readable zoom. */
@@ -75,6 +78,7 @@ export function WorkflowGraph(props: {
     const vw = el.clientWidth
     const vh = el.clientHeight
     if (vw <= 0 || vh <= 0) return
+    userAdjustedRef.current = false
     const k = Math.min(1.25, Math.max(K_MIN, Math.min(vw / layout.width, vh / layout.height)))
     setView({
       k,
@@ -87,6 +91,16 @@ export function WorkflowGraph(props: {
   // catalog hydration) — the content box moves under a stale transform.
   useEffect(() => { fit() }, [fit])
 
+  // 容器尺寸变化（面板展开/拖动分隔条/作业区出现）后重新适配；用户手动
+  // 平移缩放过的视图不抢。
+  useEffect(() => {
+    const el = wrapRef.current
+    if (el === null || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => { if (!userAdjustedRef.current) fit() })
+    ro.observe(el)
+    return () => { ro.disconnect() }
+  }, [fit])
+
   // Wheel zoom-to-cursor needs a NON-passive native listener (React's onWheel
   // cannot preventDefault reliably), so attach through the wrap ref.
   useEffect(() => {
@@ -94,6 +108,7 @@ export function WorkflowGraph(props: {
     if (el === null) return
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault()
+      userAdjustedRef.current = true
       setView((current) => {
         const nextK = Math.min(K_MAX, Math.max(K_MIN, current.k * Math.exp(-event.deltaY * 0.0015)))
         const rect = el.getBoundingClientRect()
@@ -115,26 +130,41 @@ export function WorkflowGraph(props: {
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return
     dragRef.current = { x: event.clientX, y: event.clientY, moved: 0 }
-    event.currentTarget.setPointerCapture(event.pointerId)
+    setDragging(true)
   }, [])
 
-  const onPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
-    const drag = dragRef.current
-    if (drag === null) return
-    const dx = event.clientX - drag.x
-    const dy = event.clientY - drag.y
-    drag.moved += Math.abs(dx) + Math.abs(dy)
-    drag.x = event.clientX
-    drag.y = event.clientY
-    setView((current) => ({ ...current, tx: current.tx + dx, ty: current.ty + dy }))
-  }, [])
-
-  const onPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
-    dragRef.current = null
-    event.currentTarget.releasePointerCapture(event.pointerId)
-  }, [])
+  /**
+   * 拖拽期间的移动/抬起挂在 window 上——**不能**对容器调 setPointerCapture：
+   * 捕获会把随后的 click 重定向到容器，节点 <g> 的 onClick 永远不触发
+   * （实机症状：点子代理/主代理无反应）。dragRef 在 pointerup 后保留，
+   * 供 click 处理器读取累计位移判断"是拖还是点"。
+   */
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (event: PointerEvent): void => {
+      const drag = dragRef.current
+      if (drag === null) return
+      const dx = event.clientX - drag.x
+      const dy = event.clientY - drag.y
+      drag.moved += Math.abs(dx) + Math.abs(dy)
+      drag.x = event.clientX
+      drag.y = event.clientY
+      if (drag.moved > CLICK_SLOP) userAdjustedRef.current = true
+      setView((current) => ({ ...current, tx: current.tx + dx, ty: current.ty + dy }))
+    }
+    const onUp = (): void => { setDragging(false) }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [dragging])
 
   const zoomBy = useCallback((factor: number): void => {
+    userAdjustedRef.current = true
     const el = wrapRef.current
     const cx = (el?.clientWidth ?? 0) / 2
     const cy = (el?.clientHeight ?? 0) / 2
@@ -153,12 +183,13 @@ export function WorkflowGraph(props: {
       ref={wrapRef}
       className={css.wfWrap}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
       onDoubleClick={fit}
     >
       <svg className={css.wfSvg}>
-        <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
+        <g
+          data-wf-root=""
+          transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}
+        >
           {layout.edges.map((edge) => (
             <path key={edge.id} d={edge.d} className={css.wfEdge} />
           ))}
@@ -172,7 +203,9 @@ export function WorkflowGraph(props: {
                 transform={`translate(${box.x} ${box.y})`}
                 className={clsxWf(node)}
                 onClick={() => {
-                  if ((dragRef.current?.moved ?? 0) >= CLICK_SLOP) return
+                  const moved = dragRef.current?.moved ?? 0
+                  dragRef.current = null
+                  if (moved >= CLICK_SLOP) return
                   if (clickable) onNodeClick(node)
                 }}
                 role="treeitem"
@@ -206,7 +239,7 @@ export function WorkflowGraph(props: {
           })}
         </g>
       </svg>
-      <div className={css.wfControls}>
+      <div className={css.wfControls} onPointerDown={(event) => { event.stopPropagation() }}>
         <button type="button" aria-label={t('subagentGraphZoomIn')} onClick={() => { zoomBy(1.25) }}>＋</button>
         <button type="button" aria-label={t('subagentGraphZoomOut')} onClick={() => { zoomBy(0.8) }}>－</button>
         <button type="button" aria-label={t('subagentGraphFit')} onClick={fit}>{t('subagentGraphFit')}</button>

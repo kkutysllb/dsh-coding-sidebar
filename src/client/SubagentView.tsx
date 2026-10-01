@@ -939,7 +939,10 @@ export function SubagentView(props: {
       </div>
       <div
         ref={viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? undefined : bodyRef}
-        className={css.subagentBody}
+        className={clsx(
+          css.subagentBody,
+          viewMode === 'graph' && model !== undefined && !summaryBackedLoading && css.subagentBodyGraph,
+        )}
         onKeyDown={viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? undefined : onTreeKeyDown}
       >
         {viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? (

@@ -589,6 +589,14 @@
 
 /* ── 工作流图画布（Tasks graph view）────────────────────────────── */
 
+/* 图模式：body 不再滚动，改为弹性列，画布撑满面板剩余高度
+   （滚动容器里的 flex:1 是无效的——这正是"只显示一小块"的成因）。 */
+.subagentBodyGraph {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .wfWrap {
   position: relative;
   flex: 1;
