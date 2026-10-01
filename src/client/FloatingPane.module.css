@@ -1,0 +1,94 @@
+/* Floating pane chrome (job output / shared task detail).
+   Only design tokens verified against the host theme are used: `bg-layer-2`
+   has dark/light values on `body`, `border-l2` and the `label-*` aliases are
+   the ones the rest of this plugin already styles with. */
+
+.pane {
+  position: fixed;
+  z-index: 28; /* above the panel host (25), below the app overlay stack (100+) */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, #1c1c1e));
+  border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.16));
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.32);
+  /* An interactive popover: presses inside it must never start a window drag
+     (the host's darwin blanket already says `no-drag` for body children; this
+     keeps the guarantee if that blanket ever changes). */
+  -webkit-app-region: no-drag;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.12));
+  cursor: grab;
+  user-select: none;
+}
+
+.header:active {
+  cursor: grabbing;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xs-strong-12, 600 12px/16px var(--dsw-font-family));
+  color: var(--dsw-alias-label-primary);
+}
+
+.close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The content gets every spare pixel: dragging the pane larger must reveal
+   more output, never more padding. */
+.body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px 10px 10px;
+}
+
+/* Eight invisible handles: 6px inside/outside the edges and corners. */
+.handle {
+  position: absolute;
+  z-index: 1;
+}
+
+.handleN { top: -3px; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.handleS { bottom: -3px; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.handleW { left: -3px; top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.handleE { right: -3px; top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.handleNw { top: -3px; left: -3px; width: 12px; height: 12px; cursor: nwse-resize; }
+.handleNe { top: -3px; right: -3px; width: 12px; height: 12px; cursor: nesw-resize; }
+.handleSw { bottom: -3px; left: -3px; width: 12px; height: 12px; cursor: nesw-resize; }
+.handleSe { bottom: -3px; right: -3px; width: 12px; height: 12px; cursor: nwse-resize; }

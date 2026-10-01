@@ -290,3 +290,21 @@
 }
 
 .empty .primary { align-self: flex-start; margin-top: 4px; }
+
+/* 浮动窗内的任务编辑表单：窗格拉高时把余量给描述区，而不是留白 */
+.floatForm {
+  display: flex;
+  flex-direction: column;
+}
+
+.floatForm .form {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+}
+
+.floatForm .textarea {
+  flex: 1;
+  min-height: 90px;
+  resize: none;
+}

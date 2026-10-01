@@ -124,6 +124,7 @@ import { layoutTasksViewModel, TASK_NODE_W, TASK_NODE_H } from './subagent-tasks
 import { deriveTeamView } from './team-projection.mjs'
 import { foldWorkflowRuns } from './subagent-workflow.mjs'
 import { mergedActivity, lastActivity } from './subagent-activity.mjs'
+import { clampPane, defaultPaneRect, resizePane, PANE_MIN_W, PANE_MIN_H } from './floating-geometry.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -2487,6 +2488,50 @@ console.log('[mergedActivity]')
   // 与 lastActivity 同源的窗口语义：两者可同时产出
   const last = lastActivity(events, 12)
   ok(last.text === undefined || typeof last.text === 'string', 'lastActivity 仍可用（未回归）')
+}
+// ── 浮动窗几何（默认放置 / 视口钳制 / 四边拉伸）──
+console.log('[floating-geometry]')
+{
+  const vp = { w: 1400, h: 900 }
+  // 默认放置：右下角带边距
+  const def = defaultPaneRect({ w: 560, h: 340 }, vp)
+  ok(def.x + def.w <= vp.w && def.y + def.h <= vp.h, '默认放置完整落在视口内')
+  ok(def.x > vp.w / 2 && def.y > vp.h / 2, '默认放置锚在右下角')
+  // 小视口：收缩到可用尺寸而不是溢出
+  const small = defaultPaneRect({ w: 900, h: 700 }, { w: 420, h: 300 })
+  ok(small.w <= 420 && small.h <= 300, '小视口下不超出可用区域')
+  ok(small.w >= PANE_MIN_W && small.h >= PANE_MIN_H, '小视口下仍不小于最小尺寸')
+
+  // 钳制：可以部分出屏，但必须留得住抓手
+  const pulled = clampPane({ x: -400, y: -300, w: 520, h: 320 }, vp)
+  ok(pulled.x + pulled.w >= 120, '向左拖出后仍留 ≥120px 抓手')
+  ok(pulled.y >= 0, '顶边不会被拖出视口上方（抓手在头部）')
+  const pushed = clampPane({ x: 5000, y: 5000, w: 520, h: 320 }, vp)
+  ok(pushed.x <= vp.w - 120, '向右拖出后仍留 ≥120px 在屏内')
+  ok(pushed.y + 40 <= vp.h, '向下拖出后仍留 ≥40px 在屏内')
+  const over = clampPane({ x: 10, y: 10, w: 5000, h: 5000 }, vp)
+  ok(over.w <= vp.w && over.h <= vp.h, '尺寸被钳到视口内（超出部分交给内容区滚动）')
+
+  // 拉伸：四边各自只动自己那侧
+  const base = { x: 300, y: 200, w: 500, h: 320 }
+  const east = resizePane(base, 'e', 60, 0, vp)
+  ok(east.w === 560 && east.x === base.x, '东边拉伸只改宽度')
+  const west = resizePane(base, 'w', 60, 0, vp)
+  ok(west.w === 440 && west.x === base.x + 60, '西边拉伸同时移动原点，右边界不动')
+  const south = resizePane(base, 's', 0, 40, vp)
+  ok(south.h === 360 && south.y === base.y, '南边拉伸只改高度')
+  const north = resizePane(base, 'n', 0, 40, vp)
+  ok(north.h === 280 && north.y === base.y + 40, '北边拉伸同时移动原点，下边界不动')
+  const corner = resizePane(base, 'se', 60, 40, vp)
+  ok(corner.w === 560 && corner.h === 360, '角拉伸同时改宽高')
+  // 最小尺寸：反向拉过头不会翻转
+  const tooSmall = resizePane(base, 'e', -5000, 0, vp)
+  ok(tooSmall.w === PANE_MIN_W, '东边反向拉到头停在最小宽度')
+  const tooSmallN = resizePane(base, 'n', 0, 5000, vp)
+  ok(tooSmallN.h === PANE_MIN_H, '北边反向拉到头停在最小高度')
+  // 超出视口：被钳住
+  const huge = resizePane(base, 'e', 5000, 0, vp)
+  ok(huge.x + huge.w <= vp.w, '拉超出视口时被钳在视口内')
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

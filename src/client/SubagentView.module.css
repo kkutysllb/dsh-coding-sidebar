@@ -498,47 +498,11 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* ── The shared output dock (bottom of the page, sticky like a terminal) ── */
-
-/* Direct child of the scrolling body, so it docks at the scrollport's bottom
-   edge while the job list scrolls above it; a solid background keeps the
-   tree from showing through. */
-.jobsPane {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-  margin-top: 4px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-base);
-  box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-}
-
-.jobsPaneHeader {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 4px 0 10px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
-}
 
 .jobsPaneDot {
   flex: none;
 }
 
-.jobsPaneLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--ds-font-family-code);
-  font-size: var(--dsw-font-xxxs-11-font-size);
-  line-height: var(--dsw-font-xxxs-11-line-height);
-  color: var(--dsw-alias-label-primary);
-}
 
 .jobsPaneStatus {
   flex: none;
@@ -546,23 +510,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.jobsPaneClose {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
-}
 
-.jobsPaneClose:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
 
 .jobsPanePre {
   margin: 0;

@@ -67,6 +67,7 @@ import { openViaUiWorkspace } from './workspace-nav.ts'
 import { buildTasksViewModel, type TaskNodeVM, type TasksViewModel } from './subagent-tasks-model.ts'
 import type { SidebarWorkflowRunRow } from '../context-types.ts'
 import { WorkflowGraph } from './WorkflowGraph.tsx'
+import { FloatingPane } from './FloatingPane.tsx'
 import { IconStopOutline16 } from './icons.tsx'
 import { t } from './locales.ts'
 import css from './SubagentView.module.css'
@@ -616,24 +617,20 @@ function JobOutputPane(props: {
   }, [state, job.status])
 
   return (
-    <div className={css.jobsPane} role="region" aria-label={`${job.label} ${t('jobs')}`}>
-      <div className={css.jobsPaneHeader}>
-        <StateDot state={jobDotState(job.status)} className={css.jobsPaneDot} />
-        <span className={css.jobsPaneLabel} title={job.label}>{job.label}</span>
+    <FloatingPane
+      title={job.label}
+      testId="job-output"
+      geometryKey={`job:${ownerSessionId}:${job.id}`}
+      size={{ w: 560, h: 340 }}
+      onClose={onClose}
+      headerMeta={(
         <span className={css.jobsPaneStatus}>
+          <StateDot state={jobDotState(job.status)} className={css.jobsPaneDot} />
           {jobStatusLabel(job.status, t)}
           {job.detail !== undefined && job.detail !== '' ? ` · ${job.detail}` : ''}
         </span>
-        <button
-          type="button"
-          className={css.jobsPaneClose}
-          aria-label={t('close')}
-          title={t('close')}
-          onClick={onClose}
-        >
-          <IconStopOutline16 size={10} />
-        </button>
-      </div>
+      )}
+    >
       {state === 'loading' && <div className={css.jobsPaneHint}>{t('loading')}</div>}
       {state === 'error' && (
         <div className={`${css.jobsPaneHint} ${css.jobsPaneError}`}>{t('jobOutputError')}</div>
@@ -648,7 +645,7 @@ function JobOutputPane(props: {
           {state.truncated && <div className={css.jobsPaneHint}>{t('jobOutputTruncated')}</div>}
         </>
       )}
-    </div>
+    </FloatingPane>
   )
 }
 

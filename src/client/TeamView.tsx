@@ -28,6 +28,7 @@ import {
   sameTeamDependencies, teamDraftOfTask, teamFailureText, teamItems, teamMemberStatusKey,
   teamMemberTone, teamMutationOutcome, teamTaskIds, teamTaskStatusKey, type TeamDraft,
 } from './team-model.ts'
+import { FloatingPane } from './FloatingPane.tsx'
 import { t } from './locales.ts'
 import type { TabComponentProps } from './service.ts'
 import css from './TeamView.module.css'
@@ -350,14 +351,25 @@ export function TeamView(props: TabComponentProps): ReactNode {
             <div className={css.tasks}>
               {view.tasks.map(task => editing === task.id
                 ? (
-                  <TeamTaskForm
+                  // 编辑面走浮动窗（上游 v0.22.0）：可拖拽/可四边拉伸/内容区自
+                  // 滚动，只有关闭按钮或 Escape 结束；拉大把余量交给描述区。
+                  <FloatingPane
                     key={task.id}
-                    draft={editDraft}
-                    setDraft={setEditDraft}
-                    pending={pending.has(task.id)}
-                    onSave={() => { void submitEdit(task) }}
-                    onCancel={() => { setEditing(null) }}
-                  />
+                    title={task.subject === '' ? task.id : task.subject}
+                    testId="team-task-edit"
+                    geometryKey={`team-task:${task.id}`}
+                    size={{ w: 520, h: 360 }}
+                    onClose={() => { setEditing(null) }}
+                    bodyClassName={css.floatForm}
+                  >
+                    <TeamTaskForm
+                      draft={editDraft}
+                      setDraft={setEditDraft}
+                      pending={pending.has(task.id)}
+                      onSave={() => { void submitEdit(task) }}
+                      onCancel={() => { setEditing(null) }}
+                    />
+                  </FloatingPane>
                 )
                 : (
                   <article key={task.id} className={css.task}>
