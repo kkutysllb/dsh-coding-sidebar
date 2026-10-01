@@ -724,3 +724,31 @@
   font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-secondary);
 }
+
+/* 节点拖动：卡片可抓、拖动中抬起来（含手动布局的重置按钮） */
+.wfNode {
+  cursor: grab;
+}
+
+.wfNodeDragging .wfCard {
+  filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.35));
+}
+
+.wfNodeDragging {
+  cursor: grabbing;
+}
+
+.wfReset {
+  border: none;
+  border-radius: 6px;
+  background: none;
+  padding: 2px 6px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxxs-11);
+}
+
+.wfReset:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}

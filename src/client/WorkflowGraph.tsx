@@ -26,6 +26,11 @@ import {
   TASK_NODE_W,
 } from './subagent-tasks-layout.ts'
 import type { TaskNodeVM, TasksViewModel } from './subagent-tasks-model.ts'
+import {
+  dragOffsets,
+  hasOffsets,
+  type NodeOffsets,
+} from './subagent-tasks-layout.ts'
 import type { LastActivity } from '../subagent-activity.ts'
 import { t } from './locales.ts'
 import css from './SubagentView.module.css'
@@ -51,11 +56,28 @@ interface CameraState {
  * part of what the user set up — so it is cached by root id instead of dying
  * with the mount. Bounded LRU-ish: the oldest root is dropped past the cap.
  */
+/** Manual node positions per tree root (survives 图/树 remounts like the camera). */
+const offsetsByRoot = new Map<string, NodeOffsets>()
+const OFFSETS_CACHE_MAX = 12
 const cameraByRoot = new Map<string, CameraState>()
 const CAMERA_CACHE_MAX = 12
 
 function readCamera(rootKey: string): CameraState | undefined {
   return cameraByRoot.get(rootKey)
+}
+
+function readOffsets(rootKey: string): NodeOffsets {
+  return offsetsByRoot.get(rootKey) ?? {}
+}
+
+function writeOffsets(rootKey: string, offsets: NodeOffsets): void {
+  offsetsByRoot.delete(rootKey)
+  if (hasOffsets(offsets)) offsetsByRoot.set(rootKey, offsets)
+  while (offsetsByRoot.size > OFFSETS_CACHE_MAX) {
+    const oldest = offsetsByRoot.keys().next().value
+    if (oldest === undefined) break
+    offsetsByRoot.delete(oldest)
+  }
 }
 
 function writeCamera(rootKey: string, camera: CameraState): void {
@@ -116,7 +138,18 @@ export function WorkflowGraph(props: {
   const [dragging, setDragging] = useState(false)
   /** 用户是否手动平移/缩放过：手动之后不再被自动适配抢走视图。 */
   const userAdjustedRef = useRef(readCamera(rootKey)?.userAdjusted ?? false)
-  const layout = useMemo(() => layoutTasksViewModel(model), [model])
+  const [offsets, setOffsets] = useState<NodeOffsets>(() => readOffsets(rootKey))
+  const layout = useMemo(() => layoutTasksViewModel(model, offsets), [model, offsets])
+  /** A node drag in flight (separate from the canvas pan gesture). */
+  const nodeDragRef = useRef<{
+    nodeId: string
+    x: number
+    y: number
+    moved: number
+    base: NodeOffsets
+    subtree: boolean
+  } | null>(null)
+  const [draggingNode, setDraggingNode] = useState<string | null>(null)
 
   /** Apply a camera change locally AND write it through to the per-root cache. */
   const commit = useCallback((next: { k: number; tx: number; ty: number }): void => {
@@ -133,10 +166,12 @@ export function WorkflowGraph(props: {
     if (vw <= 0 || vh <= 0) return
     userAdjustedRef.current = false
     const k = Math.min(1.25, Math.max(K_MIN, Math.min(vw / layout.width, vh / layout.height)))
+    // The content box can start above/left of the origin once a node is
+    // dragged there; the fit subtracts that origin so nothing is cut off.
     setView({
       k,
-      tx: (vw - layout.width * k) / 2,
-      ty: Math.max(8, (vh - layout.height * k) / 2),
+      tx: (vw - layout.width * k) / 2 - layout.minX * k,
+      ty: Math.max(8, (vh - layout.height * k) / 2) - layout.minY * k,
     })
   }, [layout])
 
@@ -250,6 +285,60 @@ export function WorkflowGraph(props: {
     }
   }, [dragging, rootKey])
 
+  /**
+   * Node dragging: press a card and move it. Same window-listener pattern as
+   * the canvas pan (deliberately NOT pointer capture — capturing retargets the
+   * following click and breaks navigation). `Alt` moves the single card,
+   * otherwise its descendants ride along. Positions are stored as offsets from
+   * the auto layout, so the tree can be reset at any time.
+   */
+  useEffect(() => {
+    if (draggingNode === null) return
+    const onMove = (event: PointerEvent): void => {
+      const drag = nodeDragRef.current
+      if (drag === null) return
+      const dx = event.clientX - drag.x
+      const dy = event.clientY - drag.y
+      drag.moved = Math.abs(dx) + Math.abs(dy)
+      if (drag.moved < CLICK_SLOP) return
+      // Canvas deltas are screen pixels: divide by the zoom so a card follows
+      // the pointer 1:1 at any scale.
+      setOffsets(dragOffsets(model, drag.base, drag.nodeId, dx / view.k, dy / view.k, drag.subtree))
+    }
+    const onUp = (): void => {
+      const drag = nodeDragRef.current
+      if (drag !== null && drag.moved >= CLICK_SLOP) writeOffsets(rootKey, readOffsets(rootKey))
+      setDraggingNode(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [draggingNode, model, rootKey, view.k])
+
+  const startNodeDrag = useCallback((event: React.PointerEvent, nodeId: string): void => {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    nodeDragRef.current = {
+      nodeId,
+      x: event.clientX,
+      y: event.clientY,
+      moved: 0,
+      base: offsets,
+      subtree: !event.altKey,
+    }
+    setDraggingNode(nodeId)
+  }, [offsets])
+
+  const resetOffsets = useCallback((): void => {
+    setOffsets({})
+    writeOffsets(rootKey, {})
+  }, [rootKey])
+
   const zoomBy = useCallback((factor: number): void => {
     userAdjustedRef.current = true
     const el = wrapRef.current
@@ -277,6 +366,7 @@ export function WorkflowGraph(props: {
       <svg className={css.wfSvg}>
         <g
           data-wf-root=""
+          data-wf-offsets={Object.keys(offsets).length}
           transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}
         >
           {layout.edges.map((edge) => (
@@ -291,11 +381,15 @@ export function WorkflowGraph(props: {
               <g
                 key={node.id}
                 transform={`translate(${box.x} ${box.y})`}
-                className={clsxWf(node)}
+                className={clsxWf(node, draggingNode === node.id)}
+                onPointerDown={(event) => { startNodeDrag(event, node.id) }}
                 onClick={() => {
-                  const moved = dragRef.current?.moved ?? 0
+                  const panned = dragRef.current?.moved ?? 0
+                  const dragged = nodeDragRef.current?.moved ?? 0
                   dragRef.current = null
-                  if (moved >= CLICK_SLOP) return
+                  nodeDragRef.current = null
+                  // A pan or a node drag that actually moved must not navigate.
+                  if (panned >= CLICK_SLOP || dragged >= CLICK_SLOP) return
                   if (clickable) onNodeClick(node)
                 }}
                 role="treeitem"
@@ -343,13 +437,25 @@ export function WorkflowGraph(props: {
         <button type="button" aria-label={t('subagentGraphZoomIn')} onClick={() => { zoomBy(1.25) }}>＋</button>
         <button type="button" aria-label={t('subagentGraphZoomOut')} onClick={() => { zoomBy(0.8) }}>－</button>
         <button type="button" aria-label={t('subagentGraphFit')} onClick={fit}>{t('subagentGraphFit')}</button>
+        {hasOffsets(offsets) && (
+          <button
+            type="button"
+            className={css.wfReset}
+            aria-label={t('subagentGraphResetLayout')}
+            title={t('subagentGraphResetLayout')}
+            data-wf-reset=""
+            onClick={resetOffsets}
+          >
+            ⟲ {t('subagentGraphResetLayout')}
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
 /** Node className with the per-kind tint + current accent. */
-function clsxWf(node: TaskNodeVM): string {
+function clsxWf(node: TaskNodeVM, dragging = false): string {
   const kind = node.kind === 'done-agg'
     ? css.wfNodeDone
     : node.kind === 'standby-agg'
@@ -361,5 +467,10 @@ function clsxWf(node: TaskNodeVM): string {
           : node.kind === 'run'
             ? css.wfNodeRun
             : css.wfNode
-  return clsx(kind, node.current && css.wfNodeCurrent, node.running && css.wfNodeRunning)
+  return clsx(
+    kind,
+    node.current && css.wfNodeCurrent,
+    node.running && css.wfNodeRunning,
+    dragging && css.wfNodeDragging,
+  )
 }

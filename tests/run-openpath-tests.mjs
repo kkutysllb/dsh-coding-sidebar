@@ -126,6 +126,7 @@ import { foldWorkflowRuns } from './subagent-workflow.mjs'
 import { mergedActivity, lastActivity } from './subagent-activity.mjs'
 import { clampPane, defaultPaneRect, resizePane, PANE_MIN_W, PANE_MIN_H } from './floating-geometry.mjs'
 import { buildChangesTree, flattenChangesTree, collectDirectoryPaths, countFiles } from './changes-tree.mjs'
+import { dragOffsets, hasOffsets, subtreeIds } from './subagent-tasks-layout.mjs'
 import { buildZip, crc32, contentDisposition, archiveNameFor, normalizeEntryPath, ZIP_MAX_ENTRIES } from './zip.mjs'
 import { applySelection, pruneSelection, selectAll, EMPTY_SELECTION } from './file-selection.mjs'
 import { nativeAppTargets, resolveOpenWithTargets } from './open-with.mjs'
@@ -2851,6 +2852,64 @@ console.log('[registration rollback]')
     dispose()
     ok(!reg.has('t'), '且 disposer 依然能释放它（未变成孤儿 id）')
   }
+}
+// ── 节点手动布局（拖动覆盖 / 子树带走 / 包围盒 / 重置）──
+console.log('[node dragging offsets]')
+{
+  const node = (id, parentId, kind = 'subagent') => ({
+    id, kind, parentId: parentId ?? '', depth: 1, label: id, secondary: '', running: false,
+    current: false, address: undefined, entry: undefined, childCount: undefined, aggregateKey: undefined,
+  })
+  const root = node('root', undefined, 'main')
+  const a = node('a', 'root')
+  const a1 = node('a1', 'a')
+  const b = node('b', 'root')
+  const model = {
+    nodes: [root, a, a1, b],
+    childrenOf: { root: [a, b], a: [a1], a1: [], b: [] },
+    branchIds: [],
+  }
+  const base = layoutTasksViewModel(model)
+  const posOf = (layout, id) => layout.nodes.find(box => box.node.id === id)
+
+  ok(posOf(base, 'a').x === 0 || posOf(base, 'a').x >= 0, '自动布局给出初始位置')
+  ok(!hasOffsets({}) && hasOffsets({ a: { x: 1, y: 0 } }), 'hasOffsets 判定正确')
+
+  // 单节点：只动自己
+  const single = dragOffsets(model, {}, 'a', 100, 50, false)
+  ok(single.a.x === 100 && single.a.y === 50, '单节点拖动写入偏移')
+  ok(single.a1 === undefined, 'Alt（单节点）不带上子节点')
+  const layoutSingle = layoutTasksViewModel(model, single)
+  ok(posOf(layoutSingle, 'a').x === posOf(base, 'a').x + 100, '偏移作用到节点位置')
+  ok(posOf(layoutSingle, 'a1').x === posOf(base, 'a1').x, '未被拖动的子节点保持原位')
+  // 连线跟随：子节点被拖走后，边的终点随其新中心变化
+  const edgeBefore = base.edges.find(e => e.id === 'a->a1').d
+  const edgeAfter = layoutSingle.edges.find(e => e.id === 'a->a1').d
+  ok(edgeBefore !== edgeAfter, '连线跟随拖动后的位置重算')
+
+  // 子树：默认带上后代
+  const withKids = dragOffsets(model, {}, 'a', 60, 30, true)
+  ok(withKids.a.x === 60 && withKids.a1.x === 60 && withKids.a1.y === 30, '拖动父节点默认带上整棵子树')
+  ok(subtreeIds(model, 'a').join(',') === 'a,a1', 'subtreeIds 给出自身与后代')
+  ok(subtreeIds(model, 'root').length === 4, '根节点子树包含全部')
+
+  // 二次拖动从手势起点累加（不叠加漂移）
+  const second = dragOffsets(model, withKids, 'a', 10, 0, true)
+  ok(second.a.x === 70 && second.a1.x === 70, '增量基于手势起点（60+10）')
+
+  // 包围盒：向左/上拖动把内容原点推到负值（适配据此平移，不裁切）
+  const aLeft = posOf(base, 'a').x - 500   // a 的自动位置是 122
+  const out = layoutTasksViewModel(model, { a: { x: -500, y: -200 } })
+  ok(out.minX === posOf(base, 'a').x - 500, '内容左原点随拖到负值的节点变负')
+  ok(out.minY === posOf(base, 'a').y - 200, '内容上原点同理')
+  ok(out.nodes.find(box => box.node.id === 'a').x === aLeft, '越界节点位置正确')
+  // 向右拖：包围盒宽度随之增长（拖动后的内容不会被适配裁掉）
+  const right = layoutTasksViewModel(model, { b: { x: 800, y: 0 } })
+  ok(right.width > base.width + 700, '向右拖动让包围盒变宽')
+  ok(posOf(right, 'b').x === posOf(base, 'b').x + 800, '右移节点位置正确')
+
+  // 重置
+  ok(hasOffsets({}) === false, '清空后不再有手动布局（重置按钮随之隐藏）')
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)
