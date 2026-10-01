@@ -88,6 +88,25 @@ check(
   `产物=${versionMatch?.[1] ?? '缺失'} 包=${pkg.version}`,
 )
 
+// 桌面拖拽域退出（上游 v0.22.1 / issue #772）：宿主会用
+// `html[data-platform=darwin] body > :not(#root){-webkit-app-region:no-drag}`
+// 铺满所有 body 直挂子元素，而 app-region 无视 pointer-events——面板宿主
+// 是视口尺寸的 body 直挂层，若不退出会把整条标题栏拖拽带抵消（拖一次就失效、
+// 双击标题栏缩放失效）。面板宿主与放大视图都必须带中性值 initial。
+{
+  const neutralRules = clientSrc.match(/-webkit-app-region:\s*initial/g) ?? []
+  check(
+    '面板宿主与放大视图退出宿主 no-drag blanket（app-region: initial ×2）',
+    neutralRules.length >= 2,
+    `命中 ${neutralRules.length} 处`,
+  )
+  check(
+    '面板宿主保留子层 no-drag（#103/#111 点击不被吞）',
+    /\[data-dsh-panel-host\][^{]*\{[^}]*no-drag/.test(clientSrc)
+      || /no-drag/.test(clientSrc),
+  )
+}
+
 // fileIcons 能力已在能力清单中（file-icon-registry 的注册/回退链随之发布）
 check(
   "SIDEBAR_FEATURES 含 'fileIcons' 能力",

@@ -32,6 +32,26 @@
    events on itself. Degraded mode ([data-dsh-panel-host-degraded]) covers
    the rare shell that transforms <html>/<body> itself: the host becomes
    absolute and the mount self-check pins it to the viewport every frame. */
+/* Desktop drag-region exit (upstream v0.22.1 fix, issue #772).
+   The shell marks window-draggable strips with `[data-window-drag]` and
+   blankets every other body child with
+   `html[data-platform=darwin] body > :not(#root) { -webkit-app-region: no-drag }`.
+   Because app-region is resolved WITHOUT pointer-events, this viewport-sized
+   host would cancel those strips for the whole window — after one drag the
+   window can no longer be moved and title-bar double-click zoom dies too.
+   `initial` (none) puts the host back to neutral; the host's own chrome (the
+   direct panel layers and the controls inside them) keeps opting out with
+   `no-drag`, so clicking our buttons still never starts a window drag
+   (issues #103/#111). Interactive popovers portaled to body stay untouched:
+   giving THEM `initial` would turn presses into window drags. */
+:global([data-dsh-panel-host]) {
+  -webkit-app-region: initial !important;
+}
+
+:global([data-dsh-panel-host]) > * {
+  -webkit-app-region: no-drag;
+}
+
 :global([data-dsh-panel-host]) {
   position: fixed;
   inset: 0;
@@ -1937,6 +1957,12 @@ body[data-dsh-sidebar-dragging] .panel {
    The stage centers the (sanitized, cloned) svg and the modal owns the
    transform; the drag/zoom listeners live in the component, nothing here
    targets global class names. */
+
+/* The enlarged mermaid view is the other body-attached full-viewport layer
+   (createPortal → document.body): same drag-region exit as the panel host. */
+:global([data-mermaid-modal]) {
+  -webkit-app-region: initial !important;
+}
 
 .mermaidModal {
   position: fixed;
