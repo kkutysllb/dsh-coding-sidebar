@@ -94,7 +94,7 @@
 .subagentRowActive,
 .subagentRowActive:hover,
 .subagentRowActive:focus-visible {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .subagentRowDisabled {
@@ -376,7 +376,7 @@
 /* The row whose output is shown in the bottom dock. */
 .jobsRowSelected,
 .jobsRowSelected:hover {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .jobsRowMain {
@@ -596,9 +596,7 @@
   overflow: hidden;
   cursor: grab;
   touch-action: none;
-  background:
-    radial-gradient(circle, var(--dsw-alias-border-subtle) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background: none;
 }
 
 .wfWrap:active {
@@ -614,25 +612,25 @@
 
 .wfEdge {
   fill: none;
-  stroke: var(--dsw-alias-border-strong);
+  stroke: var(--dsw-alias-border-l1);
   stroke-width: 1.5;
-  opacity: 0.75;
+  opacity: 0.9;
 }
 
 .wfCard {
-  fill: var(--dsw-alias-bg-primary);
-  stroke: var(--dsw-alias-border-strong);
+  fill: transparent;
+  stroke: var(--dsw-alias-border-l2);
   stroke-width: 1;
 }
 
-.wfTop {
-  fill: var(--dsw-alias-bg-secondary);
-  opacity: 0.55;
+/* 上段/底条之间的分隔线（代替底色分段，避免未验证的表面色 token） */
+.wfSep {
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
 }
 
 .wfBar {
-  fill: var(--dsw-alias-bg-secondary);
-  opacity: 0.85;
+  fill: var(--dsw-alias-interactive-bg-hover);
 }
 
 .wfBadge {
@@ -652,7 +650,7 @@
 }
 
 .wfDotRunning {
-  fill: var(--dsw-alias-state-running-primary, var(--dsw-alias-brand-primary));
+  fill: var(--dsw-alias-interactive-bg-hover-accent);
 }
 
 .wfDotIdle {
@@ -660,7 +658,7 @@
 }
 
 .wfNodeCurrent .wfCard {
-  stroke: var(--dsw-alias-brand-primary);
+  stroke: var(--dsw-alias-interactive-bg-hover-accent);
   stroke-width: 1.6;
 }
 
@@ -679,8 +677,8 @@
 }
 
 .wfSweep {
-  fill: var(--dsw-alias-brand-primary);
-  opacity: 0.14;
+  fill: var(--dsw-alias-interactive-bg-hover-accent);
+  opacity: 0.15;
 }
 
 @keyframes wfSweepRun {
@@ -707,9 +705,9 @@
   min-width: 26px;
   height: 24px;
   padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-strong);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-primary);
+  background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   cursor: pointer;
@@ -717,13 +715,14 @@
 
 .wfControls button:hover {
   color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* ── 图/树 视图切换 ── */
 .subagentViewToggle {
   display: inline-flex;
   margin-left: 8px;
-  border: 1px solid var(--dsw-alias-border-strong);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -738,6 +737,6 @@
 }
 
 .subagentViewToggle button[aria-pressed='true'] {
-  background: var(--dsw-alias-bg-secondary);
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }

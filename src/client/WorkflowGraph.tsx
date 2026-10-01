@@ -182,7 +182,7 @@ export function WorkflowGraph(props: {
                 aria-disabled={!clickable ? 'true' : undefined}
               >
                 <rect width={TASK_NODE_W} height={TASK_NODE_TOP_H + TASK_NODE_BAR_H} rx={8} className={css.wfCard} />
-                <rect width={TASK_NODE_W} height={TASK_NODE_TOP_H} rx={8} className={css.wfTop} />
+                <line x1={0} y1={TASK_NODE_TOP_H} x2={TASK_NODE_W} y2={TASK_NODE_TOP_H} className={css.wfSep} />
                 <text x={10} y={15} className={css.wfBadge}>{badgeOf(node)}</text>
                 <text x={10} y={32} className={css.wfLabel}>
                   {node.label === '' ? t('loading') : ellipsize(node.label, 24)}
