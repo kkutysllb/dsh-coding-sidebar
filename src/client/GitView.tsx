@@ -9,7 +9,7 @@
  * focus. While visible it polls lightweight porcelain state so model-authored
  * file changes appear without a manual refresh.
  */
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { SessionLens } from './SessionLens.tsx'
 import { GitBranchView } from './GitBranchView.tsx'
@@ -27,6 +27,12 @@ import { resolveSidebarPath } from './produced-files.ts'
 import { relativeTime, t } from './locales.ts'
 import type { SidebarTab } from './state.ts'
 import css from './sidebar.module.css'
+import {
+  buildChangesTree,
+  flattenChangesTree,
+  type ChangesTreeDir,
+  type ChangesTreeFile,
+} from './changes-tree.ts'
 
 /** The XY status letters a row badge shows (X = index, Y = worktree). */
 function badgeOf(entry: GitStatusEntry): string {
@@ -470,6 +476,79 @@ export function GitView(props: {
 
   const stagedEntries = (status?.entries ?? []).filter(isStagedEntry)
   const unstagedEntries = (status?.entries ?? []).filter(isUnstagedEntry)
+
+  // 变更页层级树（上游 v0.24.1）：目录行带递归计数、可折叠，单子链压缩。
+  const stagedTree = useMemo(
+    () => buildChangesTree(stagedEntries.map(entry => ({ path: entry.path, item: entry }))),
+    [stagedEntries],
+  )
+  const unstagedTree = useMemo(
+    () => buildChangesTree(unstagedEntries.map(entry => ({ path: entry.path, item: entry }))),
+    [unstagedEntries],
+  )
+  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const isCollapsed = useCallback((path: string): boolean => collapsedDirs.has(path), [collapsedDirs])
+  const toggleDir = useCallback((path: string): void => {
+    setCollapsedDirs((previous) => {
+      const next = new Set(previous)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
+  /** 目录行的暂存/取消暂存：git pathspec 支持目录，一次调用覆盖其下全部文件。 */
+  const stageDirectory = useCallback(async (dir: ChangesTreeDir<GitStatusEntry>, staged: boolean): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      if (staged) await api.gitUnstage(gitScope, dir.path, selectedWorktree)
+      else await api.gitStage(gitScope, dir.path, selectedWorktree)
+      await refresh()
+    } catch (error) {
+      setCommitError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, gitScope, refresh, selectedWorktree])
+
+  const renderDirRow = (dir: ChangesTreeDir<GitStatusEntry>, staged: boolean): ReactNode => (
+    <div
+      key={`${staged ? 's' : 'u'}:dir:${dir.path}`}
+      className={css.gitDirRow}
+      style={dir.depth === 0 ? undefined : { paddingLeft: `${dir.depth * 14}px` }}
+    >
+      <button
+        type="button"
+        className={css.gitDirMain}
+        title={dir.path}
+        aria-expanded={!isCollapsed(dir.path)}
+        onClick={() => { toggleDir(dir.path) }}
+      >
+        <span className={css.gitChevron} aria-hidden="true">{isCollapsed(dir.path) ? '▸' : '▾'}</span>
+        <span className={css.gitDirName}>{dir.name}</span>
+        <span className={css.gitDirCount}>{dir.count}</span>
+      </button>
+      <button
+        type="button"
+        className={css.iconButton}
+        aria-label={staged ? t('unstage') : t('stage')}
+        title={staged ? t('unstage') : t('stage')}
+        disabled={busy}
+        onClick={() => { void stageDirectory(dir, staged) }}
+      >
+        {staged ? <IconTrashOutlineRegular /> : <IconBranchOutlineRegular />}
+      </button>
+    </div>
+  )
+
+  const renderTree = (
+    tree: ReadonlyArray<ReturnType<typeof buildChangesTree<GitStatusEntry>>[number]>,
+    staged: boolean,
+  ): ReactNode[] => flattenChangesTree(tree, isCollapsed).map((node) =>
+    node.kind === 'dir'
+      ? renderDirRow(node, staged)
+      : renderEntry((node as ChangesTreeFile<GitStatusEntry>).item, staged, node.depth))
   /** Per-path line counts keyed for the file rows (untracked files have none
    *  in git's numstat; the summary's totals still count their bodies). */
   const fileStats = new Map((summary?.files ?? []).map(file => [file.path, file]))
@@ -493,10 +572,14 @@ export function GitView(props: {
     )
     : null
 
-  const renderEntry = (entry: GitStatusEntry, staged: boolean): ReactNode => {
+  const renderEntry = (entry: GitStatusEntry, staged: boolean, depth = 0): ReactNode => {
     const stat = fileStats.get(entry.path)
     return (
-      <div key={`${staged ? 's' : 'u'}:${entry.path}`} className={css.gitRow}>
+      <div
+        key={`${staged ? 's' : 'u'}:${entry.path}`}
+        className={css.gitRow}
+        style={depth === 0 ? undefined : { paddingLeft: `${depth * 14}px` }}
+      >
         <button
           type="button"
           className={css.gitRowMain}
@@ -666,7 +749,7 @@ export function GitView(props: {
               )}
             </div>
             {stagedEntries.length === 0 && <div className={css.gitEmpty}>{t('noChanges')}</div>}
-            {stagedEntries.map(entry => renderEntry(entry, true))}
+            {renderTree(stagedTree, true)}
           </div>
           <div className={css.gitSection}>
             <div className={css.gitSectionHeader}>
@@ -678,7 +761,7 @@ export function GitView(props: {
               )}
             </div>
             {unstagedEntries.length === 0 && <div className={css.gitEmpty}>{t('noChanges')}</div>}
-            {unstagedEntries.map(entry => renderEntry(entry, false))}
+            {renderTree(unstagedTree, false)}
           </div>
 
           <div className={css.gitCommit}>

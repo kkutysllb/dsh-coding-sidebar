@@ -5,12 +5,17 @@
  * passed through the secret-redaction layer). Kept a leaf component — the
  * GitView hosts it as the "session changes" lens of the unified tab.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type SessionScope } from './api.ts'
 import { redactSecrets } from './redact.ts'
 import { t } from './locales.ts'
 import css from './sidebar.module.css'
+import {
+  buildChangesTree,
+  flattenChangesTree,
+  type ChangesTreeDir,
+} from './changes-tree.ts'
 
 /** One deduplicated file operation row (the host's `changes.ops` payload). */
 interface SessionFileOp {
@@ -30,6 +35,21 @@ export function SessionLens(props: { scope: SessionScope }) {
   const [openPath, setOpenPath] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  // 同一套层级树（上游 v0.24.1）：会话变动也按目录分组、可折叠、可压缩单子链。
+  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const tree = useMemo(
+    () => buildChangesTree((ops ?? []).map(op => ({ path: op.path, item: op }))),
+    [ops],
+  )
+  const isCollapsed = useCallback((path: string): boolean => collapsedDirs.has(path), [collapsedDirs])
+  const toggleDir = useCallback((path: string): void => {
+    setCollapsedDirs((previous) => {
+      const next = new Set(previous)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
 
   const load = useCallback(async (): Promise<void> => {
     setError(null)
@@ -72,24 +92,50 @@ export function SessionLens(props: { scope: SessionScope }) {
       {error === null && ops !== null && ops.length === 0 && (
         <div className={css.sessionLensEmpty}>{t('changesEmpty')}</div>
       )}
-      {ops !== null && ops.map(op => (
-        <div key={op.path} className={css.sessionLensItem}>
-          <button
-            type="button"
-            className={css.sessionLensRow}
-            aria-expanded={openPath === op.path}
-            onClick={() => { togglePreview(op.path) }}
-          >
-            <span className={css.sessionLensPath} title={op.path}>{op.path}</span>
-            <span className={css.sessionLensMeta}>{op.tool}{op.count > 1 ? ` ×${op.count}` : ''}</span>
-          </button>
-          {openPath === op.path && (
-            <div className={css.sessionLensPreview}>
-              {previewLoading ? t('loading') : preview ?? ''}
+      {ops !== null && flattenChangesTree(tree, isCollapsed).map(node => {
+        if (node.kind === 'dir') {
+          const dir = node as ChangesTreeDir<SessionFileOp>
+          return (
+            <div
+              key={`dir:${dir.path}`}
+              className={css.gitDirRow}
+              style={dir.depth === 0 ? undefined : { paddingLeft: `${dir.depth * 14}px` }}
+            >
+              <button
+                type="button"
+                className={css.gitDirMain}
+                title={dir.path}
+                aria-expanded={!isCollapsed(dir.path)}
+                onClick={() => { toggleDir(dir.path) }}
+              >
+                <span className={css.gitChevron} aria-hidden="true">{isCollapsed(dir.path) ? '▸' : '▾'}</span>
+                <span className={css.gitDirName}>{dir.name}</span>
+                <span className={css.gitDirCount}>{dir.count}</span>
+              </button>
             </div>
-          )}
-        </div>
-      ))}
+          )
+        }
+        const op = node.item
+        return (
+          <div key={op.path} className={css.sessionLensItem}>
+            <button
+              type="button"
+              className={css.sessionLensRow}
+              style={node.depth === 0 ? undefined : { paddingLeft: `${6 + node.depth * 14}px` }}
+              aria-expanded={openPath === op.path}
+              onClick={() => { togglePreview(op.path) }}
+            >
+              <span className={css.sessionLensPath} title={op.path}>{node.name}</span>
+              <span className={css.sessionLensMeta}>{op.tool}{op.count > 1 ? ` ×${op.count}` : ''}</span>
+            </button>
+            {openPath === op.path && (
+              <div className={css.sessionLensPreview}>
+                {previewLoading ? t('loading') : preview ?? ''}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

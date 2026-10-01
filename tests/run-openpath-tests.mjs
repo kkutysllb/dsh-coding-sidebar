@@ -125,6 +125,7 @@ import { deriveTeamView } from './team-projection.mjs'
 import { foldWorkflowRuns } from './subagent-workflow.mjs'
 import { mergedActivity, lastActivity } from './subagent-activity.mjs'
 import { clampPane, defaultPaneRect, resizePane, PANE_MIN_W, PANE_MIN_H } from './floating-geometry.mjs'
+import { buildChangesTree, flattenChangesTree, collectDirectoryPaths, countFiles } from './changes-tree.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -2532,6 +2533,63 @@ console.log('[floating-geometry]')
   // 超出视口：被钳住
   const huge = resizePane(base, 'e', 5000, 0, vp)
   ok(huge.x + huge.w <= vp.w, '拉超出视口时被钳在视口内')
+}
+// ── 变更页层级树（目录分组 / 单子链压缩 / 递归计数 / 折叠）──
+console.log('[changes-tree]')
+{
+  const file = (path) => ({ path, item: path })
+  const names = (nodes) => nodes.map(n => `${n.kind}:${'name' in n ? n.name : ''}`)
+
+  ok(buildChangesTree([]).length === 0, '空输入 → 空树')
+
+  // 顶层文件 + 目录分组
+  const t1 = buildChangesTree([file('readme.md'), file('src/a.ts'), file('src/b/c.ts')])
+  ok(t1.length === 2, '顶层 = 1 目录 + 1 文件')
+  ok(t1[0].kind === 'dir' && t1[0].name === 'src', '目录排在文件前')
+  ok(t1[1].kind === 'file' && t1[1].name === 'readme.md', '文件在其后')
+  ok(t1[0].count === 2, 'src 递归计数 = 2')
+  const srcChildren = t1[0].children
+  ok(srcChildren.length === 2, 'src 下 = 目录 b + 文件 a.ts')
+  ok(srcChildren[0].kind === 'dir' && srcChildren[0].name === 'b', '目录 b 在前')
+  ok(srcChildren[1].kind === 'file' && srcChildren[1].name === 'a.ts', '文件 a.ts 在后')
+  ok(srcChildren[1].depth === 1 && srcChildren[0].depth === 1, '子层 depth = 1')
+  ok(srcChildren[0].children[0].name === 'c.ts' && srcChildren[0].children[0].depth === 2, '孙层 depth = 2')
+  ok(srcChildren[0].count === 1, 'b 计数 = 1')
+
+  // 单子链压缩：整条链只有一个目录、无文件 → 合成一行
+  const t2 = buildChangesTree([file('src/client/office/viewer/x.ts')])
+  ok(t2.length === 1 && t2[0].kind === 'dir', '压缩后顶层仍是一行目录')
+  ok(t2[0].name === 'src/client/office/viewer', '链名压缩为 a/b/c')
+  ok(t2[0].path === 'src/client/office/viewer', '目录路径指向链尾（目录级暂存用）')
+  ok(t2[0].count === 1, '压缩行计数 = 1')
+  ok(t2[0].children.length === 1 && t2[0].children[0].name === 'x.ts' && t2[0].children[0].depth === 1,
+    '压缩行的子文件 depth = 1')
+
+  // 链上有文件则不压缩：src 有自己的文件 → 不吞掉 src
+  const t3 = buildChangesTree([file('src/a.ts'), file('src/deep/inner/x.ts')])
+  ok(t3[0].name === 'src', '有文件的层不压缩')
+  ok(t3[0].children[0].kind === 'dir' && t3[0].children[0].name === 'deep/inner',
+    '其下的无文件链继续压缩')
+
+  // 排序：目录优先 + 大小写不敏感
+  const t4 = buildChangesTree([file('Zeta.ts'), file('alpha.ts'), file('Mid/one.ts')])
+  ok(names(t4).join(',') === 'dir:Mid,file:alpha.ts,file:Zeta.ts', '目录优先、文件按大小写不敏感字母序')
+
+  // 折叠：折叠目录隐藏后代但保留自身行
+  const t5 = buildChangesTree([file('src/a.ts'), file('src/b.ts'), file('top.md')])
+  const all = flattenChangesTree(t5, () => false)
+  ok(all.length === 4, '全展开 = 目录 + 两文件 + 顶层文件')
+  const folded = flattenChangesTree(t5, (path) => path === 'src')
+  ok(folded.length === 2, '折叠 src 后只剩 2 行')
+  ok(folded[0].kind === 'dir' && folded[0].name === 'src', '折叠目录自己的行仍在')
+  ok(collectDirectoryPaths(t5).join(',') === 'src', '目录路径收集（由外到内）')
+  ok(countFiles(t5) === 3, '整树文件数 = 3')
+
+  // 深层路径 + 重复段容错
+  const t6 = buildChangesTree([file('a/b/c/d/e.txt')])
+  ok(t6[0].name === 'a/b/c/d' && t6[0].count === 1, '深层路径压缩并计数')
+  const t7 = buildChangesTree([file('a//b/x.ts')])
+  ok(t7[0].name === 'a/b', '空段被忽略')
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)
