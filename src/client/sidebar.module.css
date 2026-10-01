@@ -3810,6 +3810,8 @@ body[data-dsh-sidebar-dragging] .panel {
 
 .plansEmpty .plansHint {
   padding: 4px 0 0;
+}
+
 .tocFlash {
   animation: dsh-toc-flash 1.2s ease-out;
   border-radius: 4px;
@@ -3869,24 +3871,28 @@ body[data-dsh-sidebar-dragging] .panel {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* ── 文件树多选（上游 v0.24.1）── */
+/* ── 文件树多选（上游 v0.24.1）──
+   视觉口径：一个轻量悬浮胶囊，不是工具条——细边框、分层背景、圆角，动作是
+   文本按钮（默认无底色），hover 才浮起；焦点环用 label 色，不用 UA 蓝。 */
 .explorerRowSelected {
-  background: var(--dsw-alias-interactive-bg-hover-accent, var(--dsw-alias-interactive-bg-hover));
-  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  box-shadow: inset 2px 0 0 var(--dsw-alias-label-tertiary);
+  border-radius: 6px;
 }
 
-/* 吸底选择条：只在有选择时出现，动作按选择数生效 */
 .explorerSelectionBar {
   position: sticky;
-  bottom: 0;
+  bottom: 6px;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 4px 6px 6px;
-  padding: 5px 8px;
+  gap: 2px;
+  margin: 6px 8px 2px;
+  padding: 3px 4px 3px 10px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
   font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-secondary);
 }
@@ -3897,18 +3903,23 @@ body[data-dsh-sidebar-dragging] .panel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--dsw-alias-label-primary);
+  padding-right: 4px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .explorerSelectionAction {
   flex: none;
+  appearance: none;
   border: none;
-  border-radius: 5px;
+  border-radius: 999px;
   background: none;
-  padding: 2px 6px;
+  padding: 3px 9px;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
-  font: var(--dsw-font-xxxs-11);
+  font: var(--dsw-font-xxxs-strong-11);
+  line-height: 1.2;
+  transition: background-color var(--ds-transition-duration-fast, .1s) var(--ds-ease-in-out, ease),
+    color var(--ds-transition-duration-fast, .1s) var(--ds-ease-in-out, ease);
 }
 
 .explorerSelectionAction:hover:not(:disabled) {
@@ -3916,7 +3927,12 @@ body[data-dsh-sidebar-dragging] .panel {
   color: var(--dsw-alias-label-primary);
 }
 
+.explorerSelectionAction:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-tertiary);
+  outline-offset: 1px;
+}
+
 .explorerSelectionAction:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }

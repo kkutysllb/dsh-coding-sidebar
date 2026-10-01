@@ -137,9 +137,9 @@ import {
   pushBranch, summary,
 } from './git-helpers.mjs'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 
 let failed = 0
 const ok = (cond, label) => {

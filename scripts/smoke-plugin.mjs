@@ -107,6 +107,22 @@ check(
   )
 }
 
+// 样式表健康：CSS module 里少一个 `}` 会让其后所有规则被编译成顶层嵌套
+// （`}& .x{…}`），浏览器直接丢弃 —— 本轮"选择条样式完全没生效"就是这个形态。
+// 产物级断言，避免这类静默失效再溜过去。
+{
+  const nestingArtifacts = clientSrc.match(/}[&]\s*\.[A-Za-z0-9_-]+\{/g) ?? []
+  check(
+    '样式表无顶层嵌套产物（规则未被静默丢弃）',
+    nestingArtifacts.length === 0,
+    nestingArtifacts.slice(0, 2).join(' '),
+  )
+  check(
+    '选择条规则以正常选择器产出',
+    /\.S[A-Za-z0-9]+_explorerSelectionBar\{/.test(clientSrc),
+  )
+}
+
 // fileIcons 能力已在能力清单中（file-icon-registry 的注册/回退链随之发布）
 check(
   "SIDEBAR_FEATURES 含 'fileIcons' 能力",
