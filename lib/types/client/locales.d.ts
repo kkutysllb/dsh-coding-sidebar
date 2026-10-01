@@ -187,6 +187,12 @@ export declare const zh: {
     changesBinary: string;
     changesPreviewError: string;
     changesLens: string;
+    filesSelected: string;
+    zipDownload: string;
+    zipPacking: string;
+    zipError: string;
+    deleteSelected: string;
+    clearSelection: string;
     exited: string;
     noSession: string;
     pluginNotLoaded: string;

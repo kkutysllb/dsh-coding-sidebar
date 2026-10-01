@@ -25,6 +25,21 @@ export declare function compareEntries(a: SidebarFsEntry, b: SidebarFsEntry): nu
  * @throws {SidebarError} fs-error when the level is unreadable or not a directory.
  */
 export declare function listDirectory(path: string, maxEntries?: number): Promise<SidebarFsListing>;
+/** Drop every cached listing (tests and an explicit refresh). */
+export declare function clearListingCache(): void;
+/**
+ * List several levels in one round trip (upstream v0.24.1's `fs.trees`): the
+ * explorer prefetches a directory's sub-levels so the next expand is instant.
+ * Failures are reported per path instead of failing the batch — one unreadable
+ * sub-level must not blank the whole prefetch.
+ * @param paths - absolute directory paths (bounded by the caller).
+ * @param maxEntries - row bound applied to every level.
+ */
+export declare function listDirectories(paths: readonly string[], maxEntries?: number): Promise<Array<{
+    path: string;
+    listing?: SidebarFsListing;
+    error?: string;
+}>>;
 /** The root row label of a listing: the last path segment (or the full path at the filesystem root). */
 export declare function rootLabel(path: string): string;
 /** Parent of a path, or undefined at the filesystem root (the explorer's "up" target). */

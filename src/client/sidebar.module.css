@@ -3868,3 +3868,55 @@ body[data-dsh-sidebar-dragging] .panel {
   font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* ── 文件树多选（上游 v0.24.1）── */
+.explorerRowSelected {
+  background: var(--dsw-alias-interactive-bg-hover-accent, var(--dsw-alias-interactive-bg-hover));
+  border-radius: 4px;
+}
+
+/* 吸底选择条：只在有选择时出现，动作按选择数生效 */
+.explorerSelectionBar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 6px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.explorerSelectionCount {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+}
+
+.explorerSelectionAction {
+  flex: none;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  padding: 2px 6px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxxs-11);
+}
+
+.explorerSelectionAction:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.explorerSelectionAction:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

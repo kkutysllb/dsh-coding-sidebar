@@ -360,6 +360,11 @@ export const api = {
     call<TeamMutationEnvelope>('team.updateTask', scopePayload(scope, { ...input }), signal),
   fsTree: (scope: SessionScope, path: string, signal?: AbortSignal) =>
     call<{ path: string; entries: FsEntry[]; truncated: boolean }>('fs.tree', scopePayload(scope, { path }), signal),
+  /** 批量列目录：一次请求预取若干子目录（单点失败按路径回报）。 */
+  fsTrees: (scope: SessionScope, paths: readonly string[], signal?: AbortSignal) =>
+    call<{ listings: Array<{ path: string; listing?: { entries: FsEntry[] }; error?: string }> }>(
+      'fs.trees', scopePayload(scope, { paths }), signal,
+    ),
   /** Global recursive file-name search rooted at the session cwd (the editor
    *  side panel's search box); matches are cwd-relative '/'-separated paths. */
   fsSearch: (scope: SessionScope, query: string, signal?: AbortSignal) =>
@@ -386,6 +391,22 @@ export const api = {
     call<GitStatusResult>('git.status', gitPayload(scope, worktree, {}), signal),
   gitDiff: (scope: SessionScope, path: string | undefined, staged: boolean, worktree?: string, signal?: AbortSignal) =>
     call<{ diff: string }>('git.diff', gitPayload(scope, worktree, { ...(path !== undefined ? { path } : {}), staged }), signal),
+  /** 宿主探测到的本机应用（打开方式第二来源；远程工作区不调用）。 */
+  appsList: (signal?: AbortSignal) =>
+    call<{ apps: Array<{ id: string; label: string; path: string }> }>('apps.list', {}, signal),
+  /** 归档任务（多选压缩下载）：build 立即返回 taskId，status 报进度，result 取字节。 */
+  archiveBuild: (scope: SessionScope, paths: readonly string[]) =>
+    call<{ taskId: string; state: string; done: number; total: number; name: string }>(
+      'archive.build', { sessionId: scope.sessionId, paths },
+    ),
+  archiveStatus: (scope: SessionScope, taskId: string, signal?: AbortSignal) =>
+    call<{ taskId: string; state: 'queued' | 'building' | 'done' | 'error'; done: number; total: number; name: string; bytes?: number; error?: string }>(
+      'archive.status', { sessionId: scope.sessionId, taskId }, signal,
+    ),
+  archiveResult: (scope: SessionScope, taskId: string) =>
+    call<{ name: string; base64: string; bytes: number }>(
+      'archive.result', { sessionId: scope.sessionId, taskId },
+    ),
   gitStage: (scope: SessionScope, path?: string, worktree?: string) =>
     call<{ ok: true }>('git.stage', gitPayload(scope, worktree, { ...(path !== undefined ? { path } : {}) })),
   gitUnstage: (scope: SessionScope, path?: string, worktree?: string) =>
@@ -576,7 +597,7 @@ export const api = {
    *  the OS file manager, or hand a custom-scheme URL (vscode://, cursor://,
    *  zed://, custom editors) to its registered handler. The host launches
    *  the platform opener (argv, no shell). */
-  openExternal: (payload: { action: 'reveal'; path: string } | { action: 'url'; url: string }) =>
+  openExternal: (payload: { action: 'reveal'; path: string } | { action: 'url'; url: string } | { action: 'app'; app: string; path: string }) =>
     call<{ started: boolean }>('open.external', payload),
 }
 

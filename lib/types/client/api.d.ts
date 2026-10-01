@@ -240,6 +240,16 @@ export declare const api: {
         entries: FsEntry[];
         truncated: boolean;
     }>;
+    /** 批量列目录：一次请求预取若干子目录（单点失败按路径回报）。 */
+    fsTrees: (scope: SessionScope, paths: readonly string[], signal?: AbortSignal) => Promise<{
+        listings: Array<{
+            path: string;
+            listing?: {
+                entries: FsEntry[];
+            };
+            error?: string;
+        }>;
+    }>;
     /** Global recursive file-name search rooted at the session cwd (the editor
      *  side panel's search box); matches are cwd-relative '/'-separated paths. */
     fsSearch: (scope: SessionScope, query: string, signal?: AbortSignal) => Promise<{
@@ -270,6 +280,36 @@ export declare const api: {
     gitStatus: (scope: SessionScope, worktree?: string, signal?: AbortSignal) => Promise<GitStatusResult>;
     gitDiff: (scope: SessionScope, path: string | undefined, staged: boolean, worktree?: string, signal?: AbortSignal) => Promise<{
         diff: string;
+    }>;
+    /** 宿主探测到的本机应用（打开方式第二来源；远程工作区不调用）。 */
+    appsList: (signal?: AbortSignal) => Promise<{
+        apps: Array<{
+            id: string;
+            label: string;
+            path: string;
+        }>;
+    }>;
+    /** 归档任务（多选压缩下载）：build 立即返回 taskId，status 报进度，result 取字节。 */
+    archiveBuild: (scope: SessionScope, paths: readonly string[]) => Promise<{
+        taskId: string;
+        state: string;
+        done: number;
+        total: number;
+        name: string;
+    }>;
+    archiveStatus: (scope: SessionScope, taskId: string, signal?: AbortSignal) => Promise<{
+        taskId: string;
+        state: "queued" | "building" | "done" | "error";
+        done: number;
+        total: number;
+        name: string;
+        bytes?: number;
+        error?: string;
+    }>;
+    archiveResult: (scope: SessionScope, taskId: string) => Promise<{
+        name: string;
+        base64: string;
+        bytes: number;
     }>;
     gitStage: (scope: SessionScope, path?: string, worktree?: string) => Promise<{
         ok: true;
@@ -499,6 +539,10 @@ export declare const api: {
     } | {
         action: "url";
         url: string;
+    } | {
+        action: "app";
+        app: string;
+        path: string;
     }) => Promise<{
         started: boolean;
     }>;

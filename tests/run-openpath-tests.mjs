@@ -126,6 +126,11 @@ import { foldWorkflowRuns } from './subagent-workflow.mjs'
 import { mergedActivity, lastActivity } from './subagent-activity.mjs'
 import { clampPane, defaultPaneRect, resizePane, PANE_MIN_W, PANE_MIN_H } from './floating-geometry.mjs'
 import { buildChangesTree, flattenChangesTree, collectDirectoryPaths, countFiles } from './changes-tree.mjs'
+import { buildZip, crc32, contentDisposition, archiveNameFor, normalizeEntryPath, ZIP_MAX_ENTRIES } from './zip.mjs'
+import { applySelection, pruneSelection, selectAll, EMPTY_SELECTION } from './file-selection.mjs'
+import { nativeAppTargets, resolveOpenWithTargets } from './open-with.mjs'
+import { appCommand, appScanDirs } from './open-external.mjs'
+import { spawnSync } from 'node:child_process'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -2590,6 +2595,160 @@ console.log('[changes-tree]')
   ok(t6[0].name === 'a/b/c/d' && t6[0].count === 1, '深层路径压缩并计数')
   const t7 = buildChangesTree([file('a//b/x.ts')])
   ok(t7[0].name === 'a/b', '空段被忽略')
+}
+// ── ZIP 打包（压缩/存储选择、UTF-8 名、目录项、CRC、真实性校验）──
+console.log('[zip]')
+{
+  // 已知向量：CRC32("123456789") = 0xCBF43926
+  ok(crc32(Buffer.from('123456789')) === 0xcbf43926, 'CRC32 与标准向量一致')
+
+  ok(normalizeEntryPath('/a//b/./c.txt') === 'a/b/c.txt', '归档路径规范化')
+  ok((() => { try { normalizeEntryPath('../escape.txt'); return false } catch { return true } })(),
+    '拒绝逃逸路径（..）')
+
+  const text = Buffer.from('hello '.repeat(400))
+  const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 255, 254, 253])
+  const zip = buildZip([
+    { path: 'src/a.txt', data: text, mtime: new Date('2024-05-06T07:08:10Z') },
+    { path: 'src/deep/中文文件名.txt', data: Buffer.from('中文内容'), mtime: new Date('2024-05-06T07:08:10Z') },
+    { path: 'bin/blob.png', data: binary },
+    { path: 'empty-dir', data: undefined },
+  ])
+
+  // 结构断言
+  ok(zip.readUInt32LE(0) === 0x04034b50, '首条本地文件头签名正确')
+  const eocdOffset = zip.length - 22
+  ok(zip.readUInt32LE(eocdOffset) === 0x06054b50, 'EOCD 签名正确')
+  ok(zip.readUInt16LE(eocdOffset + 10) === 4, 'EOCD 记录 4 个条目（含目录项）')
+  const cdOffset = zip.readUInt32LE(eocdOffset + 16)
+  ok(zip.readUInt32LE(cdOffset) === 0x02014b50, '中央目录起点签名正确')
+  // 可压缩文本用 deflate(8)；不可压缩二进制用 store(0)
+  ok(zip.readUInt16LE(8) === 8, '可压缩文本选择 deflate')
+  const firstLocalSize = zip.readUInt32LE(18)
+  ok(firstLocalSize < text.length, 'deflate 后确实变小')
+  // UTF-8 名标志位
+  ok((zip.readUInt16LE(6) & 0x0800) === 0x0800, 'UTF-8 文件名标志位已置')
+  ok(zip.includes(Buffer.from('中文文件名.txt', 'utf8')), 'UTF-8 文件名写入归档')
+
+  // 上限
+  ok((() => { try { buildZip(Array.from({ length: ZIP_MAX_ENTRIES + 1 }, () => ({ path: 'x', data: Buffer.alloc(1) }))); return false } catch { return true } })(),
+    '条目数超上限时报错')
+
+  // RFC 5987 下载名
+  const cd = contentDisposition('变更 报告')
+  ok(cd.includes("filename*=UTF-8''") && cd.includes('%E5%8F%98%E6%9B%B4'), 'RFC 5987 文件名（含 UTF-8 转义）')
+  ok(contentDisposition('plain').startsWith('attachment; filename="plain.zip"'), 'ASCII 回退名')
+  ok(archiveNameFor(['src/client/a.ts']) === 'a', '单文件下载名取自身主名')
+  ok(archiveNameFor(['src/client/a.ts', 'src/client/b.ts']) === 'client', '同目录多选取目录名')
+  ok(archiveNameFor(['a.ts', 'b/c.ts']) === 'archive', '混合选择回退为 archive')
+
+  // 真实解压校验（系统 unzip 存在时；这是对格式最强的端到端断言）
+  const unzip = spawnSync('unzip', ['-v'], { encoding: 'utf8' })
+  if (unzip.status === 0 || unzip.stdout !== '') {
+    const file = '/tmp/dsh-zip-verify.zip'
+    writeFileSync(file, zip)
+    const test = spawnSync('unzip', ['-t', file], { encoding: 'utf8' })
+    ok(test.status === 0, 'unzip -t 完整性校验通过')
+    const list = spawnSync('unzip', ['-l', file], { encoding: 'utf8' }).stdout
+    ok(list.includes('empty-dir/'), '空目录以目录项收纳')
+    // 文件名编码交给尊重 UTF-8 标志位的解压器判定（macOS 的老 Info-ZIP 在终端
+    // 里只会打印 `???`，那是它的显示限制，不是归档缺陷）。
+    const pythonOk = spawnSync('python3', ['-c', 'print(1)'], { encoding: 'utf8' }).status === 0
+    if (!pythonOk) {
+      console.log('  (跳过 zipfile 校验：无可用 python3)')
+    } else {
+      // dict(...) 关键字写法避免引号转义；不写非 ASCII 字面量，路径靠前缀查找。
+      const script = [
+        'import zipfile, json',
+        'z = zipfile.ZipFile(' + JSON.stringify(file) + ')',
+        'info = z.infolist()',
+        "deep = [n for n in z.namelist() if n.startswith('src/deep/')][0]",
+        'print(json.dumps(dict(',
+        '  names=z.namelist(),',
+        '  flags=[i.flag_bits for i in info],',
+        '  methods=[i.compress_type for i in info],',
+        '  text=z.read(deep).decode(),',
+        '  broken=z.testzip(),',
+        '), ensure_ascii=False))',
+      ].join('\n')
+      const py = spawnSync('python3', ['-c', script], { encoding: 'utf8' })
+      // python3 可用却读不动归档 = 归档缺陷（或本用例写错），必须判红而不是跳过。
+      ok(py.status === 0, `解压器能读取归档（python3 exit ${py.status}）`, (py.stderr || '').trim().slice(0, 160))
+      if (py.status === 0 && py.stdout.trim() !== '') {
+        const parsed = JSON.parse(py.stdout)
+        ok(parsed.names.includes('src/deep/中文文件名.txt'), '解压器按 UTF-8 读回文件名')
+        ok(parsed.flags.every(f => (f & 0x0800) === 0x0800), '每个条目都置了 UTF-8 标志位')
+        ok(parsed.text === '中文内容', '中文文件内容可原样取出')
+        ok(parsed.broken === null, '解压器 testzip 无损坏（CRC 全部正确）')
+        ok(parsed.methods[0] === 8 && parsed.methods[2] === 0, '方法选择符合设计（可压缩走 deflate，目录走 store）')
+      }
+    }
+  } else {
+    console.log('  (跳过 unzip 校验：系统无 unzip)')
+  }
+}
+// ── 文件树多选语义（Cmd/Ctrl 加减、Shift 区间、剔除不可见）──
+console.log('[file-selection]')
+{
+  const rows = ['src', 'src/a.ts', 'src/b.ts', 'lib', 'lib/c.ts']
+  const click = (state, path, intent) => applySelection(state, rows, path, intent)
+  const plain = { additive: false, range: false }
+  const additive = { additive: true, range: false }
+  const range = { additive: false, range: true }
+
+  let s1 = click(EMPTY_SELECTION, 'src/a.ts', plain)
+  ok(s1.paths.size === 1 && s1.paths.has('src/a.ts') && s1.anchor === 'src/a.ts', '普通点击=单选并落锚点')
+  s1 = click(s1, 'lib', additive)
+  ok(s1.paths.size === 2 && s1.paths.has('lib'), 'Cmd/Ctrl 点击追加')
+  ok(s1.anchor === 'lib', '追加点击移动锚点')
+  s1 = click(s1, 'lib', additive)
+  ok(s1.paths.size === 1 && !s1.paths.has('lib'), '再次 Cmd/Ctrl 点击取消该项')
+
+  let s2 = click(EMPTY_SELECTION, 'src', plain)
+  s2 = click(s2, 'lib/c.ts', range)
+  ok(s2.paths.size === 5, 'Shift 区间覆盖可见行（含目录）')
+  ok(s2.anchor === 'src', 'Shift 区间保持原锚点')
+  s2 = click(s2, 'src/a.ts', range)
+  ok(s2.paths.size === 2 && s2.paths.has('src') && s2.paths.has('src/a.ts'), '反向 Shift 区间取两端之间的行')
+
+  // 无锚点时 Shift 退化为单选
+  const s3 = click(EMPTY_SELECTION, 'lib', range)
+  ok(s3.paths.size === 1 && s3.paths.has('lib'), '无锚点时 Shift 点击退化为单选')
+
+  // 剔除不可见（折叠后）
+  const pruned = pruneSelection({ paths: new Set(['src', 'src/a.ts', 'lib/c.ts']), anchor: 'lib/c.ts' }, ['src', 'lib'])
+  ok(pruned.paths.size === 1 && pruned.paths.has('src'), '折叠后剔除不可见的已选行')
+  ok(pruned.anchor === undefined, '锚点也不可见时清空锚点')
+  const untouched = pruneSelection({ paths: new Set(['src']), anchor: 'src' }, ['src', 'lib'])
+  ok(untouched.paths.size === 1 && untouched.anchor === 'src', '全部可见时原样返回（不新建对象语义）')
+
+  const all = selectAll(rows)
+  ok(all.paths.size === rows.length && all.anchor === rows[0], '全选覆盖所有可见行并落锚点')
+}
+console.log('[open-with native apps]')
+{
+  const config = { sshHost: '', customEditors: [], pinned: [] }
+  const ssh = { sshHost: 'user@host', customEditors: [], pinned: [] }
+  const apps = [{ id: 'app:/Applications/Xcode.app', label: 'Xcode', path: '/Applications/Xcode.app' }]
+
+  const local = nativeAppTargets(apps, config)
+  ok(local.length === 1 && local[0].kind === 'app' && local[0].appPath === '/Applications/Xcode.app',
+    '本机应用成为 app 目标并带可启动路径')
+  ok(local[0].localOnly === true, '本机应用标记为仅本地')
+  ok(nativeAppTargets(apps, ssh).length === 0, 'SSH 远程工作区隐藏本机应用')
+
+  const merged = resolveOpenWithTargets(config, apps)
+  ok(merged.some(t => t.id === 'vscode') && merged.some(t => t.kind === 'app'),
+    '双源合并：内建编辑器 + 本机应用同列菜单')
+  ok(!resolveOpenWithTargets(ssh, apps).some(t => t.kind === 'app'), '远程时不并入本机应用')
+
+  // 启动 argv（纯函数，可注入平台）
+  ok(appCommand('/Applications/Xcode.app', '/w/f.ts', 'darwin').command === 'open', 'macOS 用 open 启动')
+  ok(appCommand('/Applications/Xcode.app', '/w/f.ts', 'darwin').args.join(' ') === '-a /Applications/Xcode.app /w/f.ts',
+    'macOS argv = open -a <app> <path>')
+  ok(appCommand('/usr/bin/code', '/w/f.ts', 'linux').args[0] === '/w/f.ts', 'Linux 直接以应用可执行文件启动')
+  ok(appScanDirs('darwin', '/Users/x').includes('/Applications'), 'macOS 扫描 /Applications')
+  ok(appScanDirs('linux', '/home/x').includes('/usr/share/applications'), 'Linux 扫描 desktop entries')
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

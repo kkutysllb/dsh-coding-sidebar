@@ -39,8 +39,10 @@ export interface OpenWithTarget {
     nameKey?: CopyKey;
     /** User-defined label (custom editors only; '' for built-ins). */
     name: string;
-    /** 'reveal' = show in the OS file manager; 'url' = open a URL. */
-    kind: 'reveal' | 'url';
+    /** 'reveal' = OS file manager; 'url' = a URL scheme; 'app' = a host app. */
+    kind: 'reveal' | 'url' | 'app';
+    /** Absolute bundle/executable path (kind 'app' only). */
+    appPath?: string;
     /** URL template with `{path}`; undefined for reveal targets. */
     urlTemplate?: string;
     /** Whether the editor talks the VSCode URL dialect. */
@@ -65,7 +67,25 @@ export declare function parseOpenWithConfig(raw: unknown): OpenWithConfig;
  * editors without the VSCode dialect) are dropped — they cannot reach a
  * remote path. Unknown pinned ids are pruned here too.
  */
-export declare function resolveOpenWithTargets(config: OpenWithConfig): OpenWithTarget[];
+/** One application the host detected (the menu's second source). */
+export interface NativeAppTarget {
+    id: string;
+    label: string;
+    path: string;
+}
+/**
+ * Host-detected applications as menu targets. They are local-only: a remote
+ * (SSH) workspace hides them, exactly like the local file manager.
+ * @param apps - the host's list.
+ * @param config - the caller's configuration (its SSH host decides).
+ */
+export declare function nativeAppTargets(apps: readonly NativeAppTarget[], config: OpenWithConfig): OpenWithTarget[];
+/**
+ * Every menu target: built-ins, then user editors, then host applications.
+ * @param config - the caller's configuration.
+ * @param nativeApps - host-detected apps (absent → the section stays hidden).
+ */
+export declare function resolveOpenWithTargets(config: OpenWithConfig, nativeApps?: readonly NativeAppTarget[]): OpenWithTarget[];
 /** The SSH hint appended to a target's label in remote mode. */
 export declare function openWithSshActive(config: OpenWithConfig): boolean;
 /**

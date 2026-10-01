@@ -28,7 +28,7 @@ import {
   type SidebarConfig,
   type SidebarPrefs,
 } from './config.ts'
-import { parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.ts'
+import { listDirectories, listDirectory, parentOf, requireAbsolute, rootLabel } from './fs-tree.ts'
 import { removeWorkspaceEntry, renameWorkspaceEntry, writeWorkspaceUpload } from './fs-operations.ts'
 import { sessionFileOps } from './changes-ops.ts'
 import { ensureWorkspacePath, ensureWorkspaceWritePath, resolveReadPath } from './path-security.ts'
@@ -38,7 +38,7 @@ import { serveMediaRange } from './media-range.ts'
 import { extractFrameAncestors } from './browser-probe.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { registerBundleRoute } from './bundle-route.ts'
-import { launchExternal, launchExternalFile } from './open-external.ts'
+import { launchExternal, launchExternalApp, launchExternalFile, listNativeApps } from './open-external.ts'
 import * as git from './git.ts'
 import * as github from './github.ts'
 import * as plans from './plans.ts'
@@ -55,6 +55,7 @@ import { AgentOpenRegistry, registerOpenTool, type AgentOpenRequest } from './ag
 import { buildJobsApi, type SidebarJobsRoutes } from './jobs-routes.ts'
 import { buildSubagentLiveApi, type SidebarSubagentLiveRoutes } from './subagent-live-route.ts'
 import { buildSubagentWorkflowApi, type SidebarSubagentWorkflowRoutes } from './subagent-workflow-route.ts'
+import { buildArchiveApi, type SidebarArchiveRoutes } from './archive-routes.ts'
 import { buildTeamApi, type SidebarTeamRoutes } from './team-routes.ts'
 import { buildSidechatApi } from './sidechat-routes.ts'
 import { readJsonBody, requireString, SettingsConflictError, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
@@ -191,6 +192,9 @@ async function resolveGitPath(cwd: string, raw: string, selected?: string): Prom
 }
 
 /** How many leading bytes a binary read returns for client-side detect sniffing. */
+/** 一次 fs.trees 批量请求最多预取的目录数（单点不可读只影响自己）。 */
+const FS_TREES_MAX = 32
+
 const READ_HEAD_LIMIT = 4096
 
 /** Text read of a file with the size cap; binary detection via NUL probe.
@@ -316,6 +320,9 @@ function buildApi(
   // 家族成 run 行，客户端把 run 挂到发起代理下、成员按相位分框。宿主没有
   // subagent 服务时仍折叠根会话自己的日志（主代理发起的 run 可见）。
   const subagentWorkflowApi: SidebarSubagentWorkflowRoutes = buildSubagentWorkflowApi(ctx)
+  // 多选压缩下载（上游 v0.24.1）：宿主侧打包成任务，build 立即返回、status 报
+  // done/total、result 交付字节（TTL 5 分钟，一次下载后释放）。
+  const archiveApi: SidebarArchiveRoutes = buildArchiveApi(ctx, cwdOf)
   // Agent Teams bridge（2026-09-19）：读上游 ctx.agentTeams 的名册/任务看板并
   // 转发 CAS 变更。上游「智能体团队」插件未启用时返回 service-missing——侧栏
   // 的团队 tab 据此渲染"去启用"空态（不自动挂载该服务：它会替换 subagent 工具）。
@@ -331,6 +338,20 @@ function buildApi(
       const record = payload as { path?: unknown }
       const target = record.path === undefined ? cwd : await ensureWorkspacePath(cwd, requireString(payload, 'path'))
       return listDirectory(target, resolved.listLimit)
+    },
+    // 批量列目录（上游 v0.24.1 的 fs.trees）：展开一个目录时把它下面若干子目录
+    // 一次预取，下次展开就是缓存命中；每个路径单独成功/失败，单点不可读不拖垮
+    // 整批。上限 32 条，避免一次请求把宿主读爆。
+    'fs.trees': async (payload) => {
+      const { cwd } = await cwdOf(payload)
+      const record = payload as { paths?: unknown }
+      if (!Array.isArray(record.paths) || record.paths.length === 0) {
+        throw new SidebarError('bad-request', 'paths must be a non-empty array')
+      }
+      const requested = record.paths.slice(0, FS_TREES_MAX)
+      const targets = await Promise.all(requested.map((entry: unknown) =>
+        ensureWorkspacePath(cwd, requireString({ path: entry }, 'path'))))
+      return { listings: await listDirectories(targets, resolved.listLimit) }
     },
     'fs.search': async (payload) => {
       // The editor side panel's global name search: rooted at the session
@@ -661,6 +682,9 @@ function buildApi(
     // the newest text/tool activity of every running child in the tree.
     'subagents.live': (payload) => subagentLiveApi.live(payload),
     'subagents.workflow': (payload) => subagentWorkflowApi.workflow(payload),
+    'archive.build': (payload) => archiveApi.build(payload),
+    'archive.status': (payload) => archiveApi.status(payload),
+    'archive.result': (payload) => archiveApi.result(payload),
     // The effective terminal shell and its display name. The client uses
     // this to title terminal tabs with the shell name instead of a numbered
     // "Terminal N" label; the shell itself is configured through
@@ -787,8 +811,15 @@ function buildApi(
       const action = record?.action
       if (action === 'reveal') return launchExternal('reveal', requireString(payload, 'path'))
       if (action === 'url') return launchExternal('url', requireString(payload, 'url'))
-      throw new SidebarError('bad-request', 'action must be "reveal" or "url"')
+      if (action === 'app') {
+        return launchExternalApp(requireString(payload, 'app'), requireString(payload, 'path'))
+      }
+      throw new SidebarError('bad-request', 'action must be "reveal", "url" or "app"')
     },
+    // The host's own applications (upstream v0.24.1 "open with" dual source):
+    // the menu shows these next to the URL-scheme editors. Scanned once a
+    // minute; a remote workspace simply never asks (they are host-local).
+    'apps.list': async () => ({ apps: await listNativeApps() }),
     // Side Chat: create a side-thread child seeded with the parent's full
     // log up to now, deliver follow-ups (cold-resuming when the thread's
     // agent is gone), abort a running thread, and release a thread's agent.

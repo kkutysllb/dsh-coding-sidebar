@@ -36,6 +36,7 @@ import { IconUploadOutline16, IconVscode16 } from './icons.tsx'
 import type { OpenWithTarget } from './open-with.ts'
 import { relativeTo } from './paths.ts'
 import { t } from './locales.ts'
+import { applySelection, pruneSelection, selectAll, EMPTY_SELECTION, type SelectionState } from './file-selection.ts'
 import { uploadItemsFromDrop, uploadItemsFromFiles, type UploadItem } from './upload.ts'
 import css from './sidebar.module.css'
 
@@ -186,6 +187,13 @@ export function FileTree(props: {
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null)
   /** The row pending delete confirmation (the Modal owns the final call). */
   const [deleting, setDeleting] = useState<{ path: string; isDir: boolean } | null>(null)
+  // 多选（上游 v0.24.1）：Cmd/Ctrl 加减、Shift 区间（按可见行序），Escape 清空。
+  const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION)
+  const [deletingMany, setDeletingMany] = useState<string[] | null>(null)
+  /** 压缩下载的进度（未在打包时为 null）。 */
+  const [zipProgress, setZipProgress] = useState<{ done: number; total: number } | null>(null)
+  /** 本帧渲染出来的可见行序（区间选择用；渲染先于交互，读到的就是当前序）。 */
+  const visibleRowsRef = useRef<string[]>([])
   /** The last mutation failure (dismissable strip above the tree). */
   const [mutationError, setMutationError] = useState<string | null>(null)
   /** Whether a file drag hovers the tree (drives the portaled drop zone). */
@@ -297,8 +305,31 @@ export function FileTree(props: {
     storeLevel(dir, {})
     api.fsTree({ sessionId, cwd }, dir).then((listing) => {
       storeLevel(dir, { entries: listing.entries })
+      prefetchChildren(listing.entries)
     }).catch((error: unknown) => {
       storeLevel(dir, { error: error instanceof Error ? error.message : String(error) })
+    })
+  }, [sessionId, cwd, storeLevel])
+
+  /**
+   * 预取一层里的前若干子目录（上游 v0.24.1 的 fs.trees）：一次批量请求换掉
+   * 后续 N 次点开的往返。只在未缓存、数量 ≤ 8 时做，且不递归——深层目录在
+   * 用户真正展开时才继续。隐藏目录跳过（多半是依赖目录，条目数大且少用）。
+   */
+  const prefetchChildren = useCallback((entries: readonly FsEntry[]) => {
+    const targets = entries
+      .filter(entry => entry.isDir && !entry.hidden && dataRef.current[entry.path] === undefined)
+      .slice(0, 8)
+      .map(entry => entry.path)
+    if (targets.length === 0) return
+    api.fsTrees({ sessionId, cwd }, targets).then(({ listings }) => {
+      for (const row of listings) {
+        if (row.listing === undefined) continue
+        if (dataRef.current[row.path] !== undefined) continue
+        storeLevel(row.path, { entries: row.listing.entries })
+      }
+    }).catch(() => {
+      // 预取失败不影响正常展开（那时会走 fs.tree 单条路径）。
     })
   }, [sessionId, cwd, storeLevel])
 
@@ -434,6 +465,61 @@ export function FileTree(props: {
     )
   }
 
+  /** 行点击的选择语义：返回 true 表示调用方继续默认动作（打开/展开）。 */
+  const handleRowClick = (event: MouseEvent, path: string): boolean => {
+    const intent = { additive: event.metaKey || event.ctrlKey, range: event.shiftKey }
+    if (intent.range || intent.additive) {
+      setSelection((current) => applySelection(current, visibleRowsRef.current, path, intent))
+      return false
+    }
+    setSelection((current) => applySelection(current, visibleRowsRef.current, path, intent))
+    return true
+  }
+
+  const clearSelection = useCallback((): void => { setSelection(EMPTY_SELECTION) }, [])
+
+  /**
+   * 多选「压缩下载」：宿主侧打包（archive.build → status → result），客户端只
+   * 负责轮询进度与保存。选到目录时由宿主递归收纳。
+   */
+  const downloadSelection = useCallback(async (): Promise<void> => {
+    const paths = [...selection.paths]
+    if (paths.length === 0) return
+    const scope = { sessionId }
+    setMutationError(null)
+    setZipProgress({ done: 0, total: paths.length })
+    try {
+      const task = await api.archiveBuild(scope, paths)
+      let status = await api.archiveStatus(scope, task.taskId)
+      while (status.state === 'queued' || status.state === 'building') {
+        setZipProgress({ done: status.done, total: Math.max(status.total, status.done) })
+        await new Promise(resolve => { window.setTimeout(resolve, 250) })
+        status = await api.archiveStatus(scope, task.taskId)
+      }
+      if (status.state === 'error') throw new Error(status.error ?? t('error'))
+      const result = await api.archiveResult(scope, task.taskId)
+      const bytes = Uint8Array.from(atob(result.base64), (char) => char.charCodeAt(0))
+      const blob = new Blob([bytes], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${result.name === '' ? 'archive' : result.name}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
+    } catch (error) {
+      setMutationError(t('zipError', { message: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setZipProgress(null)
+    }
+  }, [selection.paths, sessionId])
+
+  // 折叠或刷新后，把已经不可见的选择剔掉（批量动作只作用于看得见的行）。
+  useEffect(() => {
+    setSelection((current) => pruneSelection(current, visibleRowsRef.current))
+  }, [expanded, refreshTick])
+
   const openRowMenu = (event: MouseEvent, path: string, isDir: boolean): void => {
     event.preventDefault()
     event.stopPropagation()
@@ -473,6 +559,7 @@ export function FileTree(props: {
       if (target.id === 'vscode') return <IconVscode16 size={16} />
       if (target.id === 'cursor') return <SiCursor size={16} />
       if (target.id === 'zed') return <SiZedindustries size={16} />
+      // 本机应用（kind 'app'）与控制台以外的手动配置编辑器共用码形图标。
       return <IconCodeOutlineRegular size={16} />
     }
     const pinned = openWithTargets
@@ -551,6 +638,7 @@ export function FileTree(props: {
     return entries.map(entry => {
       if (entry.isDir) {
         const isOpen = expanded.includes(entry.path)
+        visibleRowsRef.current.push(entry.path)
         return (
           <div key={entry.path}>
             <div
@@ -560,10 +648,14 @@ export function FileTree(props: {
                 css.explorerRow, css.explorerDir, entry.hidden && css.explorerHidden,
                 dropTarget === entry.path && css.explorerRowDropTarget,
                 revealed.includes(entry.path) && css.explorerRowRevealed,
+                selection.paths.has(entry.path) && css.explorerRowSelected,
               )}
               data-dsh-revealed={revealed.includes(entry.path) ? 'true' : undefined}
               style={{ paddingLeft: depth * 22 + 6 }}
-              onClick={() => { onToggle(entry.path) }}
+              aria-selected={selection.paths.has(entry.path)}
+              onClick={(event) => {
+                if (handleRowClick(event, entry.path)) onToggle(entry.path)
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
@@ -585,6 +677,7 @@ export function FileTree(props: {
           </div>
         )
       }
+      visibleRowsRef.current.push(entry.path)
       return (
         <div
           key={entry.path}
@@ -594,11 +687,15 @@ export function FileTree(props: {
             css.explorerRow, entry.hidden && css.explorerHidden, entry.broken && css.explorerBroken,
             dropTarget === parentOf(entry.path) && css.explorerRowDropTarget,
             revealed.includes(entry.path) && css.explorerRowRevealed,
+            selection.paths.has(entry.path) && css.explorerRowSelected,
           )}
           data-dsh-revealed={revealed.includes(entry.path) ? 'true' : undefined}
           style={{ paddingLeft: depth * 22 + 6 }}
           title={entry.broken ? `${entry.path} — ${t('brokenSymlink')}` : entry.path}
-          onClick={() => { onOpenFile(entry.path) }}
+          aria-selected={selection.paths.has(entry.path)}
+          onClick={(event) => {
+            if (handleRowClick(event, entry.path)) onOpenFile(entry.path)
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault()
@@ -620,6 +717,8 @@ export function FileTree(props: {
     })
   }
 
+  visibleRowsRef.current = []
+
   return (
     <div
       ref={bodyRef}
@@ -628,6 +727,18 @@ export function FileTree(props: {
       onDragOver={handleBodyDragOver}
       onDragLeave={handleBodyDragLeave}
       onDrop={handleBodyDrop}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && selection.paths.size > 0) {
+          event.stopPropagation()
+          setSelection(EMPTY_SELECTION)
+          return
+        }
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a'
+          && visibleRowsRef.current.length > 0) {
+          event.preventDefault()
+          setSelection((current) => selectAll(visibleRowsRef.current, current.anchor))
+        }
+      }}
     >
       {root === undefined ? (
         <div className={css.explorerEmpty}>{t('noSession')}</div>
@@ -660,6 +771,39 @@ export function FileTree(props: {
               )}
           </div>
           {data[root] !== undefined && renderLevel(root, 1)}
+          {selection.paths.size > 0 && (
+            <div className={css.explorerSelectionBar} role="status" data-dsh-selection-bar>
+              <span className={css.explorerSelectionCount}>
+                {t('filesSelected', { count: selection.paths.size })}
+              </span>
+              <button
+                type="button"
+                className={css.explorerSelectionAction}
+                disabled={zipProgress !== null}
+                onClick={() => { void downloadSelection() }}
+              >
+                {zipProgress === null
+                  ? t('zipDownload')
+                  : t('zipPacking', { done: zipProgress.done, total: zipProgress.total })}
+              </button>
+              {onPathRemoved !== undefined && (
+                <button
+                  type="button"
+                  className={css.explorerSelectionAction}
+                  onClick={() => { setMutationError(null); setDeletingMany([...selection.paths]) }}
+                >
+                  {t('deleteSelected')}
+                </button>
+              )}
+              <button
+                type="button"
+                className={css.explorerSelectionAction}
+                onClick={clearSelection}
+              >
+                {t('clearSelection')}
+              </button>
+            </div>
+          )}
         </>
       )}
       {dropOver && dropRect !== null && createPortal(
@@ -841,6 +985,44 @@ export function FileTree(props: {
         )}
       >
         <p className={css.explorerError}>{deleting?.isDir === true ? t('deleteDescDir') : t('deleteDescFile')}</p>
+      </Modal>
+      <Modal
+        open={deletingMany !== null}
+        onClose={() => { setDeletingMany(null) }}
+        title={t('deleteTitle', { name: t('filesSelected', { count: deletingMany?.length ?? 0 }) })}
+        closeLabel={t('cancel')}
+        footer={(
+          <>
+            <Button variant="outline" onClick={() => { setDeletingMany(null) }}>{t('cancel')}</Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const targets = deletingMany
+                setDeletingMany(null)
+                if (targets === null) return
+                void (async () => {
+                  const parents = new Set<string>()
+                  for (const path of targets) {
+                    try {
+                      await api.fsRemove({ sessionId, cwd }, path)
+                      parents.add(parentOf(path) ?? path)
+                      onPathRemoved?.(path)
+                    } catch (error) {
+                      setMutationError(error instanceof Error ? error.message : String(error))
+                      break
+                    }
+                  }
+                  for (const parent of parents) reloadDir(parent)
+                  setSelection(EMPTY_SELECTION)
+                })()
+              }}
+            >
+              {t('delete')}
+            </Button>
+          </>
+        )}
+      >
+        <p className={css.explorerError}>{t('deleteDescDir')}</p>
       </Modal>
     </div>
   )

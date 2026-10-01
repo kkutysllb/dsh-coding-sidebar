@@ -42,8 +42,10 @@ export interface OpenWithTarget {
   nameKey?: CopyKey
   /** User-defined label (custom editors only; '' for built-ins). */
   name: string
-  /** 'reveal' = show in the OS file manager; 'url' = open a URL. */
-  kind: 'reveal' | 'url'
+  /** 'reveal' = OS file manager; 'url' = a URL scheme; 'app' = a host app. */
+  kind: 'reveal' | 'url' | 'app'
+  /** Absolute bundle/executable path (kind 'app' only). */
+  appPath?: string
   /** URL template with `{path}`; undefined for reveal targets. */
   urlTemplate?: string
   /** Whether the editor talks the VSCode URL dialect. */
@@ -141,10 +143,47 @@ function customIdOf(id: string): string {
  * editors without the VSCode dialect) are dropped — they cannot reach a
  * remote path. Unknown pinned ids are pruned here too.
  */
-export function resolveOpenWithTargets(config: OpenWithConfig): OpenWithTarget[] {
+/** One application the host detected (the menu's second source). */
+export interface NativeAppTarget {
+  id: string
+  label: string
+  path: string
+}
+
+/**
+ * Host-detected applications as menu targets. They are local-only: a remote
+ * (SSH) workspace hides them, exactly like the local file manager.
+ * @param apps - the host's list.
+ * @param config - the caller's configuration (its SSH host decides).
+ */
+export function nativeAppTargets(
+  apps: readonly NativeAppTarget[],
+  config: OpenWithConfig,
+): OpenWithTarget[] {
+  if (openWithSshActive(config)) return []
+  return apps.map((app) => ({
+    id: app.id,
+    name: app.label,
+    kind: 'app' as const,
+    appPath: app.path,
+    isVscodeFamily: false,
+    localOnly: true,
+  }))
+}
+
+/**
+ * Every menu target: built-ins, then user editors, then host applications.
+ * @param config - the caller's configuration.
+ * @param nativeApps - host-detected apps (absent → the section stays hidden).
+ */
+export function resolveOpenWithTargets(
+  config: OpenWithConfig,
+  nativeApps: readonly NativeAppTarget[] = [],
+): OpenWithTarget[] {
   const ssh = config.sshHost.trim() !== ''
   const targets: OpenWithTarget[] = [
     ...OPEN_WITH_BUILTINS,
+    ...nativeAppTargets(nativeApps, config),
     ...config.customEditors
       .filter(isValidCustomEditor)
       .map((editor): OpenWithTarget => ({

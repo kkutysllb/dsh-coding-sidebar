@@ -151,7 +151,19 @@ export function EditorHost(props: {
     useCallback(() => store.getSnapshot().prefs.pluginSettings['editor'] ?? EMPTY_PLUGIN_BLOB, [store]),
   )
   const openWithConfig = useMemo(() => parseOpenWithConfig(editorBlob.openWith), [editorBlob])
-  const openWithTargets = useMemo(() => resolveOpenWithTargets(openWithConfig), [openWithConfig])
+  // 打开方式第二来源：宿主探测的本机应用（远程工作区隐藏，同 reveal 目标）。
+  const [nativeApps, setNativeApps] = useState<Array<{ id: string; label: string; path: string }>>([])
+  useEffect(() => {
+    let disposed = false
+    void api.appsList().then((result) => { if (!disposed) setNativeApps(result.apps) }).catch(() => {
+      // 宿主不支持（或远程）时静默：菜单少一节不是错误。
+    })
+    return () => { disposed = true }
+  }, [])
+  const openWithTargets = useMemo(
+    () => resolveOpenWithTargets(openWithConfig, nativeApps),
+    [openWithConfig, nativeApps],
+  )
   // A path-less tab shows the empty-state hint in merged mode — and in split
   // mode it is the standalone explorer (tree-only, see the render below). A
   // folder tab is a folder window in BOTH modes: the tree rooted at the
@@ -209,6 +221,13 @@ export function EditorHost(props: {
     if (target === undefined) return
     if (target.kind === 'reveal') {
       void api.openExternal({ action: 'reveal', path: absolute }).catch(
+        (error: unknown) => { console.error('open external failed', error) },
+      )
+      return
+    }
+    if (target.kind === 'app') {
+      if (target.appPath === undefined) return
+      void api.openExternal({ action: 'app', app: target.appPath, path: absolute }).catch(
         (error: unknown) => { console.error('open external failed', error) },
       )
       return
