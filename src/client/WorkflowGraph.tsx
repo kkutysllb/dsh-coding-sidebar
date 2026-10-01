@@ -95,16 +95,31 @@ export function WorkflowGraph(props: {
     })
   }, [layout])
 
-  // Refit whenever the model changes shape (session switch, fold toggle,
-  // catalog hydration) — the content box moves under a stale transform.
-  useEffect(() => { fit() }, [fit])
+  /**
+   * Auto-fit policy (never stomp the user's camera):
+   * - a NEW tree (root id changed) always fits, and clears the manual state;
+   * - the SAME tree only fits while the view is still auto-managed — during
+   *   execution the activity feed rebuilds the model every couple of seconds,
+   *   and an unconditional refit here was exactly why a manual pan snapped
+   *   back to the default box (and why content could sit off-screen).
+   * The 适配 button and the ResizeObserver path reuse the same policy.
+   */
+  const rootId = model.nodes[0]?.id
+  const lastRootRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const rootChanged = lastRootRef.current !== rootId
+    if (rootChanged) lastRootRef.current = rootId
+    if (rootChanged || !userAdjustedRef.current) fit()
+  }, [fit, rootId])
 
   // 容器尺寸变化（面板展开/拖动分隔条/作业区出现）后重新适配；用户手动
   // 平移缩放过的视图不抢。
   useEffect(() => {
     const el = wrapRef.current
     if (el === null || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => { if (!userAdjustedRef.current) fit() })
+    const ro = new ResizeObserver(() => {
+      if (!userAdjustedRef.current && !dragRef.current) fit()
+    })
     ro.observe(el)
     return () => { ro.disconnect() }
   }, [fit])
