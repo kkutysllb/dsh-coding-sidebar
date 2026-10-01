@@ -417,6 +417,7 @@ export declare const zh: {
     teamUnavailableTitle: string;
     teamUnavailableService: string;
     teamUnavailableProjection: string;
+    teamNotTeamSession: string;
     teamUnavailableAgent: string;
     teamOpenPluginSettings: string;
     teamRoster: string;

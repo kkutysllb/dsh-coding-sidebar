@@ -108,6 +108,10 @@ export function TeamView(props: TabComponentProps): ReactNode {
   )
   useEffect(() => {
     if (derived.status === 'loading') return
+    if (derived.status === 'not-team') {
+      setState({ status: 'unavailable', reason: 'session-not-team' })
+      return
+    }
     setState({ status: 'ready', view: derived.view })
   }, [derived])
 
@@ -132,8 +136,8 @@ export function TeamView(props: TabComponentProps): ReactNode {
   }, [leadId])
 
   // The tab is unavailable only when the host can never publish the
-  // projection (pre-0.1.7 runtime). While it merely hasn't landed yet the tab
-  // stays in its loading state.
+  // projection (pre-0.1.7 runtime: the whole projection store is absent from
+  // the snapshot). While it merely hasn't landed yet the tab stays loading.
   useEffect(() => {
     if (list.projectionsBySession === undefined) {
       setState({ status: 'unavailable', reason: 'projection-missing' })
@@ -284,9 +288,11 @@ export function TeamView(props: TabComponentProps): ReactNode {
           <p className={css.emptyDesc}>
             {state.reason === 'projection-missing'
               ? t('teamUnavailableProjection')
-              : state.reason === 'service-missing'
-                ? t('teamUnavailableService')
-                : t('teamUnavailableAgent')}
+              : state.reason === 'session-not-team'
+                ? t('teamNotTeamSession')
+                : state.reason === 'service-missing'
+                  ? t('teamUnavailableService')
+                  : t('teamUnavailableAgent')}
           </p>
           <button type="button" className={css.primary} onClick={openPluginSettings}>{t('teamOpenPluginSettings')}</button>
         </div>

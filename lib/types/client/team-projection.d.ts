@@ -26,6 +26,11 @@ import type { TeamView } from '../team-types.ts';
 /** The derivation result: the tab's state at one moment. */
 export type TeamProjectionState = {
     readonly status: 'loading';
+}
+/** The read completed but the Session carries no `agentTeam` value — it is
+ *  not a team session (no members/tasks were created with the team tools). */
+ | {
+    readonly status: 'not-team';
 } | {
     readonly status: 'ready';
     readonly view: TeamView;
@@ -37,8 +42,9 @@ export type TeamProjectionState = {
  *   enrichment (member ids are Session ids).
  * @param leadId - the Team Lead Session id (the projection's owner).
  * @returns `'loading'` while the projection has not landed (absent, or `idle`
- *   with no value — the read is still outstanding), otherwise the ready view.
- *   A projection failure rides `view.failure` as a terminal notice; the
- *   roster/board below it are the failed snapshot.
+ *   with no value — the read is still outstanding), `'not-team'` once the read
+ *   completed without a team value (a Session that never used the team tools),
+ *   otherwise the ready view. A projection failure rides `view.failure` as a
+ *   terminal notice; the roster/board below it are the failed snapshot.
  */
 export declare function deriveTeamView(projection: SidebarSessionProjection | undefined, byId: Readonly<Record<string, SidebarSessionSummary>>, leadId: string): TeamProjectionState;

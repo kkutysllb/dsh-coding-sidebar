@@ -92,8 +92,10 @@ export type TeamTaskMutationResult = {
  *   credential and none is running (cold, archived, not yet started).
  * - `projection-missing`: the client read face (`projectionsBySession[…]
  *   .values.agentTeam`) never landed — the host predates 0.1.7.
+ * - `session-not-team`: the read completed cleanly but the Session carries no
+ *   `agentTeam` value — it never used the team tools.
  */
-export type TeamUnavailableReason = 'service-missing' | 'agent-missing' | 'projection-missing';
+export type TeamUnavailableReason = 'service-missing' | 'agent-missing' | 'projection-missing' | 'session-not-team';
 /** `team.createTask` / `team.updateTask` result envelope. */
 export type TeamMutationEnvelope = {
     readonly available: false;

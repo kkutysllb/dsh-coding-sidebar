@@ -2355,6 +2355,10 @@ console.log('[deriveTeamView]')
   ok(deriveTeamView(undefined, byId, 'lead-1').status === 'loading', '无投影 → loading')
   ok(deriveTeamView({ state: 'idle' }, byId, 'lead-1').status === 'loading', 'idle 且无值 → loading')
   ok(deriveTeamView({ state: 'loading' }, byId, 'lead-1').status === 'loading', 'loading → loading')
+  const notTeam = deriveTeamView({ state: 'ready' }, byId, 'lead-1')
+  ok(notTeam.status === 'not-team', '读完成但无 agentTeam → not-team（非团队会话终态）')
+  const notTeam2 = deriveTeamView({ state: 'ready', values: {} }, byId, 'lead-1')
+  ok(notTeam2.status === 'not-team', 'values 空对象同样 → not-team')
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
