@@ -1,13 +1,15 @@
 /**
- * Agent Teams host routes: read the upstream service's roster/task board and
- * forward compare-and-set task mutations, for the sidebar's team tab.
+ * Agent Teams host routes: forward compare-and-set task mutations to the
+ * upstream service, for the sidebar's team tab.
  *
- * The upstream experimental plugin owns ALL team state and authorization
- * (`ctx.agentTeams`, provided by `@deepseek-ai/dsh-experimental-agent-team`
- * when the official 「智能体团队」 bundle is enabled). This module is a thin
- * RPC bridge: it resolves the live Agent for the caller's Session — the exact
- * identity the service checks its roster against — and returns the service's
- * own views and business results unchanged.
+ * 0.1.7 seam: the service's `remoteView` / `remoteCreateTask` /
+ * `remoteUpdateTask` trio was removed upstream — reads now reach the browser
+ * through the Lead Session's **`agentTeam` Session projection**
+ * (`projectionsBySession[leadId].values.agentTeam`, push-based; see
+ * `src/client/team-projection.ts`), and only the two WRITES remain here.
+ * The service face is `createTask(caller, request)` / `updateTask(caller,
+ * request)`, where the caller is still the Session's live Agent — the exact
+ * identity the service checks its roster against.
  *
  * Everything here degrades instead of throwing when the deployment lacks the
  * plugin: `service-missing` / `agent-missing` are ordinary answers the tab
@@ -20,15 +22,18 @@
 import type { Context } from './context-types.ts'
 import { requireString, SidebarError } from './wire.ts'
 import type {
-  CreateTeamTaskRequest, TeamMutationEnvelope, TeamTaskMutationResult, TeamTaskView,
-  TeamUnavailableReason, TeamView, TeamViewResult, UpdateTeamTaskRequest,
+  CreateTeamTaskRequest, TeamMutationEnvelope, TeamTaskMutationResult,
+  TeamUnavailableReason, UpdateTeamTaskRequest,
 } from './team-types.ts'
 
-/** The host face of the upstream Agent Teams service this bridge calls. */
+/**
+ * The host face of the 0.1.7 upstream Agent Teams service this bridge calls
+ * (`remoteView` / the `remote*` prefixes were removed upstream — reads no
+ * longer exist server-side at all).
+ */
 interface AgentTeamsStub {
-  remoteView(agent: unknown): TeamView
-  remoteCreateTask(agent: unknown, request: CreateTeamTaskRequest): Promise<TeamTaskMutationResult>
-  remoteUpdateTask(agent: unknown, request: UpdateTeamTaskRequest): Promise<TeamTaskMutationResult>
+  createTask(caller: unknown, request: CreateTeamTaskRequest): Promise<TeamTaskMutationResult>
+  updateTask(caller: unknown, request: UpdateTeamTaskRequest): Promise<TeamTaskMutationResult>
 }
 
 /** The live-agent registry (`ctx.agents`), used as the service's credential. */
@@ -38,7 +43,6 @@ interface AgentRegistryStub {
 
 /** Wire methods this module adds to the sidebar API. */
 export interface SidebarTeamRoutes {
-  'team.view': (payload: unknown) => Promise<TeamViewResult>
   'team.createTask': (payload: unknown) => Promise<TeamMutationEnvelope>
   'team.updateTask': (payload: unknown) => Promise<TeamMutationEnvelope>
 }
@@ -63,7 +67,8 @@ function unavailable(reason: TeamUnavailableReason): { available: false; reason:
  */
 function resolveCaller(ctx: Context, sessionId: string): TeamCaller | TeamUnavailableReason {
   const teams = ctx.get('agentTeams') as AgentTeamsStub | undefined
-  if (teams === undefined || typeof teams.remoteView !== 'function') return 'service-missing'
+  if (teams === undefined || typeof teams.createTask !== 'function'
+    || typeof teams.updateTask !== 'function') return 'service-missing'
   const agents = ctx.get('agents') as AgentRegistryStub | undefined
   const agent = agents?.get(sessionId)
   // A Session with no live Agent (cold, archived, or a not-yet-started
@@ -95,12 +100,6 @@ function optionalStringArray(payload: Record<string, unknown>, key: string): str
  */
 export function buildTeamApi(ctx: Context): SidebarTeamRoutes {
   return {
-    'team.view': async (payload) => {
-      const sessionId = requireString(payload, 'sessionId')
-      const caller = resolveCaller(ctx, sessionId)
-      if (typeof caller === 'string') return unavailable(caller)
-      return { available: true, view: caller.teams.remoteView(caller.agent) }
-    },
     'team.createTask': async (payload) => {
       const sessionId = requireString(payload, 'sessionId')
       const request: CreateTeamTaskRequest = {
@@ -111,7 +110,7 @@ export function buildTeamApi(ctx: Context): SidebarTeamRoutes {
       }
       const caller = resolveCaller(ctx, sessionId)
       if (typeof caller === 'string') return unavailable(caller)
-      return { available: true, result: await caller.teams.remoteCreateTask(caller.agent, request) }
+      return { available: true, result: await caller.teams.createTask(caller.agent, request) }
     },
     'team.updateTask': async (payload) => {
       const sessionId = requireString(payload, 'sessionId')
@@ -123,7 +122,7 @@ export function buildTeamApi(ctx: Context): SidebarTeamRoutes {
       const request: UpdateTeamTaskRequest = {
         taskId: requireString(payload, 'taskId'),
         expectedRevision: revision,
-        action: requireString(payload, 'action') as TeamTaskView extends never ? never : UpdateTeamTaskRequest['action'],
+        action: requireString(payload, 'action') as UpdateTeamTaskRequest['action'],
         ...(optionalString(record, 'subject') !== undefined ? { subject: optionalString(record, 'subject') as string } : {}),
         ...(optionalString(record, 'description') !== undefined ? { description: optionalString(record, 'description') as string } : {}),
         ...(optionalStringArray(record, 'blockedBy') !== undefined ? { blockedBy: optionalStringArray(record, 'blockedBy') as string[] } : {}),
@@ -132,7 +131,7 @@ export function buildTeamApi(ctx: Context): SidebarTeamRoutes {
       }
       const caller = resolveCaller(ctx, sessionId)
       if (typeof caller === 'string') return unavailable(caller)
-      return { available: true, result: await caller.teams.remoteUpdateTask(caller.agent, request) }
+      return { available: true, result: await caller.teams.updateTask(caller.agent, request) }
     },
   }
 }

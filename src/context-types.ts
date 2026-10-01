@@ -390,7 +390,48 @@ export interface SidebarSessionProjection {
   values?: {
     /** Direct children in catalog event order; absent until the projection lands. */
     subagentCatalog?: readonly SidebarSubagentCatalogRow[]
+    /**
+     * Agent Teams roster + task board for a Team Lead Session (0.1.7 seam).
+     * Mirror of `dsh-experimental-agent-team`'s `agentTeam` projection view
+     * (upstream zod `.strict()` schemas — treat unknown fields as absent):
+     * the lead is `members[0]` with the literal name `'lead'`; member ids are
+     * real Session ids, so live activity enriches from the sessions feed.
+     */
+    agentTeam?: SidebarAgentTeamProjectionValue
   }
+}
+
+/** One roster row of the `agentTeam` projection (durable fields only). */
+export interface SidebarAgentTeamMember {
+  /** Session id — the lead row carries the root Session id. */
+  id: string
+  /** Durable teammate name; the lead row is literally `'lead'`. */
+  name: string
+  role: 'lead' | 'teammate'
+  phase: 'provisioning' | 'active' | 'failed'
+  error?: string
+}
+
+/** One task-board row of the `agentTeam` projection (matches the wire view). */
+export interface SidebarAgentTeamTask {
+  id: string
+  revision: number
+  subject: string
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
+  blockedBy: readonly string[]
+  writeScopes: readonly string[]
+  ownerName?: string
+  ready: boolean
+  writeScopeWarnings: readonly string[]
+}
+
+/** The `agentTeam` projection value: roster plus the non-deleted task board. */
+export interface SidebarAgentTeamProjectionValue {
+  members: readonly SidebarAgentTeamMember[]
+  tasks: readonly SidebarAgentTeamTask[]
+  /** Terminal projection failure; later events retain the failed view. */
+  failure?: string
 }
 
 /**

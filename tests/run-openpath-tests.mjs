@@ -63,6 +63,12 @@
  *   ./node_modules/.bin/tsc src/client/workspace-nav.ts --target es2022 --module esnext \
  *     --skipLibCheck --noCheck --outDir /tmp/csb-nav
  *   cp /tmp/csb-nav/client/workspace-nav.js tests/workspace-nav.mjs
+ *   ./node_modules/.bin/tsc src/client/subagent-tasks-model.ts src/client/subagent-tasks-layout.ts \
+ *     src/client/team-projection.ts --target es2022 --module esnext --skipLibCheck --noCheck \
+ *     --outDir /tmp/csb-tasks
+ *   cp /tmp/csb-tasks/client/subagent-tasks-model.js tests/subagent-tasks-model.mjs
+ *   cp /tmp/csb-tasks/client/subagent-tasks-layout.js tests/subagent-tasks-layout.mjs
+ *   cp /tmp/csb-tasks/client/team-projection.js tests/team-projection.mjs
  *   ./node_modules/.bin/tsc src/client/browser.ts src/client/browser-nav.ts \
  *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-browser
  *   cp /tmp/csb-browser/browser.js tests/browser-url.mjs
@@ -113,6 +119,9 @@ import { resolveLocalMediaDest, rewriteLocalImageUrls } from './markdown-images.
 import { Config, PrefsSchema, SIDEBAR_PREFS_DEFAULTS, isVolatileRef, prefsOf, resolveSidebarConfig } from './config-prefs.mjs'
 import { parseRange } from './media-range.mjs'
 import { openViaUiWorkspace, observeUiWorkspaceFace, resetUiWorkspaceObserver } from './workspace-nav.mjs'
+import { buildTasksViewModel, FOLD_MIN } from './subagent-tasks-model.mjs'
+import { layoutTasksViewModel, TASK_NODE_W, TASK_NODE_H } from './subagent-tasks-layout.mjs'
+import { deriveTeamView } from './team-projection.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -2124,6 +2133,228 @@ console.log('[config/volatile]')
 {
   ok(PrefsSchema({}).browserInterceptHttps === false && prefsOf(Config({})).browserInterceptHttps === true,
     'PrefsSchema 与 Config 的 https 默认差异为历史既有（保留不动）')
+}
+
+// ── buildTasksViewModel（任务页共享视图模型：两分组折叠聚合 + 占位/侧滤）──
+console.log('[buildTasksViewModel]')
+{
+  const byIdOf = (defs) => {
+    const out = {}
+    for (const [id, parentId, running, title] of defs) {
+      out[id] = {
+        id, parentId, running,
+        displayTitle: title,
+        origin: parentId === undefined ? undefined : 'subagent',
+      }
+    }
+    return out
+  }
+
+  const catalogOf = (entries) => ({
+    state: 'ready',
+    error: null,
+    entries: entries.map(([id, mode, activity, label, hasChildren]) => ({
+      kind: 'child', id, mode, activity, label: label ?? id,
+      ...(hasChildren === undefined ? { hasChildren: false } : { hasChildren }),
+      parentId: 'root', depth: 1,
+    })),
+  })
+
+  const labelOf = (entry) => ({ t1: '任务一', t2: '任务二', t3: '任务三', d0: '任务0', d1: '任务1', s0: '待命0' }[entry.id] ?? entry.label ?? entry.id)
+  const secondaryOf = () => 'sec'
+
+  // 1) 低于阈值：全部分行可见，无聚合节点
+  {
+    const byId = byIdOf([
+      ['root', undefined, false, '主会话'],
+      ['t1', 'root', false, '任务一'],
+      ['t2', 'root', true, '任务二'],
+      ['t3', 'root', false, '任务三'],
+    ])
+    const catalogs = { root: catalogOf([
+      ['t1', 'continuable', 'inactive'],
+      ['t2', 'continuable', 'running'],
+      ['t3', 'one-shot', 'inactive'],
+    ]) }
+    const model = buildTasksViewModel({
+      rootId: 'root', catalogs, byId, expanded: new Set(), currentSessionId: 'root',
+      labelOf, secondaryOf,
+    })
+    const kids = model.childrenOf.root
+    ok(kids.length === 3, '低于阈值 → 无聚合节点，全部分行')
+    ok(kids[0].id === 't2' && kids[0].running === true, 'running 行保持在最前')
+    ok(model.branchIds.includes('root'), 'root 在 branchIds（叶节点无目录，不入）')
+  }
+
+  // 2) 折叠：done 组 ≥ FOLD_MIN → 聚合节点（前两名做名字、childCount=成员数）
+  {
+    const defs = [['root', undefined, false, '主会话']]
+    const entries = []
+    for (let i = 0; i < FOLD_MIN; i += 1) {
+      defs.push([`d${i}`, 'root', false, `任务${i}`])
+      entries.push([`d${i}`, 'one-shot', 'inactive'])
+    }
+    const byId = byIdOf(defs)
+    const catalogs = { root: catalogOf(entries) }
+    const model = buildTasksViewModel({
+      rootId: 'root', catalogs, byId, expanded: new Set(), currentSessionId: 'root',
+      labelOf, secondaryOf,
+    })
+    const kids = model.childrenOf.root
+    const agg = kids.find(node => node.kind === 'done-agg')
+    ok(kids.filter(node => node.kind === 'subagent').length === 0, '折叠后成员行不再渲染')
+    ok(agg !== undefined && agg.childCount === FOLD_MIN, `done 组 ${FOLD_MIN} 行 → 聚合节点`)
+    ok(agg.label.includes('任务0') && agg.label.includes('任务1'), '聚合名行 = 前两个名字')
+    const opened = buildTasksViewModel({
+      rootId: 'root', catalogs, byId,
+      expanded: new Set(['done-agg:root']), currentSessionId: 'root',
+      labelOf, secondaryOf,
+    })
+    ok(opened.childrenOf.root.filter(node => node.kind === 'subagent').length === FOLD_MIN,
+      '展开后成员行全部回归')
+    ok(opened.childrenOf.root.find(node => node.kind === 'done-agg') === undefined,
+      '展开后聚合节点消失')
+  }
+
+  // 3) standby 组独立折叠；running 永不折叠
+  {
+    const defs = [['root', undefined, false, '主会话']]
+    const entries = []
+    for (let i = 0; i < FOLD_MIN + 1; i += 1) {
+      defs.push([`s${i}`, 'root', false, `待命${i}`])
+      entries.push([`s${i}`, 'continuable', 'inactive'])
+    }
+    defs.push(['live1', 'root', true, '在跑'])
+    entries.push(['live1', 'one-shot', 'running'])
+    const byId = byIdOf(defs)
+    const catalogs = { root: catalogOf(entries) }
+    const model = buildTasksViewModel({
+      rootId: 'root', catalogs, byId, expanded: new Set(), currentSessionId: 'root',
+      labelOf, secondaryOf,
+    })
+    const kids = model.childrenOf.root
+    ok(kids.find(node => node.kind === 'standby-agg') !== undefined, 'standby 组独立聚合')
+    ok(kids.find(node => node.id === 'live1') !== undefined, 'running 永不折叠')
+  }
+
+  // 4) 侧滤 + 占位 + current
+  {
+    const byId = byIdOf([
+      ['root', undefined, false, '主会话'],
+      ['side1', 'root', false, 'Side: 侧聊'],
+      ['kid', 'root', true, '有孩子的子代理'],
+      ['gkid', 'kid', false, '孙代理'],
+    ])
+    const catalogs = {
+      root: catalogOf([['side1', 'one-shot', 'inactive', 'Side: 侧聊'], ['kid', 'continuable', 'running', '有孩子的子代理', true]]),
+    }
+    const model = buildTasksViewModel({
+      rootId: 'root', catalogs, byId, expanded: new Set(), currentSessionId: 'kid',
+      labelOf, secondaryOf,
+    })
+    const kids = model.childrenOf.root
+    ok(kids.length === 1 && kids[0].id === 'kid', 'Side 侧聊行被过滤')
+    const kidNode = kids[0]
+    ok(kidNode.current === true, '当前会话节点标记 current')
+    const grand = model.childrenOf.kid
+    ok(grand.length === 1 && grand[0].kind === 'placeholder' && grand[0].childCount === 1,
+      '未水合分支 → 占位节点（含直接子代理计数）')
+    ok(model.branchIds.includes('kid'), '占位分支进入 branchIds（触发水合读取）')
+  }
+}
+
+// ── layoutTasksViewModel（工作流图布局）─────────────────────────
+console.log('[layoutTasksViewModel]')
+{
+  const byId = {
+    root: { id: 'root', running: false, displayTitle: '主', origin: undefined },
+    a: { id: 'a', running: false, displayTitle: 'A', origin: 'subagent', parentId: 'root' },
+    b: { id: 'b', running: false, displayTitle: 'B', origin: 'subagent', parentId: 'root' },
+  }
+  const model = buildTasksViewModel({
+    rootId: 'root',
+    catalogs: { root: { state: 'ready', error: null, entries: [
+      { kind: 'child', id: 'a', mode: 'one-shot', activity: 'inactive', hasChildren: false, parentId: 'root', depth: 1 },
+      { kind: 'child', id: 'b', mode: 'one-shot', activity: 'inactive', hasChildren: false, parentId: 'root', depth: 1 },
+    ] } },
+    byId, expanded: new Set(), currentSessionId: 'root',
+    labelOf: (entry) => entry.id, secondaryOf: () => 'sec',
+  })
+  const layout = layoutTasksViewModel(model)
+  ok(layout.nodes.length === 3, '三节点全部布局')
+  ok(layout.edges.length === 2, '两条父→子边')
+  ok(layout.edges.every(edge => edge.d.includes(' C ')), '边为三次贝塞尔路径')
+  const rootBox = layout.nodes.find(box => box.node.id === 'root')
+  const aBox = layout.nodes.find(box => box.node.id === 'a')
+  const bBox = layout.nodes.find(box => box.node.id === 'b')
+  ok(rootBox !== undefined && aBox !== undefined && bBox !== undefined, '节点盒齐备')
+  ok(aBox.y === bBox.y && aBox.y > rootBox.y, '子节点同层、位于根之下一层')
+  ok(aBox.x + TASK_NODE_W < bBox.x, '兄弟子树水平不重叠')
+  ok(rootBox.x + TASK_NODE_W / 2 > aBox.x && rootBox.x + TASK_NODE_W / 2 < bBox.x + TASK_NODE_W,
+    '父节点中心落在子节点跨距内')
+  const leafOnly = buildTasksViewModel({
+    rootId: 'root',
+    catalogs: {},
+    byId: { root: byId.root, a: byId.a },
+    expanded: new Set(), currentSessionId: 'root',
+    labelOf: (entry) => entry.id, secondaryOf: () => 'sec',
+  })
+  const leafLayout = layoutTasksViewModel(leafOnly)
+  ok(leafLayout.nodes.length === 1 && leafLayout.edges.length === 0, '目录未水合 → 仅根节点、无边')
+  ok(TASK_NODE_H > TASK_NODE_W - TASK_NODE_W, '常量在位（编译期数值）')
+}
+
+// ── deriveTeamView（团队 tab 的 agentTeam 投影派生）──────────────
+console.log('[deriveTeamView]')
+{
+  const lead = { id: 'lead-1', running: true, displayTitle: '领队会话', origin: undefined }
+  const mate = { id: 'mate-1', running: false, displayTitle: '队友会话', origin: 'subagent', parentId: 'lead-1' }
+  const byId = { 'lead-1': lead, 'mate-1': mate }
+  const projection = {
+    state: 'ready',
+    values: {
+      agentTeam: {
+        members: [
+          { id: 'lead-1', name: 'lead', role: 'lead', phase: 'active' },
+          { id: 'mate-1', name: '张三', role: 'teammate', phase: 'active' },
+          { id: 'mate-2', name: '李四', role: 'teammate', phase: 'provisioning' },
+          { id: 'mate-3', name: '王五', role: 'teammate', phase: 'failed', error: 'boom' },
+        ],
+        tasks: [
+          { id: 'task-1', revision: 3, subject: '实现', description: 'd', status: 'in_progress',
+            blockedBy: [], writeScopes: ['src'], ownerName: '张三', ready: true, writeScopeWarnings: [] },
+        ],
+      },
+    },
+  }
+  const result = deriveTeamView(projection, byId, 'lead-1')
+  ok(result.status === 'ready', '有投影 → ready')
+  if (result.status === 'ready') {
+    const view = result.view
+    ok(view.members.length === 4, '四行名册（lead + 三队友）')
+    const leadRow = view.members[0]
+    ok(leadRow.role === 'lead' && leadRow.name === '领队会话', 'lead 行名字用会话显示标题富化')
+    ok(leadRow.status === 'running', 'lead 活动态从摘要派生（running）')
+    const mate1 = view.members[1]
+    ok(mate1.name === '张三' && mate1.status === 'idle', '队友名字保持 durable 名 + 摘要派生 idle')
+    const mate2 = view.members[2]
+    ok(mate2.status === 'provisioning', 'phase provisioning → provisioning')
+    const mate3 = view.members[3]
+    ok(mate3.status === 'failed' && mate3.diagnostics[0] === 'boom', 'phase failed → failed，error 入 diagnostics')
+    ok(view.tasks.length === 1 && view.tasks[0].id === 'task-1' && view.tasks[0].revision === 3,
+      '任务板原样透传（形状与 wire 视图一致）')
+    ok(view.failure === undefined, '无 failure 时字段缺席')
+  }
+
+  const failedProj = deriveTeamView(
+    { state: 'ready', values: { agentTeam: { members: [], tasks: [], failure: 'journal 坏了' } } },
+    byId, 'lead-1',
+  )
+  ok(failedProj.status === 'ready' && failedProj.view.failure === 'journal 坏了', '投影 failure → view.failure')
+
+  ok(deriveTeamView(undefined, byId, 'lead-1').status === 'loading', '无投影 → loading')
+  ok(deriveTeamView({ state: 'idle' }, byId, 'lead-1').status === 'loading', 'idle 且无值 → loading')
+  ok(deriveTeamView({ state: 'loading' }, byId, 'lead-1').status === 'loading', 'loading → loading')
 }
 
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)

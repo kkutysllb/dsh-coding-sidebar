@@ -13,7 +13,7 @@
  * tab shows an enable-me empty state with a jump into the plugin settings
  * (产品决策 2026-09-19).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react'
 import {
   IconCheckOutlineRegular, IconEditOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular,
   IconTrashOutlineRegular, IconUserOutlineRegular, StateDot,
@@ -22,6 +22,7 @@ import type { Context } from '../context-types.ts'
 import type { TeamMemberView, TeamTaskView, TeamUnavailableReason, TeamView } from '../team-types.ts'
 import { api } from './api.ts'
 import { openViaUiWorkspace } from './workspace-nav.ts'
+import { deriveTeamView } from './team-projection.ts'
 import {
   EMPTY_TEAM_DRAFT, isTeamDraftCommittable, isTeamMemberAssignable, isTeamMemberOpenable,
   sameTeamDependencies, teamDraftOfTask, teamFailureText, teamItems, teamMemberStatusKey,
@@ -36,7 +37,6 @@ type TeamState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly view: TeamView }
   | { readonly status: 'unavailable'; readonly reason: TeamUnavailableReason }
-  | { readonly status: 'error'; readonly message: string }
 
 /**
  * The lead Session of this tab's Session: a teammate's Session belongs to the
@@ -89,37 +89,56 @@ export function TeamView(props: TabComponentProps): ReactNode {
   const [editDraft, setEditDraft] = useState<TeamDraft>(EMPTY_TEAM_DRAFT)
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
   const [notice, setNotice] = useState<string | null>(null)
-  /** Guards late responses after the tab switched sessions or unmounted. */
-  const generation = useRef(0)
 
-  /** Load the roster + board; the caller's identity is the lead Session. */
-  const refresh = useCallback(async (): Promise<boolean> => {
-    const mine = ++generation.current
-    try {
-      const result = await api.teamView(leadScope)
-      if (generation.current !== mine) return false
-      if (!result.available) {
-        setState({ status: 'unavailable', reason: result.reason })
-        return false
-      }
-      setState({ status: 'ready', view: result.view })
-      return true
-    } catch (error) {
-      if (generation.current !== mine) return false
-      setState({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-      return false
-    }
-  }, [leadScope])
-
+  /**
+   * 0.1.7 seam: the roster/board IS the Lead Session's `agentTeam` projection,
+   * published push-style on the session-list feed. Subscribe once, derive the
+   * view — no polling, no `team.view` route (its `remoteView` backing was
+   * removed upstream). Pre-0.1.7 runtimes never publish the projection at all
+   * (`projectionsBySession` absent from the snapshot) and degrade to the
+   * `projection-missing` empty state.
+   */
+  const list = useSyncExternalStore(
+    useCallback((cb: () => void) => ctx.sessions.list.subscribe(cb), [ctx]),
+    useCallback(() => ctx.sessions.list.getSnapshot(), [ctx]),
+  )
+  const derived = useMemo(
+    () => deriveTeamView(list.projectionsBySession?.[leadId], list.byId, leadId),
+    [list, leadId],
+  )
   useEffect(() => {
-    generation.current += 1
-    setState({ status: 'loading' })
+    if (derived.status === 'loading') return
+    setState({ status: 'ready', view: derived.view })
+  }, [derived])
+
+  // Ask the host to read the projection once per lead (the value itself is
+  // pushed afterwards; journal changes republish without further requests).
+  const requestedRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    if (list.projectionsBySession === undefined) return
+    if (list.projectionsBySession[leadId] !== undefined) return
+    if (requestedRef.current.has(leadId)) return
+    requestedRef.current = new Set([...requestedRef.current, leadId])
+    void ctx.sessions.refreshProjections?.(leadId)
+  }, [list.projectionsBySession, leadId, ctx])
+
+  // Session switch: clear transient input state. The team view itself follows
+  // the new lead's projection (the derivation owns the loading/ready states).
+  useEffect(() => {
     setCreating(false)
     setCreateDraft(EMPTY_TEAM_DRAFT)
     setEditing(null)
     setNotice(null)
-    void refresh()
-  }, [refresh])
+  }, [leadId])
+
+  // The tab is unavailable only when the host can never publish the
+  // projection (pre-0.1.7 runtime). While it merely hasn't landed yet the tab
+  // stays in its loading state.
+  useEffect(() => {
+    if (list.projectionsBySession === undefined) {
+      setState({ status: 'unavailable', reason: 'projection-missing' })
+    }
+  }, [list.projectionsBySession])
 
   const markPending = useCallback((key: string, on: boolean): void => {
     setPending(current => {
@@ -151,12 +170,12 @@ export function TeamView(props: TabComponentProps): ReactNode {
         return undefined
       }
       if (outcome.kind === 'conflict') {
-        const reloaded = await refresh()
-        if (reloaded) setNotice(t('teamConflict'))
+        // The winner's committed state is already in the agentTeam projection
+        // (push-based) — no manual reload, just say the revision raced.
+        setNotice(t('teamConflict'))
         return undefined
       }
       setNotice(null)
-      await refresh()
       return outcome.task
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -164,7 +183,7 @@ export function TeamView(props: TabComponentProps): ReactNode {
     } finally {
       markPending(key, false)
     }
-  }, [markPending, refresh])
+  }, [markPending])
 
   const submitCreate = useCallback(async (): Promise<void> => {
     if (!isTeamDraftCommittable(createDraft)) return
@@ -182,7 +201,6 @@ export function TeamView(props: TabComponentProps): ReactNode {
       }
       const outcome = teamMutationOutcome(envelope.result)
       if (outcome.kind === 'conflict') {
-        await refresh()
         setNotice(t('teamConflict'))
         return
       }
@@ -193,13 +211,12 @@ export function TeamView(props: TabComponentProps): ReactNode {
       setNotice(null)
       setCreateDraft(EMPTY_TEAM_DRAFT)
       setCreating(false)
-      await refresh()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
     } finally {
       markPending('create', false)
     }
-  }, [createDraft, leadScope, markPending, refresh])
+  }, [createDraft, leadScope, markPending])
 
   const submitEdit = useCallback(async (task: TeamTaskView): Promise<void> => {
     const edited = await mutate(task.id, () => api.teamUpdateTask(leadScope, {
@@ -253,7 +270,7 @@ export function TeamView(props: TabComponentProps): ReactNode {
         {teammates.length > 0 && <span className={css.count}>{teammates.length}</span>}
         <span className={css.spacer} />
         <button type="button" className={css.iconButton} aria-label={t('teamRefresh')} title={t('teamRefresh')}
-          onClick={() => { void refresh() }}>
+          onClick={() => { void ctx.sessions.refreshProjections?.(leadId) }}>
           <IconRefreshOutlineRegular />
         </button>
       </div>
@@ -265,13 +282,16 @@ export function TeamView(props: TabComponentProps): ReactNode {
         <div className={css.empty}>
           <p className={css.emptyTitle}>{t('teamUnavailableTitle')}</p>
           <p className={css.emptyDesc}>
-            {state.reason === 'service-missing' ? t('teamUnavailableService') : t('teamUnavailableAgent')}
+            {state.reason === 'projection-missing'
+              ? t('teamUnavailableProjection')
+              : state.reason === 'service-missing'
+                ? t('teamUnavailableService')
+                : t('teamUnavailableAgent')}
           </p>
           <button type="button" className={css.primary} onClick={openPluginSettings}>{t('teamOpenPluginSettings')}</button>
         </div>
       )}
 
-      {state.status === 'error' && <div className={css.hint} role="alert">{state.message}</div>}
 
       {view !== null && (
         <>

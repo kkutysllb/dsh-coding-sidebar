@@ -1,6 +1,6 @@
 {
   "name": "dsh-coding-sidebar",
-  "version": "1.0.35",
+  "version": "1.0.36",
   "description": "DSH web plugin: a VSCode-like right sidebar (explorer / editor / terminal / git / browser), isolated per conversation session. Exposes the betterSidebar service for other plugins to register sidebar tabs and file viewers. KCoder-maintained fork of DSH-better-sidebar 0.17.2 (bottom panel removed, upstream-decoupled release line).",
   "type": "module",
   "repository": {
@@ -84,8 +84,8 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm check:contract && unrun tests/open-intent.mjs && unrun tests/sidechat-questions.mjs && unrun tests/sidechat-model.mjs && unrun tests/sidechat-queue.mjs && unrun tests/sidechat-live.mjs && node tests/run-openpath-tests.mjs",
     "dev:sync": "pnpm build && node scripts/sync-to-dev.mjs",
-  "dev:check": "node scripts/sync-to-dev.mjs --check",
-  "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
+    "dev:check": "node scripts/sync-to-dev.mjs --check",
+    "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
     "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
     "bundle": "tsdown",
     "watch": "tsdown --watch",

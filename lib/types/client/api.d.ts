@@ -2,7 +2,7 @@ import type { LastActivity } from '../subagent-activity.ts';
 import type { SidebarHistoryEntry } from '../context-types.ts';
 import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts';
 import type { BrowserProbeResult } from './browser.ts';
-import type { CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest } from '../team-types.ts';
+import type { CreateTeamTaskRequest, TeamMutationEnvelope, UpdateTeamTaskRequest } from '../team-types.ts';
 /** One wire failure. */
 export declare class SidebarApiError extends Error {
     readonly code: string;
@@ -231,10 +231,6 @@ export declare const api: {
     /**
      * Agent Teams: the roster + task board the upstream `ctx.agentTeams` service
      * reports for this Session's team. `available: false` is an ordinary answer
-     * (the official 「智能体团队」 bundle is opt-in) — the tab renders it as an
-     * enable-me empty state.
-     */
-    teamView: (scope: SessionScope, signal?: AbortSignal) => Promise<TeamViewResult>;
     /** Create one shared task (subject + description are required by the service). */
     teamCreateTask: (scope: SessionScope, input: CreateTeamTaskRequest, signal?: AbortSignal) => Promise<TeamMutationEnvelope>;
     /** Apply one compare-and-set task mutation (`expectedRevision` guards the row). */

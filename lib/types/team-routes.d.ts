@@ -1,13 +1,15 @@
 /**
- * Agent Teams host routes: read the upstream service's roster/task board and
- * forward compare-and-set task mutations, for the sidebar's team tab.
+ * Agent Teams host routes: forward compare-and-set task mutations to the
+ * upstream service, for the sidebar's team tab.
  *
- * The upstream experimental plugin owns ALL team state and authorization
- * (`ctx.agentTeams`, provided by `@deepseek-ai/dsh-experimental-agent-team`
- * when the official 「智能体团队」 bundle is enabled). This module is a thin
- * RPC bridge: it resolves the live Agent for the caller's Session — the exact
- * identity the service checks its roster against — and returns the service's
- * own views and business results unchanged.
+ * 0.1.7 seam: the service's `remoteView` / `remoteCreateTask` /
+ * `remoteUpdateTask` trio was removed upstream — reads now reach the browser
+ * through the Lead Session's **`agentTeam` Session projection**
+ * (`projectionsBySession[leadId].values.agentTeam`, push-based; see
+ * `src/client/team-projection.ts`), and only the two WRITES remain here.
+ * The service face is `createTask(caller, request)` / `updateTask(caller,
+ * request)`, where the caller is still the Session's live Agent — the exact
+ * identity the service checks its roster against.
  *
  * Everything here degrades instead of throwing when the deployment lacks the
  * plugin: `service-missing` / `agent-missing` are ordinary answers the tab
@@ -17,10 +19,9 @@
  * @module src/team-routes
  */
 import type { Context } from './context-types.ts';
-import type { TeamMutationEnvelope, TeamViewResult } from './team-types.ts';
+import type { TeamMutationEnvelope } from './team-types.ts';
 /** Wire methods this module adds to the sidebar API. */
 export interface SidebarTeamRoutes {
-    'team.view': (payload: unknown) => Promise<TeamViewResult>;
     'team.createTask': (payload: unknown) => Promise<TeamMutationEnvelope>;
     'team.updateTask': (payload: unknown) => Promise<TeamMutationEnvelope>;
 }

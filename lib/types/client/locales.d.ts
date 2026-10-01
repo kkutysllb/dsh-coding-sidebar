@@ -341,6 +341,17 @@ export declare const zh: {
     subagentDiagUnavailable: string;
     subagentThinking: string;
     subagentShowHistory: string;
+    subagentViewToggle: string;
+    subagentGraphView: string;
+    subagentTreeView: string;
+    subagentGraphFit: string;
+    subagentGraphZoomIn: string;
+    subagentGraphZoomOut: string;
+    subagentBadgeMain: string;
+    subagentBadgeSub: string;
+    subagentBadgeDone: string;
+    subagentBadgeStandby: string;
+    subagentBadgePlaceholder: string;
     subagentHideHistory: string;
     sideChat: string;
     inputTokensLabel: string;
@@ -405,6 +416,7 @@ export declare const zh: {
     teamLoading: string;
     teamUnavailableTitle: string;
     teamUnavailableService: string;
+    teamUnavailableProjection: string;
     teamUnavailableAgent: string;
     teamOpenPluginSettings: string;
     teamRoster: string;

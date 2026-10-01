@@ -586,3 +586,158 @@
 .jobsPaneError {
   color: var(--dsw-alias-state-error-primary);
 }
+
+/* ── 工作流图画布（Tasks graph view）────────────────────────────── */
+
+.wfWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background:
+    radial-gradient(circle, var(--dsw-alias-border-subtle) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.wfWrap:active {
+  cursor: grabbing;
+}
+
+.wfSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.wfEdge {
+  fill: none;
+  stroke: var(--dsw-alias-border-strong);
+  stroke-width: 1.5;
+  opacity: 0.75;
+}
+
+.wfCard {
+  fill: var(--dsw-alias-bg-primary);
+  stroke: var(--dsw-alias-border-strong);
+  stroke-width: 1;
+}
+
+.wfTop {
+  fill: var(--dsw-alias-bg-secondary);
+  opacity: 0.55;
+}
+
+.wfBar {
+  fill: var(--dsw-alias-bg-secondary);
+  opacity: 0.85;
+}
+
+.wfBadge {
+  font-size: 9px;
+  fill: var(--dsw-alias-label-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.wfLabel {
+  font-size: 12px;
+  fill: var(--dsw-alias-label-primary);
+}
+
+.wfStatus {
+  font-size: 10px;
+  fill: var(--dsw-alias-label-secondary);
+}
+
+.wfDotRunning {
+  fill: var(--dsw-alias-state-running-primary, var(--dsw-alias-brand-primary));
+}
+
+.wfDotIdle {
+  fill: var(--dsw-alias-label-tertiary);
+}
+
+.wfNodeCurrent .wfCard {
+  stroke: var(--dsw-alias-brand-primary);
+  stroke-width: 1.6;
+}
+
+.wfNodeDone .wfTop,
+.wfNodeDone .wfBar {
+  opacity: 0.4;
+}
+
+.wfNodePlaceholder .wfCard {
+  stroke-dasharray: 4 3;
+}
+
+/* 运行扫过：从左到右完整扫一遍（reduced-motion 关闭） */
+.wfNodeRunning .wfSweep {
+  animation: wfSweepRun 2.2s linear infinite;
+}
+
+.wfSweep {
+  fill: var(--dsw-alias-brand-primary);
+  opacity: 0.14;
+}
+
+@keyframes wfSweepRun {
+  from { transform: translateX(-208px); }
+  to { transform: translateX(208px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wfNodeRunning .wfSweep {
+    animation: none;
+    visibility: hidden;
+  }
+}
+
+.wfControls {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.wfControls button {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-strong);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-primary);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.wfControls button:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ── 图/树 视图切换 ── */
+.subagentViewToggle {
+  display: inline-flex;
+  margin-left: 8px;
+  border: 1px solid var(--dsw-alias-border-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.subagentViewToggle button {
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.subagentViewToggle button[aria-pressed='true'] {
+  background: var(--dsw-alias-bg-secondary);
+  color: var(--dsw-alias-label-primary);
+}

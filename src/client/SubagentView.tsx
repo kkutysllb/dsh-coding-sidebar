@@ -64,6 +64,8 @@ import {
 } from './subagent-jobs.ts'
 import { api, type JobOutputResult } from './api.ts'
 import { openViaUiWorkspace } from './workspace-nav.ts'
+import { buildTasksViewModel, type TaskNodeVM, type TasksViewModel } from './subagent-tasks-model.ts'
+import { WorkflowGraph } from './WorkflowGraph.tsx'
 import { IconStopOutline16 } from './icons.tsx'
 import { t } from './locales.ts'
 import css from './SubagentView.module.css'
@@ -270,141 +272,149 @@ interface RowsProps {
  * LATEST ones render by default — the earlier rows collapse behind a
  * history toggle (per-level state; a fresh catalog page collapses again).
  */
-function CatalogRows({
-  parentSessionId, catalog, catalogs, byId, level, currentSessionId, live,
-  openChild, refresh,
-}: RowsProps) {
-  const emptyLoading = catalog?.state === 'loading' && catalog.entries.length === 0
-  // Side Chat threads are honest catalog citizens (durable descriptor, 'Side: '
-  // label) but they are NOT subagent topology — filter them out here (the tab
-  // strip owns them). Legacy threads created before the descriptor fix still
-  // arrive as corrupt diagnostics; they are recognized by summary title.
-  const visibleEntries = (catalog?.entries ?? []).filter((entry) => {
-    if (entry.kind === 'child') return !(entry.label?.startsWith(SIDE_LABEL_PREFIX) ?? false)
-    return !(byId[entry.id]?.displayTitle.startsWith(SIDE_LABEL_PREFIX) ?? false)
-  })
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const historyCount = visibleEntries.length - SUBAGENT_VISIBLE
-  const collapsed = historyCount > 0 && !historyOpen
-  const renderEntries = collapsed ? visibleEntries.slice(-SUBAGENT_VISIBLE) : visibleEntries
+/**
+ * Render one topology level FROM THE SHARED VIEW MODEL (`subagent-tasks-model`
+ * + folding). The workflow graph consumes the same model, so aggregates and
+ * placeholders agree between tree and graph.
+ */
+function CatalogRows(props: {
+  parentSessionId: string
+  model: TasksViewModel
+  byId: Readonly<Record<string, SidebarSessionSummary>>
+  level: number
+  live: Readonly<Record<string, LastActivity>>
+  expandedAggregates: ReadonlySet<string>
+  openChild: (address: SidebarSubagentAddress) => void
+  refresh: (parentSessionId: string) => void
+  onAggregateToggle: (aggregateKey: string) => void
+}) {
+  const { parentSessionId, model, byId, level, live, expandedAggregates, openChild, refresh, onAggregateToggle } = props
+  const nodes = model.childrenOf[parentSessionId] ?? []
   return (
     <>
-      {emptyLoading && (
-        <CatalogLoadingRows parentSessionId={parentSessionId} byId={byId} level={level} />
-      )}
-      {catalog?.state === 'error' && (
-        <div className={css.subagentError}>
-          <span>{catalog.error?.message ?? t('error')}</span>
-          <button
-            type="button"
-            className={css.subagentErrorRetry}
-            onClick={() => { refresh(parentSessionId) }}
-          >
-            <IconRefreshOutlineRegular />
-            {t('retry')}
-          </button>
-        </div>
-      )}
-      {historyCount > 0 && (
-        <button
-          type="button"
-          className={css.historyToggle}
-          aria-expanded={historyOpen}
-          onClick={() => { setHistoryOpen(open => !open) }}
-        >
-          {historyOpen ? <IconChevronDownOutlineRegular /> : <IconChevronRightOutlineRegular />}
-          {historyOpen ? t('subagentHideHistory') : t('subagentShowHistory', { count: historyCount })}
-        </button>
-      )}
-      {renderEntries.map((entry) => {
-        if (entry.kind === 'diagnostic') {
+      {nodes.map((node) => {
+        if (node.kind === 'done-agg' || node.kind === 'standby-agg') {
+          const expanded = expandedAggregates.has(node.aggregateKey ?? '')
           return (
-            <div key={entry.id} className={css.subagentNode}>
+            <div key={node.id} className={css.subagentNode}>
               <div
                 role="treeitem"
-                aria-disabled="true"
+                tabIndex={0}
                 aria-level={level}
-                className={`${css.subagentRow} ${css.subagentRowDisabled}`}
-                title={diagnosticReason(entry)}
+                aria-expanded={expanded}
+                aria-label={`${node.label} ${node.secondary}`}
+                className={css.subagentRow}
+                onClick={() => { onAggregateToggle(node.aggregateKey ?? '') }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onAggregateToggle(node.aggregateKey ?? '')
+                  }
+                }}
               >
-                <StateDot state="error" className={css.subagentDot} />
+                {expanded
+                  ? <IconChevronDownOutlineRegular />
+                  : <IconChevronRightOutlineRegular />}
                 <span className={css.subagentContent}>
-                  <span className={css.subagentLabel}>{entry.id}</span>
-                  <span className={css.subagentSecondary}>{diagnosticReason(entry)}</span>
+                  <span className={css.subagentLabel}>
+                    {node.kind === 'done-agg' ? `✓ ${t('subagentBadgeDone')}` : t('subagentBadgeStandby')}
+                    {' · '}
+                    {node.label}
+                  </span>
+                  <span className={css.subagentSecondary}>{node.childCount ?? ''}</span>
                 </span>
               </div>
             </div>
           )
         }
 
-        const childCatalog = catalogs[entry.id]
-        const knownLeaf = !entry.hasChildren
-        const summary = byId[entry.id]
-        const label = childLabel(entry, summary)
-        const secondary = cardSecondary(summary, entry)
-        const childLoading = childCatalog === undefined
-          || (childCatalog.state === 'loading' && childCatalog.entries.length === 0)
-        const address: SidebarSubagentAddress = {
-          parentSessionId,
-          childSessionId: entry.id,
-          mode: entry.mode,
+        if (node.kind === 'placeholder') {
+          return (
+            <div key={node.id} className={css.subagentNode}>
+              <CatalogLoadingRows
+                parentSessionId={node.parentId ?? ''}
+                byId={byId}
+                level={level + 1}
+              />
+            </div>
+          )
         }
-        const current = entry.id === currentSessionId
 
+        if (node.kind === 'diagnostic') {
+          const entry = node.entry
+          return (
+            <div key={node.id} className={css.subagentNode}>
+              <div
+                role="treeitem"
+                aria-disabled="true"
+                aria-level={level}
+                className={`${css.subagentRow} ${css.subagentRowDisabled}`}
+                title={entry !== undefined && entry.kind === 'diagnostic' ? diagnosticReason(entry) : undefined}
+              >
+                <StateDot state="error" className={css.subagentDot} />
+                <span className={css.subagentContent}>
+                  <span className={css.subagentLabel}>{node.label}</span>
+                  <span className={css.subagentSecondary}>
+                    {entry !== undefined && entry.kind === 'diagnostic' ? diagnosticReason(entry) : ''}
+                  </span>
+                </span>
+              </div>
+            </div>
+          )
+        }
+
+        const entry = node.entry
+        const knownLeaf = !(entry !== undefined && entry.kind === 'child' && entry.hasChildren)
+        const childLoading = (model.childrenOf[node.id] ?? []).length === 0 && !knownLeaf
         return (
-          <div key={entry.id} className={css.subagentNode}>
+          <div key={node.id} className={css.subagentNode}>
             <div
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={`${label} ${secondary}`}
-              aria-current={current ? 'true' : undefined}
+              aria-label={`${node.label} ${node.secondary}`}
+              aria-current={node.current ? 'true' : undefined}
               {...knownLeaf ? {} : { 'aria-expanded': true }}
-              className={clsx(css.subagentRow, current && css.subagentRowActive)}
-              onClick={() => { openChild(address) }}
+              className={clsx(css.subagentRow, node.current && css.subagentRowActive)}
+              onClick={() => { if (node.address !== undefined) openChild(node.address) }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
                   event.stopPropagation()
-                  openChild(address)
+                  if (node.address !== undefined) openChild(node.address)
                 }
               }}
             >
               <StateDot
-                state={entry.activity === 'running' ? 'ongoing' : 'done'}
+                state={node.running ? 'ongoing' : 'done'}
                 className={css.subagentDot}
               />
               <span className={css.subagentContent}>
-                <span className={css.subagentLabel}>{label}</span>
-                <span className={css.subagentSecondary}>{secondary}</span>
-                {entry.activity === 'running' && (
+                <span className={css.subagentLabel}>{node.label}</span>
+                <span className={css.subagentSecondary}>{node.secondary}</span>
+                {node.running && entry !== undefined && entry.kind === 'child' && (
                   <SubagentLiveLines live={live[entry.id]} />
                 )}
               </span>
             </div>
             {!knownLeaf && (
-              <div role="group" className={css.subagentChildren} aria-busy={childLoading || undefined}>
-                {childCatalog === undefined
-                  ? (
-                    <CatalogLoadingRows
-                      parentSessionId={entry.id}
-                      byId={byId}
-                      level={level + 1}
-                    />
-                  )
-                  : (
-                    <CatalogRows
-                      parentSessionId={entry.id}
-                      catalog={childCatalog}
-                      catalogs={catalogs}
-                      byId={byId}
-                      level={level + 1}
-                      currentSessionId={currentSessionId}
-                      live={live}
-                      openChild={openChild}
-                      refresh={refresh}
-                    />
-                  )}
+              <div
+                role="group"
+                className={css.subagentChildren}
+                aria-busy={childLoading || undefined}
+              >
+                <CatalogRows
+                  parentSessionId={node.id}
+                  model={model}
+                  byId={byId}
+                  level={level + 1}
+                  live={live}
+                  expandedAggregates={expandedAggregates}
+                  openChild={openChild}
+                  refresh={refresh}
+                  onAggregateToggle={onAggregateToggle}
+                />
               </div>
             )}
           </div>
@@ -731,6 +741,35 @@ export function SubagentView(props: {
   const rootSummary = rootId === undefined ? undefined : byId[rootId]
   const live = useSubagentLive(rootId, active)
 
+  // 显示模式：工作流图（宽屏默认）或经典缩进树。两种模式共享同一视图模型。
+  const [viewMode, setViewMode] = useState<'graph' | 'tree'>(() =>
+    typeof window !== 'undefined' && window.innerWidth >= 1280 ? 'graph' : 'tree')
+  // 两分组聚合的展开集合（键 `done:${parentId}` / `standby:${parentId}`；
+  // 默认收起）。树与图共享，切换模式不丢折叠状态。
+  const [expandedAggregates, setExpandedAggregates] = useState<ReadonlySet<string>>(new Set())
+
+  const model = useMemo(() => {
+    if (rootId === undefined) return undefined
+    return buildTasksViewModel({
+      rootId,
+      catalogs,
+      byId,
+      expanded: expandedAggregates,
+      currentSessionId: sessionId,
+      labelOf: childLabel,
+      secondaryOf: cardSecondary,
+    })
+  }, [rootId, catalogs, byId, expandedAggregates, sessionId])
+
+  const onAggregateToggle = useCallback((aggregateKey: string): void => {
+    setExpandedAggregates(current => {
+      const next = new Set(current)
+      if (next.has(aggregateKey)) next.delete(aggregateKey)
+      else next.add(aggregateKey)
+      return next
+    })
+  }, [])
+
   // Every Session of the tree needs its own projection read: the OPEN session's
   // catalog arrives with its follow baseline, but an unopened branch must be
   // asked for explicitly. 0.1.7 removed the 0.1.6 observe/unobserve pair
@@ -749,9 +788,13 @@ export function SubagentView(props: {
     return () => { requestedRef.current.clear() }
   }, [rootId, active])
 
+  // 投影读取目标 = 视图模型暴露的分支（折叠的聚合组不再请求成员目录，
+  // 未水合的分支以占位节点呈现并触发一次读取）。
+  const branchIds = useMemo(() => model?.branchIds ?? [], [model])
+
   useEffect(() => {
     if (!active || refreshProjections === undefined) return
-    for (const id of treeIds) {
+    for (const id of branchIds) {
       if (requestedRef.current.has(id)) continue
       requestedRef.current.add(id)
       // A failed read stays retryable: drop it from the set so a later pass
@@ -759,7 +802,7 @@ export function SubagentView(props: {
       // unsuccessful initial read on its own.
       void refreshProjections.call(sessions, id).catch(() => { requestedRef.current.delete(id) })
     }
-  }, [active, treeIds, refreshProjections, sessions])
+  }, [active, branchIds, refreshProjections, sessions])
 
   const openChild = useCallback((address: SidebarSubagentAddress): void => {
     // Notify the shell first: the jump switches the sidebar to the child
@@ -790,6 +833,23 @@ export function SubagentView(props: {
     // projection read (same intent — re-read one parent's catalog).
     void sessions.refreshProjections?.(parentSessionId)
   }, [sessions])
+
+  /** 图模式节点点击：聚合=切换展开、占位=请求水合、其余=导航。 */
+  const onGraphNodeClick = useCallback((node: TaskNodeVM): void => {
+    if (node.aggregateKey !== undefined) {
+      onAggregateToggle(node.aggregateKey)
+      return
+    }
+    if (node.kind === 'placeholder') {
+      void sessions.refreshProjections?.(node.parentId ?? '')
+      return
+    }
+    if (node.kind === 'main') {
+      openMain()
+      return
+    }
+    if (node.address !== undefined) openChild(node.address)
+  }, [sessions, onAggregateToggle, openMain, openChild])
 
   const totals = useMemo(
     () => rootId === undefined
@@ -850,6 +910,22 @@ export function SubagentView(props: {
             : ''}
         </span>
         {countLabel !== undefined && <span className={css.subagentCount}>{countLabel}</span>}
+        <div className={css.subagentViewToggle} role="group" aria-label={t('subagentViewToggle')}>
+          <button
+            type="button"
+            aria-pressed={viewMode === 'graph'}
+            onClick={() => { setViewMode('graph') }}
+          >
+            {t('subagentGraphView')}
+          </button>
+          <button
+            type="button"
+            aria-pressed={viewMode === 'tree'}
+            onClick={() => { setViewMode('tree') }}
+          >
+            {t('subagentTreeView')}
+          </button>
+        </div>
         <button
           type="button"
           className={css.subagentRefresh}
@@ -862,10 +938,13 @@ export function SubagentView(props: {
         </button>
       </div>
       <div
-        ref={bodyRef}
+        ref={viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? undefined : bodyRef}
         className={css.subagentBody}
-        onKeyDown={onTreeKeyDown}
+        onKeyDown={viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? undefined : onTreeKeyDown}
       >
+        {viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? (
+          <WorkflowGraph model={model} onNodeClick={onGraphNodeClick} />
+        ) : (
         <div
           role="tree"
           aria-label={t('subagent')}
@@ -907,17 +986,17 @@ export function SubagentView(props: {
               {summaryBackedLoading && (
                 <CatalogLoadingRows parentSessionId={rootId} byId={byId} level={1} />
               )}
-              {!summaryBackedLoading && (
+              {!summaryBackedLoading && model !== undefined && (
                 <CatalogRows
                   parentSessionId={rootId}
-                  catalog={rootCatalog}
-                  catalogs={catalogs}
+                  model={model}
                   byId={byId}
                   level={1}
-                  currentSessionId={sessionId}
                   live={live}
+                  expandedAggregates={expandedAggregates}
                   openChild={openChild}
                   refresh={refresh}
+                  onAggregateToggle={onAggregateToggle}
                 />
               )}
             </div>
@@ -929,6 +1008,7 @@ export function SubagentView(props: {
             </div>
           )}
         </div>
+        )}
         <JobsSection
           byId={byId}
           jobsRows={jobsRows}

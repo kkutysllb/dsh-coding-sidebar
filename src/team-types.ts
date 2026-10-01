@@ -60,6 +60,12 @@ export interface TeamTaskView {
 export interface TeamView {
   readonly members: readonly TeamMemberView[]
   readonly tasks: readonly TeamTaskView[]
+  /**
+   * Terminal projection failure (the `agentTeam` projection's own `failure`):
+   * the team state machine stopped, later events retain this failed view.
+   * Rendered as a notice; the roster/board below are the failed snapshot.
+   */
+  readonly failure?: string
 }
 
 /** Input for creating one shared task. */
@@ -87,13 +93,17 @@ export type TeamTaskMutationResult =
   | { readonly ok: true; readonly value: TeamTaskView }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
-/** Why the team data plane is unavailable (drives the tab's empty state). */
-export type TeamUnavailableReason = 'service-missing' | 'agent-missing'
-
-/** `team.view` result: the roster, or why there is none. */
-export type TeamViewResult =
-  | { readonly available: false; readonly reason: TeamUnavailableReason }
-  | { readonly available: true; readonly view: TeamView }
+/**
+ * Why the team data plane is unavailable.
+ *
+ * - `service-missing`: the write envelope's carrier (`agentTeams`) is absent —
+ *   only possible for the write routes, reads no longer touch the service.
+ * - `agent-missing`: a write needs the Session's live Agent as its CAS
+ *   credential and none is running (cold, archived, not yet started).
+ * - `projection-missing`: the client read face (`projectionsBySession[…]
+ *   .values.agentTeam`) never landed — the host predates 0.1.7.
+ */
+export type TeamUnavailableReason = 'service-missing' | 'agent-missing' | 'projection-missing'
 
 /** `team.createTask` / `team.updateTask` result envelope. */
 export type TeamMutationEnvelope =
