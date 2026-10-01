@@ -26,7 +26,22 @@ export interface ActivityEvent {
  * @returns the joined text, or undefined when the message carries no text.
  */
 export declare function contentText(content: unknown): string | undefined;
-/** The live status of one subagent card (both fields optional). */
+/** The merged tool activity of one window: concurrent calls grouped + counted. */
+export interface MergedActivity {
+    /** Tool names in first-appearance order, with their call counts. */
+    counts: Array<{
+        name: string;
+        count: number;
+    }>;
+    /** Total tool calls seen in the window. */
+    total: number;
+    /** The newest call without a matching result — the call in flight. */
+    running?: {
+        name: string;
+        args: string;
+    };
+}
+/** The live status of one subagent card (all fields optional). */
 export interface LastActivity {
     /** The latest assembled assistant text output in the tail. */
     text?: string;
@@ -35,6 +50,11 @@ export interface LastActivity {
         name: string;
         args: string;
     };
+    /**
+     * Merged activity line (upstream v0.22.0 card bottom bar): every tool call
+     * of the window grouped and counted, plus the call still in flight.
+     */
+    merged?: MergedActivity;
 }
 /**
  * Fold a session event log into the last text output + last tool call (each
@@ -52,3 +72,16 @@ export interface LastActivity {
  * @returns the last text and/or tool call; an empty object when the log has neither.
  */
 export declare function lastActivity(events: readonly ActivityEvent[], maxMessages?: number): LastActivity;
+/**
+ * Fold the window's tool calls into the merged activity line: names grouped
+ * and counted in first-appearance order, plus the newest call that has no
+ * matching `tool/result` (the one actually in flight).
+ *
+ * The window matches {@link lastActivity}: the tail's last `maxMessages`
+ * surface messages and the events between them, so a long log costs only the
+ * recent tail.
+ * @param events - the session's append-only event log (oldest → newest).
+ * @param maxMessages - optional message-boundary window (default: whole log).
+ * @returns the grouped activity, or undefined when the window has no calls.
+ */
+export declare function mergedActivity(events: readonly ActivityEvent[], maxMessages?: number): MergedActivity | undefined;

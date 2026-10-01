@@ -25,13 +25,19 @@
  * free of the locale runtime. Framework-free (node-testable fixture:
  * tests/subagent-tasks-model.mjs).
  */
-import type { SidebarSubagentAddress, SidebarSubagentCatalog, SidebarSubagentChildEntry, SidebarSessionSummary } from '../context-types.ts';
+import type { SidebarSubagentAddress, SidebarSubagentCatalog, SidebarSubagentChildEntry, SidebarSessionSummary, SidebarWorkflowRunRow } from '../context-types.ts';
 /** Fold threshold: a done/standby group at or above this size renders as one aggregate row. */
 export declare const FOLD_MIN = 6;
 /** Sibling order index of a derived catalog entry. */
 type CatalogEntry = SidebarSubagentCatalog['entries'][number];
 /** Discriminates what a view-model node renders as. */
-export type TaskNodeKind = 'main' | 'subagent' | 'done-agg' | 'standby-agg' | 'placeholder' | 'diagnostic';
+export type TaskNodeKind = 'main' | 'subagent' | 'done-agg' | 'standby-agg' | 'placeholder' | 'diagnostic'
+/** A `tool-workflow` run, hung under the agent that started it. */
+ | 'run'
+/** One phase box of a run (members grouped per phase). */
+ | 'phase'
+/** A run member without a catalog row, synthesized from the run's own data. */
+ | 'member';
 /** One renderable node of the Tasks page (tree row / graph node). */
 export interface TaskNodeVM {
     /** Session id, or an aggregate key (`done:${parentId}` / `standby:${parentId}`). */
@@ -66,6 +72,8 @@ export interface BuildTasksViewModelInput {
     rootId: string;
     catalogs: Readonly<Record<string, SidebarSubagentCatalog>>;
     byId: Readonly<Record<string, SidebarSessionSummary>>;
+    /** Folded `tool-workflow` runs (absent → no run nodes). */
+    runs?: readonly SidebarWorkflowRunRow[];
     /** Aggregate keys currently EXPANDED (default state is folded). */
     expanded: ReadonlySet<string>;
     currentSessionId: string;

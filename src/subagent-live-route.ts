@@ -18,7 +18,7 @@
  */
 import type { Context, SidebarSubagentsService } from './context-types.ts'
 import { SIDE_LABEL_PREFIX } from './sidechat-core.ts'
-import { lastActivity, type LastActivity } from './subagent-activity.ts'
+import { lastActivity, mergedActivity, type LastActivity } from './subagent-activity.ts'
 import { requireString, SidebarError } from './wire.ts'
 
 /** The live-preview routes of the /sidebar JSON API. */
@@ -77,12 +77,11 @@ export function buildSubagentLiveApi(ctx: Context): SidebarSubagentLiveRoutes {
         if (entry.label?.startsWith(SIDE_LABEL_PREFIX) ?? false) continue
         try {
           const stored = ctx.sessions.get(entry.id)
-          const activity = lastActivity(
-            stored?.snapshotEvents !== undefined ? stored.snapshotEvents() : [],
-            LIVE_WINDOW_MESSAGES,
-          )
-          if (activity.text !== undefined || activity.tool !== undefined) {
-            live[entry.id] = activity
+          const events = stored?.snapshotEvents !== undefined ? stored.snapshotEvents() : []
+          const activity = lastActivity(events, LIVE_WINDOW_MESSAGES)
+          const merged = mergedActivity(events, LIVE_WINDOW_MESSAGES)
+          if (activity.text !== undefined || activity.tool !== undefined || merged !== undefined) {
+            live[entry.id] = { ...activity, ...(merged === undefined ? {} : { merged }) }
           }
         } catch {
           // One child's event log is not readable: skip only that child.

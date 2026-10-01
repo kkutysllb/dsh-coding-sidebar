@@ -26,6 +26,7 @@ import {
   TASK_NODE_W,
 } from './subagent-tasks-layout.ts'
 import type { TaskNodeVM, TasksViewModel } from './subagent-tasks-model.ts'
+import type { LastActivity } from '../subagent-activity.ts'
 import { t } from './locales.ts'
 import css from './SubagentView.module.css'
 
@@ -47,6 +48,9 @@ function badgeOf(node: TaskNodeVM): string {
     case 'done-agg': return t('subagentBadgeDone')
     case 'standby-agg': return t('subagentBadgeStandby')
     case 'placeholder': return t('subagentBadgePlaceholder')
+    case 'run': return t('subagentBadgeRun')
+    case 'phase': return t('subagentBadgePhase')
+    case 'member': return t('subagentBadgeMember')
     default: return t('subagentBadgeSub')
   }
 }
@@ -55,14 +59,18 @@ function statusWordOf(node: TaskNodeVM): string {
   if (node.kind === 'done-agg') return t('subagentBadgeDone')
   if (node.kind === 'standby-agg') return t('subagentBadgeStandby')
   if (node.kind === 'placeholder') return t('loading')
+  if (node.kind === 'phase') return `${node.childCount ?? 0}`
+  if (node.kind === 'member') return node.secondary !== '' ? node.secondary : t('subagentBadgeMember')
   return node.running ? t('subagentRunning') : t('subagentInactive')
 }
 
 export function WorkflowGraph(props: {
   model: TasksViewModel
   onNodeClick: (node: TaskNodeVM) => void
+  /** Live activity per session (the merged line rides it), from the live poll. */
+  live?: Readonly<Record<string, LastActivity>>
 }): ReactNode {
-  const { model, onNodeClick } = props
+  const { model, onNodeClick, live } = props
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<{ k: number; tx: number; ty: number }>({ k: 1, tx: 0, ty: 0 })
   const dragRef = useRef<{ x: number; y: number; moved: number } | null>(null)
@@ -197,6 +205,7 @@ export function WorkflowGraph(props: {
             const node = box.node
             const clickable = node.kind === 'main' || node.kind === 'subagent'
               || node.kind === 'done-agg' || node.kind === 'standby-agg'
+              || node.kind === 'member'
             return (
               <g
                 key={node.id}
@@ -218,7 +227,9 @@ export function WorkflowGraph(props: {
                 <line x1={0} y1={TASK_NODE_TOP_H} x2={TASK_NODE_W} y2={TASK_NODE_TOP_H} className={css.wfSep} />
                 <text x={10} y={15} className={css.wfBadge}>{badgeOf(node)}</text>
                 <text x={10} y={32} className={css.wfLabel}>
-                  {node.label === '' ? t('loading') : ellipsize(node.label, 24)}
+                  {ellipsize(node.kind === 'phase' && node.label === ''
+                    ? t('subagentUnphased')
+                    : (node.label === '' ? t('loading') : node.label), 24)}
                   {node.childCount !== undefined ? ` +${node.childCount}` : ''}
                 </text>
                 <rect y={TASK_NODE_TOP_H} width={TASK_NODE_W} height={TASK_NODE_BAR_H} className={css.wfBar} />
@@ -229,9 +240,17 @@ export function WorkflowGraph(props: {
                   className={node.running ? css.wfDotRunning : css.wfDotIdle}
                 />
                 <text x={20} y={TASK_NODE_TOP_H + TASK_NODE_BAR_H / 2 + 3.5} className={css.wfStatus}>
-                  {node.kind === 'done-agg' || node.kind === 'standby-agg'
-                    ? `${statusWordOf(node)} ${node.childCount ?? ''}`.trim()
-                    : statusWordOf(node)}
+                  {(() => {
+                    const base = node.kind === 'done-agg' || node.kind === 'standby-agg'
+                      ? `${statusWordOf(node)} ${node.childCount ?? ''}`.trim()
+                      : statusWordOf(node)
+                    const merged = live?.[node.id]?.merged
+                    if (merged === undefined || !node.running) return base
+                    // 运行中：底条 = 状态词 + 合并活动（并发工具归并计数）
+                    const summary = merged.counts.slice(0, 2)
+                      .map((row) => `${row.name} ×${row.count}`).join(' · ')
+                    return `${base} · ${summary}`
+                  })()}
                 </text>
                 <title>{`${node.label} ${node.secondary}`.trim()}</title>
               </g>
@@ -256,6 +275,10 @@ function clsxWf(node: TaskNodeVM): string {
       ? css.wfNodeStandby
       : node.kind === 'placeholder'
         ? css.wfNodePlaceholder
-        : css.wfNode
+        : node.kind === 'phase'
+          ? css.wfNodePhase
+          : node.kind === 'run'
+            ? css.wfNodeRun
+            : css.wfNode
   return clsx(kind, node.current && css.wfNodeCurrent, node.running && css.wfNodeRunning)
 }

@@ -8,7 +8,7 @@
  */
 import { encodeHtmlUrl } from '../html-route.ts'
 import type { LastActivity } from '../subagent-activity.ts'
-import type { SidebarHistoryEntry } from '../context-types.ts'
+import type { SidebarHistoryEntry, SidebarWorkflowRunRow } from '../context-types.ts'
 import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts'
 import type { BrowserProbeResult } from './browser.ts'
 import type {
@@ -511,6 +511,12 @@ export const api = {
    * the already-resolved topology ROOT (not a session scope); the host
    * enumerates descendants once and folds running children's activity.
    */
+  /** Fold the tree's workflow runs (`tool-workflow/*`) for the Tasks page. */
+  subagentsWorkflow: (rootSessionId: string, signal?: AbortSignal) => {
+    return call<{ runs: SidebarWorkflowRunRow[] }>(
+      'subagents.workflow', { rootSessionId }, signal,
+    )
+  },
   subagentsLive: (rootSessionId: string, signal?: AbortSignal) =>
     call<SubagentLiveResult>('subagents.live', { rootSessionId }, signal),
   /** Create a Side Chat thread: a child session seeded with the parent's

@@ -42,7 +42,7 @@ function directChildCount(byId, parentId) {
  *   view exposes (call `refreshProjections` on these while visible).
  */
 export function buildTasksViewModel(input) {
-    const { rootId, catalogs, byId, expanded, currentSessionId, labelOf, secondaryOf } = input;
+    const { rootId, catalogs, byId, expanded, currentSessionId, labelOf, secondaryOf, runs = [], } = input;
     const nodes = [];
     const childrenOf = {};
     const branchIds = [rootId];
@@ -56,25 +56,40 @@ export function buildTasksViewModel(input) {
         });
     };
     const visit = (parentSessionId, depth) => {
-        const entries = sideFiltered(parentSessionId);
+        const allEntries = sideFiltered(parentSessionId);
+        // Runs started by THIS agent; their member childIds are re-parented below
+        // the run (upstream semantics), so those entries leave the normal list.
+        const runsHere = runs.filter((run) => run.originSessionId === parentSessionId);
+        const claimed = new Map();
+        for (const run of runsHere) {
+            for (const phase of run.phases) {
+                for (const member of phase.members)
+                    claimed.set(member.childId, { outcome: member.outcome });
+            }
+        }
+        const entries = allEntries.filter((entry) => !(entry.kind === 'child' && claimed.has(entry.id)));
         const { live, standby, done } = partitionChildren(entries, byId);
         branchIds.push(parentSessionId);
         const children = [];
-        /** One catalog-backed subagent node, with its (hydrated) subtree attached. */
-        const pushSubtree = (entry) => {
+        /**
+         * One catalog-backed subagent node with its (hydrated) subtree attached.
+         * Pushes into `nodes`/`childrenOf` and returns the node; the CALLER
+         * decides which sibling list it joins (run re-parenting needs that).
+         */
+        const buildSubtreeNode = (entry, parentId, nodeDepth) => {
             const summary = byId[entry.id];
             const childCatalog = catalogs[entry.id];
             const node = {
                 id: entry.id,
                 kind: 'subagent',
-                parentId: parentSessionId,
-                depth,
+                parentId,
+                depth: nodeDepth,
                 label: labelOf(entry, summary),
                 secondary: secondaryOf(summary, entry),
                 running: entry.activity === 'running',
                 current: entry.id === currentSessionId,
                 address: {
-                    parentSessionId,
+                    parentSessionId: parentId,
                     childSessionId: entry.id,
                     mode: entry.mode,
                 },
@@ -82,7 +97,6 @@ export function buildTasksViewModel(input) {
                 childCount: entry.hasChildren ? directChildCount(byId, entry.id) : undefined,
                 aggregateKey: undefined,
             };
-            children.push(node);
             nodes.push(node);
             if (entry.hasChildren) {
                 branchIds.push(entry.id);
@@ -94,7 +108,7 @@ export function buildTasksViewModel(input) {
                         id: `placeholder:${entry.id}`,
                         kind: 'placeholder',
                         parentId: entry.id,
-                        depth: depth + 1,
+                        depth: nodeDepth + 1,
                         label: '',
                         secondary: '',
                         running: false,
@@ -107,10 +121,87 @@ export function buildTasksViewModel(input) {
                     childrenOf[entry.id] = [placeholder];
                 }
                 else {
-                    childrenOf[entry.id] = visit(entry.id, depth + 1);
+                    childrenOf[entry.id] = visit(entry.id, nodeDepth + 1);
                 }
             }
             return node;
+        };
+        /** The plain catalog child (appends to this level's sibling list). */
+        const pushSubtree = (entry) => {
+            const node = buildSubtreeNode(entry, parentSessionId, depth);
+            children.push(node);
+            return node;
+        };
+        /** One run node + its phase boxes + (re-parented or synthesized) members. */
+        const pushRun = (run) => {
+            const memberCount = run.phases.reduce((sum, phase) => sum + phase.members.length, 0);
+            const runNode = {
+                id: `run:${run.runId}`,
+                kind: 'run',
+                parentId: parentSessionId,
+                depth,
+                label: run.name,
+                secondary: `${memberCount}`,
+                running: run.running,
+                current: false,
+                address: undefined,
+                entry: undefined,
+                childCount: memberCount,
+                aggregateKey: undefined,
+            };
+            children.push(runNode);
+            nodes.push(runNode);
+            const runChildren = [];
+            for (const phase of run.phases) {
+                const phaseNode = {
+                    id: `phase:${run.runId}:${phase.phase ?? ''}`,
+                    kind: 'phase',
+                    parentId: runNode.id,
+                    depth: depth + 1,
+                    label: phase.phase ?? '',
+                    secondary: `${phase.members.length}`,
+                    running: false,
+                    current: false,
+                    address: undefined,
+                    entry: undefined,
+                    childCount: phase.members.length,
+                    aggregateKey: undefined,
+                };
+                nodes.push(phaseNode);
+                runChildren.push(phaseNode);
+                const phaseChildren = [];
+                for (const member of phase.members) {
+                    const real = allEntries.find((entry) => entry.kind === 'child' && entry.id === member.childId);
+                    if (real !== undefined) {
+                        // Re-parent the real child under its phase box (keeps its subtree).
+                        phaseChildren.push(buildSubtreeNode(real, phaseNode.id, depth + 2));
+                        continue;
+                    }
+                    // No catalog row (finished run, stale catalog): synthesize from run data.
+                    const node = {
+                        id: member.childId,
+                        kind: 'member',
+                        parentId: phaseNode.id,
+                        depth: depth + 2,
+                        label: member.label,
+                        secondary: member.outcome ?? '',
+                        running: member.outcome === undefined,
+                        current: member.childId === currentSessionId,
+                        address: {
+                            parentSessionId,
+                            childSessionId: member.childId,
+                            mode: 'continuable',
+                        },
+                        entry: undefined,
+                        childCount: undefined,
+                        aggregateKey: undefined,
+                    };
+                    nodes.push(node);
+                    phaseChildren.push(node);
+                }
+                childrenOf[phaseNode.id] = phaseChildren;
+            }
+            childrenOf[runNode.id] = runChildren;
         };
         for (const entry of live) {
             if (entry.kind === 'diagnostic') {
@@ -167,6 +258,9 @@ export function buildTasksViewModel(input) {
             children.push(node);
             nodes.push(node);
         }
+        // Workflow runs of this agent hang after its subagent rows.
+        for (const run of runsHere)
+            pushRun(run);
         childrenOf[parentSessionId] = children;
         return children;
     };

@@ -748,3 +748,31 @@
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
+
+/* 工作流行/相位行：轻量分组行（不可导航） */
+.subagentRowRun {
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-weight: 500;
+}
+
+.subagentRowPhase {
+  opacity: 0.85;
+  font-size: 11px;
+}
+
+.wfNodePhase .wfCard {
+  stroke-dasharray: 3 2;
+}
+
+.wfNodeRun .wfCard {
+  stroke-width: 1.4;
+}
+
+/* 合并活动行：并发工具归并计数 + 在跑那条 */
+.subagentLiveMerged {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}

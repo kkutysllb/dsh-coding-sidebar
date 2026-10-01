@@ -122,6 +122,8 @@ import { openViaUiWorkspace, observeUiWorkspaceFace, resetUiWorkspaceObserver } 
 import { buildTasksViewModel, FOLD_MIN } from './subagent-tasks-model.mjs'
 import { layoutTasksViewModel, TASK_NODE_W, TASK_NODE_H } from './subagent-tasks-layout.mjs'
 import { deriveTeamView } from './team-projection.mjs'
+import { foldWorkflowRuns } from './subagent-workflow.mjs'
+import { mergedActivity, lastActivity } from './subagent-activity.mjs'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
   pushBranch, summary,
@@ -2361,5 +2363,130 @@ console.log('[deriveTeamView]')
   ok(notTeam2.status === 'not-team', 'values 空对象同样 → not-team')
 }
 
+// ── foldWorkflowRuns（tool-workflow/* → run 行）+ 模型 run 入图 ──
+console.log('[foldWorkflowRuns]')
+{
+  const ev = (type, data, seq) => ({ type, seq, time: seq * 10, data })
+
+  ok(foldWorkflowRuns('s1', []).length === 0, '空日志 → 无 run')
+  ok(foldWorkflowRuns('s1', [ev('tool-workflow/model-experience', { runId: 'r1' }, 1)]).length === 0,
+    '非生命周期事件（model-experience）不构成 run')
+  ok(foldWorkflowRuns('s1', [ev('tool-workflow/agent-start', { runId: 'r1', seq: 1, label: 'A', childId: 'c1' }, 1)]).length === 0,
+    'run-start 之前的成员事件被忽略')
+
+  const events = [
+    ev('tool-workflow/run-start', { runId: 'r1', name: '审计流水线' }, 1),
+    ev('tool-workflow/agent-start', { runId: 'r1', seq: 2, label: '审查者', childId: 'c2', phase: 'phase-b' }, 2),
+    ev('tool-workflow/agent-start', { runId: 'r1', seq: 1, label: '扫描者', childId: 'c1', phase: 'phase-a' }, 3),
+    ev('tool-workflow/agent-start', { runId: 'r1', seq: 3, label: '收尾', childId: 'c3' }, 4),
+    ev('tool-workflow/agent-end', { runId: 'r1', seq: 1, outcome: 'ok' }, 5),
+    ev('tool-workflow/run-end', { runId: 'r1', stopReason: 'complete' }, 6),
+  ]
+  const runs = foldWorkflowRuns('s1', events)
+  ok(runs.length === 1, '一个 run 折叠成一行')
+  const run = runs[0]
+  ok(run.runId === 'r1' && run.originSessionId === 's1' && run.name === '审计流水线',
+    'run 身份/来源/名字正确')
+  ok(run.running === false && run.stopReason === 'complete', 'run-end 落地 running/stopReason')
+  ok(run.phases.length === 3, '三个相位组（phase-a / phase-b / 无相位）')
+  ok(run.phases[0].phase === 'phase-a' && run.phases[1].phase === 'phase-b', '相位按首次出现排序')
+  ok(run.phases[2].phase === undefined, '无相位成员排在最后')
+  ok(run.phases[0].members[0].label === '扫描者' && run.phases[0].members[0].childId === 'c1',
+    '成员带 label 与真实 childId')
+  ok(run.phases[0].members[0].outcome === 'ok', 'agent-end 的 outcome 归位到同一 seq 成员')
+  ok(run.phases[2].members[0].outcome === undefined, '未结束成员无 outcome')
+
+  // 两个 run 交错：各自成行，保持起始顺序
+  const two = foldWorkflowRuns('s2', [
+    ev('tool-workflow/run-start', { runId: 'a', name: 'A' }, 1),
+    ev('tool-workflow/run-start', { runId: 'b', name: 'B' }, 2),
+    ev('tool-workflow/agent-start', { runId: 'b', seq: 1, label: 'B1', childId: 'cb' }, 3),
+    ev('tool-workflow/run-end', { runId: 'a', stopReason: 'stop' }, 4),
+  ])
+  ok(two.length === 2 && two[0].runId === 'a' && two[1].runId === 'b', '交错的两个 run 各自成行')
+  ok(two[0].running === false && two[1].running === true, '结束状态互不串扰')
+}
+console.log('[tasks model with runs]')
+{
+  const byId = {
+    root: { id: 'root', running: false, displayTitle: '主会话', origin: undefined },
+    real1: { id: 'real1', running: false, displayTitle: '真实成员', origin: 'subagent', parentId: 'root' },
+    other: { id: 'other', running: true, displayTitle: '普通子代理', origin: 'subagent', parentId: 'root' },
+  }
+  const catalogs = { root: { state: 'ready', error: null, entries: [
+    { kind: 'child', id: 'real1', mode: 'one-shot', activity: 'inactive', label: '真实成员', hasChildren: false, parentId: 'root', depth: 1 },
+    { kind: 'child', id: 'other', mode: 'one-shot', activity: 'running', label: '普通子代理', hasChildren: false, parentId: 'root', depth: 1 },
+  ] } }
+  const runs = [{
+    runId: 'r1', originSessionId: 'root', name: '审计流水线', running: true,
+    phases: [
+      { phase: '扫描', members: [{ seq: 1, label: '真实成员', childId: 'real1' }] },
+      { phase: undefined, members: [{ seq: 2, label: '合成成员', childId: 'ghost1', outcome: 'ok' }] },
+    ],
+  }]
+  const model = buildTasksViewModel({
+    rootId: 'root', catalogs, byId, expanded: new Set(), currentSessionId: 'root', runs,
+    labelOf: (entry) => entry.label ?? entry.id, secondaryOf: () => 'sec',
+  })
+  const kids = model.childrenOf.root
+  ok(kids.some(node => node.kind === 'subagent' && node.id === 'other'), '未被 run 认领的子代理留在原位')
+  ok(!kids.some(node => node.id === 'real1'), '被认领的真实成员从原位摘除（重挂进相位）')
+  const runNode = kids.find(node => node.kind === 'run')
+  ok(runNode !== undefined && runNode.label === '审计流水线' && runNode.running === true, 'run 节点挂在发起代理下')
+  const phaseNodes = model.childrenOf[runNode.id]
+  ok(phaseNodes.length === 2 && phaseNodes[0].kind === 'phase' && phaseNodes[0].label === '扫描',
+    '相位节点按 run 数据生成')
+  const firstPhase = model.childrenOf[phaseNodes[0].id]
+  ok(firstPhase.length === 1 && firstPhase[0].id === 'real1' && firstPhase[0].kind === 'subagent',
+    '真实成员重挂到相位下（保留原生节点类型）')
+  const ghostPhase = model.childrenOf[phaseNodes[1].id]
+  ok(ghostPhase.length === 1 && ghostPhase[0].kind === 'member' && ghostPhase[0].childId === undefined,
+    '无 catalog 行的成员合成 member 节点')
+  ok(ghostPhase[0].address?.childSessionId === 'ghost1' && ghostPhase[0].address?.parentSessionId === 'root',
+    '合成成员带可导航地址')
+  ok(ghostPhase[0].secondary === 'ok' && ghostPhase[0].running === false, '合成成员展示 outcome 且不再算运行中')
+}
+// ── mergedActivity（合并活动行：并发工具归并计数 + 在跑那条）──
+console.log('[mergedActivity]')
+{
+  const ev = (type, data, seq) => ({ type, seq, time: seq, data })
+  ok(mergedActivity([]) === undefined, '空日志 → undefined')
+  ok(mergedActivity([ev('assistant/message', { message: { content: [{ type: 'text', text: 'hi' }] } }, 1)]) === undefined,
+    '只有文本、没有工具 → undefined')
+
+  const events = [
+    ev('user/message', { message: { content: [] } }, 1),
+    ev('tool/call', { callId: 'c1', name: 'Bash', arguments: '{"cmd":"a"}' }, 2),
+    ev('tool/call', { callId: 'c2', name: 'Bash', arguments: '{"cmd":"b"}' }, 3),
+    ev('tool/result', { callId: 'c1' }, 4),
+    ev('tool/call', { callId: 'c3', name: 'fs_read', arguments: '{"path":"x"}' }, 5),
+    ev('assistant/message', { message: { content: [] } }, 6),
+  ]
+  const merged = mergedActivity(events, 12)
+  ok(merged !== undefined && merged.total === 3, '窗口内 3 次工具调用')
+  ok(merged.counts.length === 2 && merged.counts[0].name === 'Bash' && merged.counts[0].count === 2,
+    '同名工具归并计数（Bash ×2）')
+  ok(merged.counts[1].name === 'fs_read' && merged.counts[1].count === 1, '异名工具各成一行')
+  ok(merged.running?.name === 'fs_read', '在跑那条 = 最新无结果的调用')
+
+  const allDone = mergedActivity([
+    ev('tool/call', { callId: 'x', name: 'Bash', arguments: '' }, 1),
+    ev('tool/result', { callId: 'x' }, 2),
+  ])
+  ok(allDone !== undefined && allDone.running === undefined, '全部有结果 → 无在跑项')
+
+  // 窗口边界：只保留尾部 1 条 surface message 之后的调用
+  const windowed = mergedActivity([
+    ev('tool/call', { callId: 'old', name: 'OldTool', arguments: '' }, 1),
+    ev('assistant/message', { message: { content: [] } }, 2),
+    ev('tool/call', { callId: 'new', name: 'NewTool', arguments: '' }, 3),
+  ], 1)
+  ok(windowed !== undefined && windowed.total === 1 && windowed.counts[0].name === 'NewTool',
+    '消息窗口外（更早）的调用不计入')
+
+  // 与 lastActivity 同源的窗口语义：两者可同时产出
+  const last = lastActivity(events, 12)
+  ok(last.text === undefined || typeof last.text === 'string', 'lastActivity 仍可用（未回归）')
+}
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

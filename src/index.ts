@@ -54,6 +54,7 @@ import { registerTools } from './tools.ts'
 import { AgentOpenRegistry, registerOpenTool, type AgentOpenRequest } from './agent-opens.ts'
 import { buildJobsApi, type SidebarJobsRoutes } from './jobs-routes.ts'
 import { buildSubagentLiveApi, type SidebarSubagentLiveRoutes } from './subagent-live-route.ts'
+import { buildSubagentWorkflowApi, type SidebarSubagentWorkflowRoutes } from './subagent-workflow-route.ts'
 import { buildTeamApi, type SidebarTeamRoutes } from './team-routes.ts'
 import { buildSidechatApi } from './sidechat-routes.ts'
 import { readJsonBody, requireString, SettingsConflictError, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
@@ -311,6 +312,10 @@ function buildApi(
   // `subagents.history` calls. The route degrades to a 503 when the host
   // subagent runtime is absent (the page has no topology to show anyway).
   const subagentLiveApi: SidebarSubagentLiveRoutes = buildSubagentLiveApi(ctx)
+  // Workflow runs（上游 v0.22.0「工作流 run 入图」）：折叠 tool-workflow/* 事件
+  // 家族成 run 行，客户端把 run 挂到发起代理下、成员按相位分框。宿主没有
+  // subagent 服务时仍折叠根会话自己的日志（主代理发起的 run 可见）。
+  const subagentWorkflowApi: SidebarSubagentWorkflowRoutes = buildSubagentWorkflowApi(ctx)
   // Agent Teams bridge（2026-09-19）：读上游 ctx.agentTeams 的名册/任务看板并
   // 转发 CAS 变更。上游「智能体团队」插件未启用时返回 service-missing——侧栏
   // 的团队 tab 据此渲染"去启用"空态（不自动挂载该服务：它会替换 subagent 工具）。
@@ -655,6 +660,7 @@ function buildApi(
     // Subagent live previews: one batch request per refresh; the route folds
     // the newest text/tool activity of every running child in the tree.
     'subagents.live': (payload) => subagentLiveApi.live(payload),
+    'subagents.workflow': (payload) => subagentWorkflowApi.workflow(payload),
     // The effective terminal shell and its display name. The client uses
     // this to title terminal tabs with the shell name instead of a numbered
     // "Terminal N" label; the shell itself is configured through

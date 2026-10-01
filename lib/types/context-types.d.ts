@@ -433,6 +433,39 @@ export interface SidebarAgentTeamProjectionValue {
     failure?: string;
 }
 /**
+ * One member row of a folded workflow run (`tool-workflow/agent-start`):
+ * `childId` is the member's real Session id, which lets the Tasks view model
+ * re-parent a catalog child under its run (members the catalog does not know
+ * are synthesized from this row).
+ */
+export interface SidebarWorkflowMemberRow {
+    /** Member order within the run (the host's `seq`). */
+    seq: number;
+    /** Durable member label from the run. */
+    label: string;
+    /** The member's Session id. */
+    childId: string;
+    /** Phase box this member belongs to; absent → the unphased tail group. */
+    phase?: string;
+    /** `tool-workflow/agent-end` outcome, once the member ended. */
+    outcome?: string;
+}
+/** One phase group of a folded workflow run (members boxed per phase). */
+export interface SidebarWorkflowPhaseRow {
+    phase: string | undefined;
+    members: readonly SidebarWorkflowMemberRow[];
+}
+/** One folded workflow run (`tool-workflow/*`) of one origin Session. */
+export interface SidebarWorkflowRunRow {
+    runId: string;
+    /** Session whose log carried the run — the run hangs under this agent. */
+    originSessionId: string;
+    name: string;
+    running: boolean;
+    stopReason?: string;
+    phases: readonly SidebarWorkflowPhaseRow[];
+}
+/**
  * The client jobs service face (`ctx.jobs`, the api-job-controller client
  * half). It replaced the `jobsBySession` list mirror in 0.1.7: rows are
  * observed per Session through {@link watchRows} and read off one shared

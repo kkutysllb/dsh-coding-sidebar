@@ -352,6 +352,10 @@ export declare const zh: {
     subagentBadgeDone: string;
     subagentBadgeStandby: string;
     subagentBadgePlaceholder: string;
+    subagentBadgeRun: string;
+    subagentBadgePhase: string;
+    subagentBadgeMember: string;
+    subagentUnphased: string;
     subagentHideHistory: string;
     sideChat: string;
     inputTokensLabel: string;

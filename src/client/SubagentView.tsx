@@ -65,6 +65,7 @@ import {
 import { api, type JobOutputResult } from './api.ts'
 import { openViaUiWorkspace } from './workspace-nav.ts'
 import { buildTasksViewModel, type TaskNodeVM, type TasksViewModel } from './subagent-tasks-model.ts'
+import type { SidebarWorkflowRunRow } from '../context-types.ts'
 import { WorkflowGraph } from './WorkflowGraph.tsx'
 import { IconStopOutline16 } from './icons.tsx'
 import { t } from './locales.ts'
@@ -179,11 +180,20 @@ function CatalogLoadingRows(props: {
  */
 function SubagentLiveLines(props: { live: LastActivity | undefined }) {
   const { live } = props
-  if (live?.text === undefined && live?.tool === undefined) {
+  if (live?.text === undefined && live?.tool === undefined && live?.merged === undefined) {
     return <span className={css.subagentLive}>{t('subagentThinking')}</span>
   }
+  // 合并活动行（上游 v0.22.0 卡片底条）：并发工具归并计数 + 在跑那条。
+  const merged = live?.merged
   return (
     <>
+      {merged !== undefined && (
+        <span className={css.subagentLiveMerged}>
+          {merged.counts.slice(0, 3).map((row) => `${row.name} ×${row.count}`).join(' · ')}
+          {merged.counts.length > 3 ? ` · +${merged.counts.length - 3}` : ''}
+          {merged.running !== undefined ? ` · ${t('subagentRunning')} ${merged.running.name}` : ''}
+        </span>
+      )}
       {live.tool !== undefined && (
         <span className={css.subagentLive}>
           <span className={css.subagentLiveTool}>{live.tool.name}</span>
@@ -250,6 +260,61 @@ function useSubagentLive(
   }, [rootId, active])
 
   return live
+}
+
+/**
+ * Workflow runs of one tree (`tool-workflow/*` folded host-side). Runs change
+ * far less often than live activity lines, so this polls at a slower cadence
+ * than {@link useSubagentLive} and reuses the same recursive-timeout shape
+ * (one request in flight, next scheduled only after the previous settles).
+ */
+const WORKFLOW_POLL_MS = 5000
+
+function useWorkflowRuns(
+  rootId: string | undefined,
+  active: boolean,
+): readonly SidebarWorkflowRunRow[] {
+  const [runs, setRuns] = useState<readonly SidebarWorkflowRunRow[]>([])
+  const controllerRef = useRef<AbortController | undefined>(undefined)
+
+  // A new tree must never inherit another root's runs.
+  useEffect(() => { setRuns([]) }, [rootId])
+
+  useEffect(() => {
+    if (rootId === undefined || !active) return
+    const targetRootId = rootId
+    let disposed = false
+    let timer: number | undefined
+
+    const schedule = (): void => {
+      if (disposed) return
+      timer = window.setTimeout(() => { void load() }, WORKFLOW_POLL_MS)
+    }
+    async function load(): Promise<void> {
+      if (disposed) return
+      const controller = new AbortController()
+      controllerRef.current = controller
+      try {
+        const result = await api.subagentsWorkflow(targetRootId, controller.signal)
+        if (!disposed) setRuns(result.runs)
+      } catch {
+        // Keep the last known runs; the next scheduled poll retries.
+      } finally {
+        if (controllerRef.current === controller) controllerRef.current = undefined
+        if (!disposed) schedule()
+      }
+    }
+
+    void load()
+    return () => {
+      disposed = true
+      if (timer !== undefined) window.clearTimeout(timer)
+      controllerRef.current?.abort()
+      controllerRef.current = undefined
+    }
+  }, [rootId, active])
+
+  return runs
 }
 
 interface RowsProps {
@@ -323,6 +388,79 @@ function CatalogRows(props: {
                     {node.label}
                   </span>
                   <span className={css.subagentSecondary}>{node.childCount ?? ''}</span>
+                </span>
+              </div>
+            </div>
+          )
+        }
+
+        if (node.kind === 'run' || node.kind === 'phase') {
+          const isRun = node.kind === 'run'
+          return (
+            <div key={node.id} className={css.subagentNode}>
+              <div
+                role="treeitem"
+                tabIndex={-1}
+                aria-level={level}
+                aria-expanded="true"
+                aria-label={`${isRun ? t('subagentBadgeRun') : (node.label || t('subagentUnphased'))} ${node.secondary}`}
+                className={`${css.subagentRow} ${isRun ? css.subagentRowRun : css.subagentRowPhase}`}
+              >
+                <span className={css.subagentContent}>
+                  <span className={css.subagentLabel}>
+                    {isRun
+                      ? `${t('subagentBadgeRun')} · ${node.label}`
+                      : (node.label === '' ? t('subagentUnphased') : node.label)}
+                  </span>
+                  <span className={css.subagentSecondary}>
+                    {isRun
+                      ? `${node.running ? t('subagentRunning') : t('subagentInactive')} · ${node.childCount ?? 0}`
+                      : `${node.childCount ?? 0}`}
+                  </span>
+                </span>
+              </div>
+              <div role="group" className={css.subagentChildren}>
+                <CatalogRows
+                  parentSessionId={node.id}
+                  model={model}
+                  byId={byId}
+                  level={level + 1}
+                  live={live}
+                  expandedAggregates={expandedAggregates}
+                  openChild={openChild}
+                  refresh={refresh}
+                  onAggregateToggle={onAggregateToggle}
+                />
+              </div>
+            </div>
+          )
+        }
+
+        if (node.kind === 'member') {
+          return (
+            <div key={node.id} className={css.subagentNode}>
+              <div
+                role="treeitem"
+                tabIndex={0}
+                aria-level={level}
+                aria-current={node.current ? 'true' : undefined}
+                aria-label={`${node.label} ${node.secondary}`}
+                className={clsx(css.subagentRow, node.current && css.subagentRowActive)}
+                onClick={() => { if (node.address !== undefined) openChild(node.address) }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (node.address !== undefined) openChild(node.address)
+                  }
+                }}
+              >
+                <StateDot state={node.running ? 'ongoing' : 'done'} className={css.subagentDot} />
+                <span className={css.subagentContent}>
+                  <span className={css.subagentLabel}>{node.label}</span>
+                  <span className={css.subagentSecondary}>
+                    {node.secondary !== '' ? node.secondary : t('subagentBadgeMember')}
+                  </span>
                 </span>
               </div>
             </div>
@@ -740,6 +878,7 @@ export function SubagentView(props: {
   const rootCatalog = rootId === undefined ? undefined : catalogs[rootId]
   const rootSummary = rootId === undefined ? undefined : byId[rootId]
   const live = useSubagentLive(rootId, active)
+  const runs = useWorkflowRuns(rootId, active)
 
   // 显示模式：工作流图（宽屏默认）或经典缩进树。两种模式共享同一视图模型。
   const [viewMode, setViewMode] = useState<'graph' | 'tree'>(() =>
@@ -756,10 +895,11 @@ export function SubagentView(props: {
       byId,
       expanded: expandedAggregates,
       currentSessionId: sessionId,
+      runs,
       labelOf: childLabel,
       secondaryOf: cardSecondary,
     })
-  }, [rootId, catalogs, byId, expandedAggregates, sessionId])
+  }, [rootId, catalogs, byId, expandedAggregates, sessionId, runs])
 
   const onAggregateToggle = useCallback((aggregateKey: string): void => {
     setExpandedAggregates(current => {
@@ -946,7 +1086,7 @@ export function SubagentView(props: {
         onKeyDown={viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? undefined : onTreeKeyDown}
       >
         {viewMode === 'graph' && model !== undefined && !summaryBackedLoading ? (
-          <WorkflowGraph model={model} onNodeClick={onGraphNodeClick} />
+          <WorkflowGraph model={model} onNodeClick={onGraphNodeClick} live={live} />
         ) : (
         <div
           role="tree"
