@@ -95,19 +95,28 @@
   cursor: default;
 }
 
-/* Lane legend, under the toolbar. */
+/* Lane legend, under the toolbar.
+   Narrow sidebars used to squeeze each chip below its content width, which
+   wrapped the labels one character per line ("输 入" stacked). Chips are now
+   unshrinkable and nowrap, and the ROW wraps as whole chips instead — the
+   legend grows a line on a tight panel, never into 竖排 text. */
 .legend {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  column-gap: 8px;
+  row-gap: 2px;
   padding: 2px 8px 4px;
+  min-width: 0;
 }
 
 .legendItem {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
   font: var(--dsw-font-xs-12, 11px/16px system-ui);
   color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
 }
@@ -131,15 +140,18 @@
 }
 
 /* Edge-kind legend chips (click to pin one kind's highlight) and the search
- * box, sharing the legend row. */
+ * box, sharing the legend row. The hint "·" must not eat a line on its own. */
 .legendEdgeHint {
+  flex: none;
   color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
 }
 
 .legendEdge {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
   padding: 0 4px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -186,7 +198,8 @@
 }
 
 .search {
-  flex: none;
+  flex: 0 1 96px;
+  min-width: 72px;
   width: 96px;
   height: 22px;
   padding: 0 6px;
