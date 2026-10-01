@@ -28,6 +28,7 @@ import {
 } from './state.ts'
 import type { SessionScope } from './api.ts'
 import type { SidebarPrefs } from '../prefs-shared.ts'
+import { notifyIsolated } from '../registration.ts'
 import { createFileIconRegistry } from './file-icon-registry.ts'
 import { needsPanelExpansion } from './open-intent.ts'
 import type { FileIconDescriptor } from './file-icon-registry.ts'
@@ -589,9 +590,9 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
   const viewers = new Map<string, FileViewerDescriptor>()
   const listeners = new Set<() => void>()
 
-  const notify = (): void => {
-    for (const fn of [...listeners]) fn()
-  }
+  /** Notify every subscriber through the isolated runner (a throwing listener
+   *  must never abort a registration half-way and strand its id). */
+  const notify = (): void => { notifyIsolated(listeners) }
 
   // The file-icon registry (feature `fileIcons`) shares this listener set: an
   // icon registration re-renders the mounted tree rows the way a tab/viewer

@@ -130,6 +130,7 @@ import { buildZip, crc32, contentDisposition, archiveNameFor, normalizeEntryPath
 import { applySelection, pruneSelection, selectAll, EMPTY_SELECTION } from './file-selection.mjs'
 import { nativeAppTargets, resolveOpenWithTargets } from './open-with.mjs'
 import { appCommand, appScanDirs } from './open-external.mjs'
+import { registerBatch, notifyIsolated } from './registration.mjs'
 import { spawnSync } from 'node:child_process'
 import {
   aheadBehind, branchRows, createBranch, currentBranch, deleteBranch,
@@ -2749,6 +2750,107 @@ console.log('[open-with native apps]')
   ok(appCommand('/usr/bin/code', '/w/f.ts', 'linux').args[0] === '/w/f.ts', 'Linux 直接以应用可执行文件启动')
   ok(appScanDirs('darwin', '/Users/x').includes('/Applications'), 'macOS 扫描 /Applications')
   ok(appScanDirs('linux', '/home/x').includes('/usr/share/applications'), 'Linux 扫描 desktop entries')
+}
+// ── 批量注册回滚（上游 v0.22.1 的"接管 id 孤儿化"同构守卫）──
+console.log('[registration rollback]')
+{
+  /** 假注册表：占 id、记事件，dispose 释放 id（可注入 dispose 抛错）。 */
+  const makeRegistry = (failOn) => {
+    const taken = new Set()
+    const events = []
+    const register = (id) => {
+      events.push(`register:${id}`)
+      if (id === failOn) throw new Error(`already registered: ${id}`)
+      if (taken.has(id)) throw new Error(`already registered: ${id}`)
+      taken.add(id)
+      return () => { taken.delete(id); events.push(`dispose:${id}`) }
+    }
+    return { taken, events, register }
+  }
+
+  // 正常路径：全部注册，dispose 逆序释放，且幂等
+  {
+    const reg = makeRegistry()
+    const dispose = registerBatch(['a', 'b', 'c'], reg.register)
+    ok(reg.taken.size === 3, '成功路径：全部 id 已占用')
+    dispose()
+    ok(reg.taken.size === 0, 'dispose 释放全部 id')
+    ok(reg.events.join(',') === 'register:a,register:b,register:c,dispose:c,dispose:b,dispose:a',
+      '释放顺序为 LIFO（后注册先释放）')
+    dispose()
+    ok(reg.events.filter(e => e.startsWith('dispose')).length === 3, 'dispose 幂等（第二次无动作）')
+  }
+
+  // 失败路径：中途抛错必须回滚已占用的 id，并原样抛出
+  {
+    const reg = makeRegistry('b')
+    let threw = false
+    try {
+      registerBatch(['a', 'b', 'c'], reg.register)
+    } catch (error) {
+      threw = /already registered/.test(String(error))
+    }
+    ok(threw, '失败原样抛出（调用方能感知）')
+    ok(reg.taken.size === 0, '失败后没有残留占用（这正是"孤儿化"要防的）')
+    ok(!reg.events.includes('register:c'), '失败点之后的条目不再尝试注册')
+    // 关键回归：回滚后重试整批必须成功（未修复时 id 已被永久占用）
+    const retry = makeRegistry()
+    const dispose = registerBatch(['a', 'b', 'c'], retry.register)
+    ok(retry.taken.size === 3, '回滚之后重试可以重新注册（id 未被永久占用）')
+    dispose()
+  }
+
+  // 回滚事件可观测（把行为钉在事件日志上）
+  {
+    const reg = makeRegistry('x')
+    const seen = []
+    try { registerBatch(['p', 'x'], reg.register, (e) => seen.push(`${e.type}:${e.item}:${e.reason}`)) } catch {}
+    ok(seen.join(',') === 'register:p:disposed,release:p:failed',
+      '事件日志：注册成功后失败触发 failed 释放')
+  }
+
+  // 单个 dispose 抛错不得拖住其余释放
+  {
+    const released = []
+    const dispose = registerBatch([1, 2, 3], (item) => () => {
+      released.push(item)
+      if (item === 2) throw new Error('dispose exploded')
+    })
+    dispose()
+    ok(released.length === 3 && released.join(',') === '3,2,1', '某个 dispose 抛错时其余仍按 LIFO 释放')
+  }
+
+  // 返回 void 的注册（无可释放资源）不应炸
+  {
+    let calls = 0
+    const dispose = registerBatch(['v'], () => { calls += 1 })
+    ok(calls === 1, 'register 返回 void 也可用')
+    dispose()
+    ok(true, 'void 注册的批处理可安全释放')
+  }
+
+  // 订阅者抛错不得打断"注册 + 通知"链路（否则 id 已占用而 disposer 丢失）
+  {
+    const ran = []
+    const errors = []
+    notifyIsolated([
+      () => { ran.push('first') },
+      () => { ran.push('boom'); throw new Error('listener exploded') },
+      () => { ran.push('third') },
+    ], (error) => { errors.push(String(error)) })
+    ok(ran.join(',') === 'first,boom,third', '一个订阅者抛错不跳过其余订阅者')
+    ok(errors.length === 1, '抛错被交给失败回调（不外溢）')
+    // 与注册连用：通知抛错也不该让注册"占了 id 却没有 disposer"
+    const reg = new Set()
+    const dispose = registerBatch(['t'], (id) => {
+      reg.add(id)
+      notifyIsolated([() => { throw new Error('boom') }], () => {})
+      return () => { reg.delete(id) }
+    })
+    ok(reg.has('t'), '通知阶段抛错后 id 仍正确占用')
+    dispose()
+    ok(!reg.has('t'), '且 disposer 依然能释放它（未变成孤儿 id）')
+  }
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

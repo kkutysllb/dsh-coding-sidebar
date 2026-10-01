@@ -16,6 +16,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { registerBatch } from './registration.ts'
 import type { Context } from './context-types.ts'
 import {
   AgentPtyRegistry,
@@ -86,9 +87,11 @@ export function registerTools(
   resolveCwd: (sessionId: string) => Promise<string>,
   readShellOverrides: () => { shell?: string; shellArgs?: string[] },
 ): () => void {
-  const disposers: Array<() => void> = []
+  // 八个工具一次性注册：中途失败（例如某个名字已被上一轮泄漏的注册占用）必须把
+  // 前面已注册的工具全部释放，否则下一次激活会一直 “already registered”。
+  const registered: Array<ReturnType<typeof defineTool>> = []
   const register = (tool: ReturnType<typeof defineTool>): void => {
-    disposers.push(ctx.tools.register(tool))
+    registered.push(tool)
   }
 
   register(defineTool({
@@ -494,7 +497,7 @@ export function registerTools(
     },
   }))
 
-  return () => {
-    for (const dispose of disposers) dispose()
-  }
+  // 到这里才真正落注册：任一步失败都会回滚前面已注册的工具（LIFO），
+  // 返回的 disposer 幂等，单个 dispose 抛错也不会拖住其余。
+  return registerBatch(registered, (tool) => ctx.tools.register(tool))
 }
