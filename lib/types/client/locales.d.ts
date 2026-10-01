@@ -352,6 +352,10 @@ export declare const zh: {
     subagentTreeView: string;
     subagentGraphFit: string;
     subagentGraphResetLayout: string;
+    subagentGraphArrange: string;
+    subagentGraphModeTree: string;
+    subagentGraphModeCompact: string;
+    subagentGraphModeGrid: string;
     subagentGraphZoomIn: string;
     subagentGraphZoomOut: string;
     subagentBadgeMain: string;

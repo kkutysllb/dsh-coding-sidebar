@@ -30,6 +30,7 @@ import {
   dragOffsets,
   hasOffsets,
   type NodeOffsets,
+  type TaskLayoutMode,
 } from './subagent-tasks-layout.ts'
 import type { LastActivity } from '../subagent-activity.ts'
 import { t } from './locales.ts'
@@ -57,6 +58,8 @@ interface CameraState {
  * with the mount. Bounded LRU-ish: the oldest root is dropped past the cap.
  */
 /** Manual node positions per tree root (survives 图/树 remounts like the camera). */
+/** Chosen arrangement per tree root (整理 modes survive remounts). */
+const modeByRoot = new Map<string, TaskLayoutMode>()
 const offsetsByRoot = new Map<string, NodeOffsets>()
 const OFFSETS_CACHE_MAX = 12
 const cameraByRoot = new Map<string, CameraState>()
@@ -139,7 +142,8 @@ export function WorkflowGraph(props: {
   /** 用户是否手动平移/缩放过：手动之后不再被自动适配抢走视图。 */
   const userAdjustedRef = useRef(readCamera(rootKey)?.userAdjusted ?? false)
   const [offsets, setOffsets] = useState<NodeOffsets>(() => readOffsets(rootKey))
-  const layout = useMemo(() => layoutTasksViewModel(model, offsets), [model, offsets])
+  const [mode, setMode] = useState<TaskLayoutMode>(() => modeByRoot.get(rootKey) ?? 'tree')
+  const layout = useMemo(() => layoutTasksViewModel(model, offsets, mode), [model, offsets, mode])
   /** A node drag in flight (separate from the canvas pan gesture). */
   const nodeDragRef = useRef<{
     nodeId: string
@@ -150,6 +154,8 @@ export function WorkflowGraph(props: {
     subtree: boolean
   } | null>(null)
   const [draggingNode, setDraggingNode] = useState<string | null>(null)
+  /** 整理后排布已变，等新布局落地再适配一次。 */
+  const pendingFitRef = useRef(false)
 
   /** Apply a camera change locally AND write it through to the per-root cache. */
   const commit = useCallback((next: { k: number; tx: number; ty: number }): void => {
@@ -339,6 +345,20 @@ export function WorkflowGraph(props: {
     writeOffsets(rootKey, {})
   }, [rootKey])
 
+  /**
+   * 整理：切换排布模式，并清掉手动偏移（否则旧偏移会把新排布又扯乱），
+   * 然后重新适配——一步把"卡片太多看不清"拉回一张整齐的图。
+   */
+  const arrange = useCallback((next: TaskLayoutMode): void => {
+    setMode(next)
+    modeByRoot.set(rootKey, next)
+    setOffsets({})
+    writeOffsets(rootKey, {})
+    // The layout for the new mode lands on the next render; fit in an effect
+    // below so it frames the NEW box rather than the old one.
+    pendingFitRef.current = true
+  }, [rootKey])
+
   const zoomBy = useCallback((factor: number): void => {
     userAdjustedRef.current = true
     const el = wrapRef.current
@@ -436,6 +456,22 @@ export function WorkflowGraph(props: {
       <div className={css.wfControls} onPointerDown={(event) => { event.stopPropagation() }}>
         <button type="button" aria-label={t('subagentGraphZoomIn')} onClick={() => { zoomBy(1.25) }}>＋</button>
         <button type="button" aria-label={t('subagentGraphZoomOut')} onClick={() => { zoomBy(0.8) }}>－</button>
+        <span className={css.wfModes} role="group" aria-label={t('subagentGraphArrange')}>
+          {([['tree', t('subagentGraphModeTree')], ['compact', t('subagentGraphModeCompact')],
+            ['grid', t('subagentGraphModeGrid')]] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              data-wf-mode={value}
+              aria-pressed={mode === value}
+              className={clsx(css.wfMode, mode === value && css.wfModeActive)}
+              title={t('subagentGraphArrange')}
+              onClick={() => { arrange(value) }}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
         <button type="button" aria-label={t('subagentGraphFit')} onClick={fit}>{t('subagentGraphFit')}</button>
         {hasOffsets(offsets) && (
           <button

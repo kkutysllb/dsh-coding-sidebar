@@ -752,3 +752,32 @@
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
+
+/* 整理模式芯片：树形 / 紧凑 / 网格（点一下=清手动布局并按该模式重排+适配） */
+.wfModes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.wfMode {
+  border: none;
+  border-radius: 6px;
+  background: none;
+  padding: 2px 6px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxxs-11);
+}
+
+.wfMode:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.wfModeActive {
+  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-strong-11);
+}

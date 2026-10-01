@@ -15,8 +15,20 @@ export declare const TASK_NODE_W = 208;
 export declare const TASK_NODE_TOP_H = 46;
 export declare const TASK_NODE_BAR_H = 20;
 export declare const TASK_NODE_H: number;
-/** Horizontal gap between sibling subtrees; vertical gap between depth rows. */
-export declare const TASK_H_GAP = 36;
+/**
+ * Arrangement modes (the 整理 control):
+ * - `tree` — the hierarchical default (parents centred over their subtrees);
+ * - `compact` — same hierarchy, tighter gaps, for deep trees on a narrow panel;
+ * - `grid` — depth rows packed into a column grid (wraps after
+ *   {@link GRID_MAX_COLS}), which is what makes a 30-subagent fan-out readable
+ *   instead of one endless strip.
+ */
+export type TaskLayoutMode = 'tree' | 'compact' | 'grid';
+/** Grid mode wraps a depth row after this many columns. */
+export declare const GRID_MAX_COLS = 6;
+/** Horizontal gap between sibling subtrees (tree mode; the default layout). */
+export declare const TASK_H_GAP_BASE: number;
+export declare const TASK_H_GAP: number;
 export declare const TASK_V_GAP = 64;
 /** One laid-out node: view-model node + its canvas rectangle. */
 export interface TaskNodeBox {
@@ -57,7 +69,7 @@ export interface TasksLayout {
  * @param model - the shared Tasks view model (pre-order nodes + childrenOf).
  * @returns node boxes, edge paths, and `width`/`height` of the content box.
  */
-export declare function layoutTasksViewModel(model: TasksViewModel, offsets?: NodeOffsets): TasksLayout;
+export declare function layoutTasksViewModel(model: TasksViewModel, offsets?: NodeOffsets, mode?: TaskLayoutMode): TasksLayout;
 /** Every id in one node's subtree (the node itself first). */
 export declare function subtreeIds(model: TasksViewModel, nodeId: string): string[];
 /**

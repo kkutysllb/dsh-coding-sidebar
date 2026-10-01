@@ -2860,7 +2860,7 @@ console.log('[node dragging offsets]')
     id, kind, parentId: parentId ?? '', depth: 1, label: id, secondary: '', running: false,
     current: false, address: undefined, entry: undefined, childCount: undefined, aggregateKey: undefined,
   })
-  const root = node('root', undefined, 'main')
+  const root = { ...node('root', undefined, 'main'), depth: 0 }
   const a = node('a', 'root')
   const a1 = node('a1', 'a')
   const b = node('b', 'root')
@@ -2910,6 +2910,35 @@ console.log('[node dragging offsets]')
 
   // 重置
   ok(hasOffsets({}) === false, '清空后不再有手动布局（重置按钮随之隐藏）')
+
+  // 整理模式：紧凑更小、网格折行、且不与手动偏移冲突
+  const wide = {
+    nodes: [root, ...Array.from({ length: 8 }, (_, i) => node(`c${i}`, 'root'))],
+    childrenOf: { root: Array.from({ length: 8 }, (_, i) => node(`c${i}`, 'root')), ...Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`c${i}`, []])) },
+    branchIds: [],
+  }
+  const treeMode = layoutTasksViewModel(wide, {}, 'tree')
+  const compactMode = layoutTasksViewModel(wide, {}, 'compact')
+  const gridMode = layoutTasksViewModel(wide, {}, 'grid')
+  const rows = (layout) => new Set(layout.nodes.map(box => box.y)).size
+  ok(rows(compactMode) === rows(treeMode), '紧凑模式深度行数不变（层级一致）')
+  ok(posOf(compactMode, 'c0').y < posOf(treeMode, 'c0').y, '紧凑模式行距更小（同样层级更矮）')
+  ok(compactMode.width < treeMode.width, '紧凑模式横向更省（间距更小）')
+  ok(gridMode.width < treeMode.width * 0.6, '网格模式把宽行折起来，横向明显更窄')
+  ok(rows(gridMode) > rows(treeMode), '网格模式把同一深度的宽行折成多行')
+  // 网格模式：任意两张卡片不重叠（排布可用性的硬约束）
+  let overlap = false
+  for (let i = 0; i < gridMode.nodes.length; i += 1) {
+    for (let j = i + 1; j < gridMode.nodes.length; j += 1) {
+      const a2 = gridMode.nodes[i], b2 = gridMode.nodes[j]
+      const hit = a2.x < b2.x + b2.w && b2.x < a2.x + a2.w && a2.y < b2.y + b2.h && b2.y < a2.y + a2.h
+      if (hit) overlap = true
+    }
+  }
+  ok(!overlap, '网格模式下没有重叠卡片')
+  ok(gridMode.edges.length === treeMode.edges.length, '换模式不丢连线（父子关系不变）')
+  const gridOffset = layoutTasksViewModel(wide, { c0: { x: 40, y: 20 } }, 'grid')
+  ok(posOf(gridOffset, 'c0').x === posOf(gridMode, 'c0').x + 40, '手动偏移在网格模式下同样生效')
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)

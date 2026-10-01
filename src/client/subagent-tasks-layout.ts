@@ -16,8 +16,29 @@ export const TASK_NODE_W = 208
 export const TASK_NODE_TOP_H = 46
 export const TASK_NODE_BAR_H = 20
 export const TASK_NODE_H = TASK_NODE_TOP_H + TASK_NODE_BAR_H
-/** Horizontal gap between sibling subtrees; vertical gap between depth rows. */
-export const TASK_H_GAP = 36
+/**
+ * Arrangement modes (the 整理 control):
+ * - `tree` — the hierarchical default (parents centred over their subtrees);
+ * - `compact` — same hierarchy, tighter gaps, for deep trees on a narrow panel;
+ * - `grid` — depth rows packed into a column grid (wraps after
+ *   {@link GRID_MAX_COLS}), which is what makes a 30-subagent fan-out readable
+ *   instead of one endless strip.
+ */
+export type TaskLayoutMode = 'tree' | 'compact' | 'grid'
+
+/** Per-mode gaps: horizontal between siblings / vertical between depth rows. */
+const MODE_GAPS: Record<TaskLayoutMode, { h: number; v: number }> = {
+  tree: { h: 36, v: 64 },
+  compact: { h: 14, v: 38 },
+  grid: { h: 10, v: 26 },
+}
+
+/** Grid mode wraps a depth row after this many columns. */
+export const GRID_MAX_COLS = 6
+
+/** Horizontal gap between sibling subtrees (tree mode; the default layout). */
+export const TASK_H_GAP_BASE = MODE_GAPS.tree.h
+export const TASK_H_GAP = TASK_H_GAP_BASE
 export const TASK_V_GAP = 64
 
 /** One laid-out node: view-model node + its canvas rectangle. */
@@ -64,11 +85,18 @@ export interface TasksLayout {
  * @param model - the shared Tasks view model (pre-order nodes + childrenOf).
  * @returns node boxes, edge paths, and `width`/`height` of the content box.
  */
-export function layoutTasksViewModel(model: TasksViewModel, offsets: NodeOffsets = {}): TasksLayout {
+export function layoutTasksViewModel(
+  model: TasksViewModel,
+  offsets: NodeOffsets = {},
+  mode: TaskLayoutMode = 'tree',
+): TasksLayout {
   const nodes: TaskNodeBox[] = []
   const edges: TaskEdgePath[] = []
   const boxOf = new Map<string, TaskNodeBox>()
   let maxDepth = 0
+  const gaps = MODE_GAPS[mode]
+  const TASK_V_GAP = gaps.v
+  const TASK_H_GAP = mode === 'tree' ? TASK_H_GAP_BASE : gaps.h
 
   /** Place one subtree at `offsetX`; returns the width it occupies. */
   const placeAt = (node: TaskNodeVM, depth: number, offsetX: number): number => {
@@ -112,7 +140,39 @@ export function layoutTasksViewModel(model: TasksViewModel, offsets: NodeOffsets
 
   const rootNode = model.nodes[0]
   let width = TASK_NODE_W
-  if (rootNode !== undefined) {
+  if (mode === 'grid') {
+    // Depth rows, wrapped into a column grid: dense and predictable, at the
+    // cost of parent centring (edges still connect the same pairs).
+    const byDepth = new Map<number, TaskNodeVM[]>()
+    for (const node of model.nodes) {
+      const depth = node.depth ?? 0
+      const row = byDepth.get(depth)
+      if (row === undefined) byDepth.set(depth, [node])
+      else row.push(node)
+    }
+    let cursorY = 0
+    for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
+      const row = byDepth.get(depth) ?? []
+      const cols = Math.min(GRID_MAX_COLS, Math.max(1, row.length))
+      const rowWidth = cols * TASK_NODE_W + (cols - 1) * TASK_H_GAP
+      row.forEach((node, index) => {
+        const col = index % cols
+        const line = Math.floor(index / cols)
+        const box = {
+          node,
+          x: col * (TASK_NODE_W + TASK_H_GAP),
+          y: cursorY + line * (TASK_NODE_H + TASK_V_GAP),
+          w: TASK_NODE_W,
+          h: TASK_NODE_H,
+        }
+        nodes.push(box)
+        boxOf.set(node.id, box)
+      })
+      width = Math.max(width, rowWidth)
+      cursorY += Math.ceil(row.length / cols) * (TASK_NODE_H + TASK_V_GAP)
+      maxDepth = Math.max(maxDepth, depth)
+    }
+  } else if (rootNode !== undefined) {
     const roots = model.childrenOf[rootNode.id] ?? []
     let span = 0
     for (const kid of roots) span += measure(kid.id) + TASK_H_GAP
