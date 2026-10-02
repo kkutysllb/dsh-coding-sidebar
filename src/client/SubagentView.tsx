@@ -639,7 +639,9 @@ function JobOutputPane(props: {
         <>
           {state.text.length > 0
             ? <pre ref={preRef} className={css.jobsPanePre}>{state.text}</pre>
-            : state.read
+            // 'live' 是作业真实输出（与模型是否读过无关）：空就是真的还没输出，
+            // 不能说成"等待模型读取"。
+            : state.source === 'live' || state.read
               ? <div className={css.jobsPaneHint}>{t('jobNoOutput')}</div>
               : <div className={css.jobsPaneHint}>{t('jobNotReadYet')}</div>}
           {state.truncated && <div className={css.jobsPaneHint}>{t('jobOutputTruncated')}</div>}

@@ -15,7 +15,10 @@
  *   rehydration boundary), the plugin ALSO mirrors job_output events from
  *   the live `session/event` feed and merges both sources (deduped by seq).
  *   This touches NO DSH source: the model's `job_output` cursor is never
- *   consumed, and the pane stays empty until the agent reads the job.
+ *   consumed. 1.0.37 ALSO reads the registry's retained ring first (see
+ *   {@link readRetainedOutput}), so the pane shows what the job actually
+ *   printed; the replay stays as the fallback for a job whose record is
+ *   gone (settled + torn down).
  * - 'jobs.kill' — the registry's stock `kill` (a pristine DSH API),
  *   fenced by the owning session via the live agent caller. Absent registry
  *   → 503, mirroring the settings routes' optional-service downgrade.
@@ -23,11 +26,16 @@
 import type { Context } from './context-types.ts';
 /** The two background-job routes of the sidebar API. */
 export interface SidebarJobsRoutes {
-    /** The output the model has read so far for one job (event replay, capped). */
+    /**
+     * One job's output, capped. `source` says where it came from:
+     * `live` = the registry's retained output (what the job actually wrote),
+     * `replay` = the model-read event replay (the legacy fallback).
+     */
     output(payload: unknown): {
         text: string;
         truncated: boolean;
         read: boolean;
+        source: 'live' | 'replay';
     };
     /** Request cancellation of one job (live jobs flip to stopping). */
     kill(payload: unknown): {

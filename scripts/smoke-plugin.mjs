@@ -157,6 +157,30 @@ check(
 // lib/client-trajectory.js（同 terminal/editor 的机制）。
 check('轨迹图视图走懒加载分包', existsSync(join(packageRoot, 'lib', 'client-trajectory.js')))
 
+/* ── 版本新鲜度：产物里烘焙的服务版本必须等于 package.json ──
+ * tsdown 把 `__SIDEBAR_VERSION__` 从 package.json 注入客户端分包（capability
+ * gating 的单一真源）。因此"改版本号"必须配套"重新构建"——v1.0.37 发布时正是
+ * 先构建后改号，导致提交的产物仍写着上一版（check:artifacts 抓到，但没有更早、
+ * 更直白的防线）。这条闸把两者不一致直接变红。 */
+{
+  const baked = ['client.js', 'client-registry.js']
+    .filter(file => existsSync(join(packageRoot, 'lib', file)))
+    .map(file => {
+      const text = readFileSync(join(packageRoot, 'lib', file), 'utf8')
+      return { file, version: /SIDEBAR_SERVICE_VERSION = "([^"]+)"/.exec(text)?.[1] }
+    })
+  const mismatched = baked.filter(entry => entry.version !== pkg.version)
+  check(
+    `产物烘焙版本 = package.json (${pkg.version})`,
+    baked.length > 0 && mismatched.length === 0,
+    mismatched.length > 0
+      ? `改版本号后未重建：${mismatched.map(e => `${e.file} 写着 ${e.version}`).join('；')} ⇒ 跑一次 pnpm build 再提交`
+      : baked.length === 0
+        ? '未在产物中找到 SIDEBAR_SERVICE_VERSION（注入点是否被移除？）'
+        : `${baked.map(e => e.file).join(' + ')} = ${pkg.version}`,
+  )
+}
+
 // Office 三件套 + 视频预览自 1.0.15 起为内置 viewer（收编了两个衍生插件）：
 // 描述符留在核心包（匹配语义/设置清单照常），重型渲染库（docx-preview /
 // Univer+SheetJS / pptx-renderer，约 22MB）走 office 懒加载分包，首屏不为它变胖。

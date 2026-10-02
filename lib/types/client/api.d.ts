@@ -193,6 +193,8 @@ export interface JobOutputResult {
     truncated: boolean;
     /** Whether the model has read the job at least once. */
     read: boolean;
+    /** 'live' = 作业真实保留输出；'replay' = 模型已读内容的回放。 */
+    source?: 'live' | 'replay';
 }
 /** The `subagents.live` response: running child id → latest activity. */
 export type SubagentLiveResult = {

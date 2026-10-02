@@ -225,6 +225,23 @@ export interface SidebarJobView {
   finishedAt?: number
 }
 
+/** One job's retained-output counters (byte offsets into the ring). */
+export interface SidebarJobOutputMeta {
+  /** Oldest byte offset still retained. */
+  earliest?: number
+  /** Total bytes the job has written. */
+  total?: number
+}
+
+/** One retained output chunk as the ring stores it. */
+export interface SidebarJobOutputChunk {
+  readonly text?: string
+  /** 'stdout' | 'stderr' (the sidebar shows both in ring order). */
+  readonly channel?: string
+  /** Absolute byte offset of the chunk's first byte. */
+  readonly at?: number
+}
+
 /** The host jobs registry face the sidebar routes touch (structural mirror of `JobRegistry`). */
 export interface SidebarJobsService {
   /**
@@ -234,6 +251,24 @@ export interface SidebarJobsService {
    * 会话归属比对，传 Agent 会被判外来。
    */
   kill(id: string, caller?: string, reason?: string): 'requested' | 'already-finished'
+  /**
+   * Look one job up inside a session's visible set (throws for unknown/foreign).
+   * The retained-output counters ride on `output`.
+   */
+  get?(id: string, sessionId?: string): { output?: SidebarJobOutputMeta } | undefined
+  /**
+   * Read retained output from an absolute byte offset — the NON-consuming
+   * projection the harness's own `job.follow` stream reads (the model's
+   * `job_output` cursor and notice state never see it). Reading below
+   * `output.earliest` resumes evicted data and comes back `lossy`.
+   */
+  readAt?(id: string, from: number, sessionId?: string): {
+    chunks?: readonly SidebarJobOutputChunk[]
+    /** Cursor for the next read (== the byte after the last returned chunk). */
+    next?: number
+    /** The requested offset was evicted: the read resumed later than asked. */
+    lossy?: boolean
+  } | undefined
 }
 
 /** The host agent registry face (structural mirror of the runtime `ctx.agents`). */

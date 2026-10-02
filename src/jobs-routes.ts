@@ -15,18 +15,31 @@
  *   rehydration boundary), the plugin ALSO mirrors job_output events from
  *   the live `session/event` feed and merges both sources (deduped by seq).
  *   This touches NO DSH source: the model's `job_output` cursor is never
- *   consumed, and the pane stays empty until the agent reads the job.
+ *   consumed. 1.0.37 ALSO reads the registry's retained ring first (see
+ *   {@link readRetainedOutput}), so the pane shows what the job actually
+ *   printed; the replay stays as the fallback for a job whose record is
+ *   gone (settled + torn down).
  * - 'jobs.kill' — the registry's stock `kill` (a pristine DSH API),
  *   fenced by the owning session via the live agent caller. Absent registry
  *   → 503, mirroring the settings routes' optional-service downgrade.
  */
 import type { Context, SidebarSessionEvent } from './context-types.ts'
 import { requireString, SidebarError } from './wire.ts'
+import { readRetainedOutput } from './job-retained-output.ts'
 
 /** The two background-job routes of the sidebar API. */
 export interface SidebarJobsRoutes {
-  /** The output the model has read so far for one job (event replay, capped). */
-  output(payload: unknown): { text: string; truncated: boolean; read: boolean }
+  /**
+   * One job's output, capped. `source` says where it came from:
+   * `live` = the registry's retained output (what the job actually wrote),
+   * `replay` = the model-read event replay (the legacy fallback).
+   */
+  output(payload: unknown): {
+    text: string
+    truncated: boolean
+    read: boolean
+    source: 'live' | 'replay'
+  }
   /** Request cancellation of one job (live jobs flip to stopping). */
   kill(payload: unknown): { ok: true; outcome: 'requested' | 'already-finished' }
 }
@@ -212,6 +225,23 @@ export function buildJobsApi(ctx: Context, outputLimit: number): SidebarJobsRout
     output(payload) {
       const sessionId = requireString(payload, 'sessionId')
       const id = requireString(payload, 'id')
+      // Preferred source: the registry's retained output — what the job wrote,
+      // regardless of whether the model ever read it. Empty text is still a
+      // valid answer (a job that has not printed anything yet) and must not
+      // fall through to the model-read replay, which would say "not read yet".
+      const retained = readRetainedOutput(jobs, id, sessionId)
+      if (retained !== undefined) {
+        const capped = retained.text.length > outputLimit
+          ? retained.text.slice(retained.text.length - outputLimit)
+          : retained.text
+        return {
+          text: capped,
+          truncated: retained.truncated || retained.text.length > outputLimit,
+          read: false,
+          source: 'live',
+        }
+      }
+      // Fallback: the model-read event replay (legacy hosts / torn-down jobs).
       // Merge the store's event log (durable seed + whatever it received)
       // with the live mirror, deduped by seq — a trace never double-counts.
       const bySeq = new Map<number, JobOutputTrace>()
@@ -240,6 +270,7 @@ export function buildJobsApi(ctx: Context, outputLimit: number): SidebarJobsRout
         text: text.length > outputLimit ? text.slice(0, outputLimit) : text,
         truncated: text.length > outputLimit,
         read,
+        source: 'replay',
       }
     },
     kill(payload) {

@@ -127,6 +127,7 @@ import { mergedActivity, lastActivity } from './subagent-activity.mjs'
 import { clampPane, defaultPaneRect, resizePane, PANE_MIN_W, PANE_MIN_H } from './floating-geometry.mjs'
 import { buildChangesTree, flattenChangesTree, collectDirectoryPaths, countFiles } from './changes-tree.mjs'
 import { dragOffsets, hasOffsets, subtreeIds } from './subagent-tasks-layout.mjs'
+import { RETAINED_READ_BYTES, readRetainedOutput } from './job-retained-output.mjs'
 import { buildZip, crc32, contentDisposition, archiveNameFor, normalizeEntryPath, ZIP_MAX_ENTRIES } from './zip.mjs'
 import { applySelection, pruneSelection, selectAll, EMPTY_SELECTION } from './file-selection.mjs'
 import { nativeAppTargets, resolveOpenWithTargets } from './open-with.mjs'
@@ -2939,6 +2940,48 @@ console.log('[node dragging offsets]')
   ok(gridMode.edges.length === treeMode.edges.length, '换模式不丢连线（父子关系不变）')
   const gridOffset = layoutTasksViewModel(wide, { c0: { x: 40, y: 20 } }, 'grid')
   ok(posOf(gridOffset, 'c0').x === posOf(gridMode, 'c0').x + 40, '手动偏移在网格模式下同样生效')
+}
+// ── 作业保留输出读取（浮动面板的数据源）──
+console.log('[job retained output]')
+{
+  const chunkAt = (at, text, channel = 'stdout') => ({ at, text, channel })
+  const stub = (meta, chunks, opts = {}) => ({
+    get: () => (opts.getThrows ? (() => { throw new Error('unknown job') })() : { output: meta }),
+    readAt: (_id, from) => {
+      // 记录读起点（调用方未提供 opts 时不要炸——那会被模块的 catch 吞成 undefined，
+      // 让"桩自己抛错"伪装成"读失败"，这正是本测试第一版的假失败）。
+      opts.reads?.push(from)
+      if (opts.readThrows) throw new Error('unknown job')
+      return { chunks, next: from + chunks.reduce((n, c) => n + c.text.length, 0), lossy: opts.lossy }
+    },
+  })
+
+  // 基本：读整圈
+  const reads = []
+  const full = readRetainedOutput(stub({ earliest: 0, total: 12 }, [chunkAt(0, 'hello '), chunkAt(6, 'world\n')], { reads }), 'j1', 's1')
+  ok(full.text === 'hello world\n', '拼接保留输出')
+  ok(full.truncated === false, '未越窗时不算截断')
+  ok(full.total === 12, '带回总字节数')
+  ok(reads[0] === 0, 'total 小于窗口时从 earliest 读起')
+
+  // 长输出：只读最新窗口，并从尾部截断
+  const big = readRetainedOutput(stub({ earliest: 0, total: RETAINED_READ_BYTES * 3 }, [chunkAt(0, 'tail-bytes')]), 'j2', 's2')
+  ok(big.text === 'tail-bytes', '长输出只取窗口内内容')
+  ok(big.truncated === true, '跳过了更早的字节 ⇒ 标记截断')
+
+  // 环被回收（读低于 earliest）：lossy ⇒ 截断
+  const lossy = readRetainedOutput(stub({ earliest: 100, total: 140 }, [chunkAt(100, 'b'.repeat(40))], { lossy: true }), 'j3', 's3')
+  ok(lossy.text === 'b'.repeat(40) && lossy.truncated === true, 'lossy 读标记为截断')
+
+  // 还没输出：空文本但不是错误
+  const empty = readRetainedOutput(stub({ earliest: 0, total: 0 }, []), 'j4', 's4')
+  ok(empty.text === '' && empty.truncated === false, '尚未输出 ⇒ 空文本且不标记截断')
+
+  // 作业记录已消失 / 注册表缺读接口 / 外来会话：一律 undefined（调用方回落回放）
+  ok(readRetainedOutput(stub({}, [], { getThrows: true }), 'j5', 's5') === undefined, 'get 抛错（记录已回收）⇒ undefined')
+  ok(readRetainedOutput(stub({}, [], { readThrows: true }), 'j6', 's6') === undefined, 'readAt 抛错 ⇒ undefined')
+  ok(readRetainedOutput({ kill: () => 'requested' }, 'j7', 's7') === undefined, '注册表无读接口 ⇒ undefined')
+  ok(readRetainedOutput(undefined, 'j8', 's8') === undefined, '无注册表 ⇒ undefined')
 }
 console.log(failed === 0 ? 'ALL PASS' : `FAILED (${failed})`)
 process.exit(failed === 0 ? 0 : 1)
