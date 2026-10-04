@@ -55,6 +55,20 @@ export interface SidebarTab {
         homeCwd?: string;
     };
 }
+/**
+ * The editor tab type's `dedupeKey` (1.0.38) — editor tabs dedupe PER PATH,
+ * except that every PATH-LESS editor tab is the one files window
+ * (`makeDefaultState`'s seed; the reveal flow re-opens it through
+ * `openTab({type:'editor'})` with no path, and its id differs from the minted
+ * `tab:N` seed id).
+ *
+ * Returning `''` instead of `undefined` for path-less tabs is the whole point:
+ * `applyDedupe` skips dedup entirely when a descriptor's key is `undefined`
+ * (service.ts: `if (key !== undefined)`), so `(tab) => tab.path` used to open
+ * a SECOND files window — one titled by the seed, one by the caller — instead
+ * of focusing the single-instance home tab the descriptor documents.
+ */
+export declare function editorTabKey(tab: SidebarTab): string;
 /** A tab group. */
 export interface SidebarLeaf {
     kind: 'leaf';

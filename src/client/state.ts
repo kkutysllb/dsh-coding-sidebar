@@ -11,6 +11,7 @@
  */
 import { SIDEBAR_PREFS_DEFAULTS, type SidebarPrefs } from '../prefs-shared.ts'
 import { isNarrowWidth } from './breakpoints.ts'
+import { t } from './locales.ts'
 
 /**
  * Tab type identifier. Builtins register their ids (editor / git / terminal
@@ -43,6 +44,23 @@ export interface SidebarTab {
    *  snapshot at pin time — a `workspace`-scoped pin is only visible to
    *  sessions whose cwd matches it. Absent = unpinned (legacy states). */
   pin?: { scope: 'workspace' | 'global'; homeCwd?: string }
+}
+
+/**
+ * The editor tab type's `dedupeKey` (1.0.38) — editor tabs dedupe PER PATH,
+ * except that every PATH-LESS editor tab is the one files window
+ * (`makeDefaultState`'s seed; the reveal flow re-opens it through
+ * `openTab({type:'editor'})` with no path, and its id differs from the minted
+ * `tab:N` seed id).
+ *
+ * Returning `''` instead of `undefined` for path-less tabs is the whole point:
+ * `applyDedupe` skips dedup entirely when a descriptor's key is `undefined`
+ * (service.ts: `if (key !== undefined)`), so `(tab) => tab.path` used to open
+ * a SECOND files window — one titled by the seed, one by the caller — instead
+ * of focusing the single-instance home tab the descriptor documents.
+ */
+export function editorTabKey(tab: SidebarTab): string {
+  return tab.path ?? ''
 }
 
 /** A tab group. */
@@ -204,7 +222,10 @@ export function makeDefaultState(width = PANEL_DEFAULT, panelOpen = true, seed: 
   if (seed === 'editor-home') {
     // No path: the editor host renders its empty-state hint and the docked
     // tree panel (treeOpen defaults open for path-less tabs; meta pins it).
-    leaf.tabs = [{ id: uid('tab'), type: 'editor', title: 'Files', meta: { treeOpen: true } }]
+    // The title is LOCALIZED (1.0.38): a hardcoded 'Files' here showed an
+    // English tab inside the Chinese UI until some other open path happened
+    // to re-title the window (the reveal flow passes `t('files')`).
+    leaf.tabs = [{ id: uid('tab'), type: 'editor', title: t('files'), meta: { treeOpen: true } }]
     leaf.active = leaf.tabs[0]!.id
   }
   return {
@@ -1245,16 +1266,25 @@ function sanitizePersistedTab(tab: unknown): SidebarTab | 'diff' | undefined {
     const meta = candidate.meta !== null && typeof candidate.meta === 'object' && !Array.isArray(candidate.meta)
       ? candidate.meta as Record<string, unknown>
       : undefined
-    return { id: candidate.id, type: 'editor', title: 'Files', meta: { treeOpen: true, ...meta } }
+    return { id: candidate.id, type: 'editor', title: t('files'), meta: { treeOpen: true, ...meta } }
   }
   // `meta` is plugin-owned JSON-serializable state (v0.12.0+): the persisted
   // value already went through JSON.parse, so it is inherently serializable —
   // carry it through verbatim (absent on older states).
+  const path = typeof candidate.path === 'string' ? candidate.path : undefined
+  // 1.0.38: a PATH-LESS editor tab IS the single files window (see
+  // `makeDefaultState`), so its tab title is derived UI copy, not user data —
+  // re-derive it on every load. Without this a state persisted in one
+  // language keeps that language forever: the title is a STORED field
+  // (`TabBar` renders `tab.title` verbatim) and a locale switch only
+  // re-renders, it never rewrites stored titles. This also heals states
+  // written by pre-1.0.38 builds (which stored the hardcoded 'Files').
+  // Tabs that carry a path keep their title — a file name is data.
   const result: SidebarTab = {
     id: candidate.id,
     type: candidate.type,
-    title: candidate.title,
-    ...(typeof candidate.path === 'string' ? { path: candidate.path } : {}),
+    title: candidate.type === 'editor' && path === undefined ? t('files') : candidate.title,
+    ...(path !== undefined ? { path } : {}),
     ...(candidate.meta !== undefined ? { meta: candidate.meta } : {}),
   }
   // `pin` (v0.17.0+): a pinned-terminal marker. Whitelist-validate the

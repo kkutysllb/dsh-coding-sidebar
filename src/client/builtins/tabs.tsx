@@ -13,7 +13,7 @@ import {
   browserTabIcon, changesTabIcon, filesTabIcon, plansTabIcon, sidechatTabIcon, tasksTabIcon,
   teamTabIcon, terminalTabIcon, trajectoryTabIcon,
 } from './tab-icons.tsx'
-import { allLeaves, isAgentTabId, type SidebarState } from '../state.ts'
+import { allLeaves, editorTabKey, isAgentTabId, type SidebarState } from '../state.ts'
 import { t } from '../locales.ts'
 import { openSidebarFile } from '../intercept.tsx'
 import { EditorHost } from '../EditorHost.tsx'
@@ -113,7 +113,11 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
       icon: filesTabIcon,
       order: 10,
       hidden: false,
-      dedupeKey: (tab) => tab.path,
+      // Per-path windows, EXCEPT that every path-less editor tab is the one
+      // files window (1.0.38 — `editorTabKey` returns '' instead of
+      // undefined there; undefined skipped dedup entirely and let a second
+      // files window open next to the seed).
+      dedupeKey: editorTabKey,
       // Declarative settings: the file-open behavior picker (in-place switch
       // vs per-path windows) renders as an iconed select row under the
       // editor card's gear in the Side card settings page; the "open with"
