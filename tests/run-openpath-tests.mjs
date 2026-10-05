@@ -27,8 +27,11 @@
  *   ./node_modules/.bin/tsc src/client/openpath-intercept.ts src/client/deliveries.ts \
  *     src/client/file-icon-registry.ts src/client/trajectory-graph.ts \
  *     src/client/trajectory-layout.ts src/client/trajectory-source.ts \
+ *     src/client/review-address.ts \
  *     --target es2022 --module esnext --skipLibCheck --outDir /tmp/csb-tr
- *   cp /tmp/csb-tr/openpath-intercept.js tests/openpath-intercept.mjs
+ *   sed "s#'./review-address.ts'#'./review-address.mjs'#" /tmp/csb-tr/openpath-intercept.js \
+ *     > tests/openpath-intercept.mjs
+ *   cp /tmp/csb-tr/review-address.js tests/review-address.mjs
  *   cp /tmp/csb-tr/deliveries.js tests/deliveries.mjs
  *   cp /tmp/csb-tr/file-icon-registry.js tests/file-icon-registry.mjs
  *   cp /tmp/csb-tr/trajectory-graph.js tests/trajectory-graph.mjs
@@ -78,9 +81,13 @@
  *   cp /tmp/csb-li/link-intercept.js tests/link-intercept.mjs
  * （不用 Node 的类型擦除直读 .ts：package.json 声明 engines.node >= 20，
  *   而 .ts 直读要 22.6+。github.ts 的夹具要改一处 import 说明符，
- *   因为它运行时依赖同目录的 git 模块。）
+ *   因为它运行时依赖同目录的 git 模块。openpath-intercept 自 2026-10-05 起
+ *   同样如此——它运行时 import 了 changes-review 地址语法的 review-address.ts，
+ *   所以那次 tsc 调用会打印 TS5097（CLI 形态没开 allowImportingTsExtensions）
+ *   但仍照常产出 JS，夹具用上面的 sed 把说明符改写成 .mjs。）
  */
 import { fileTargetOfAddress, isFolderRevealPath, wrapOpenPath, wrapRemoteOpenPath, wrapSidebarRight, wrapNativeBrowserOpen, browserUrlOfOpen } from './openpath-intercept.mjs'
+import { changesSummaryUrl, parseChangesReviewAddress, reviewIndexFromOptions, reviewedPath } from './review-address.mjs'
 import { BrowserNavigation, MAX_BROWSER_HISTORY, restoreBrowserTabState } from './browser-nav.mjs'
 import { normalizeBrowserUrl } from './browser-url.mjs'
 import { registerLinkInterception, shouldInterceptLink } from './link-intercept.mjs'
@@ -163,7 +170,7 @@ function makeFakeSession(originalImpl) {
 }
 
 function makeDeps(overrides = {}) {
-  const calls = { sidebar: [], reveal: [] }
+  const calls = { sidebar: [], reveal: [], review: [] }
   return {
     calls,
     deps: {
@@ -171,6 +178,14 @@ function makeDeps(overrides = {}) {
       currentSessionId: () => 'sessionId' in overrides ? overrides.sessionId : 'sess-1',
       openInSidebar: (path, sessionId) => { calls.sidebar.push([path, sessionId]) },
       revealInExplorer: (path, sessionId) => { calls.reveal.push([path, sessionId]) },
+      // `review: false` models a client half that wired no claim at all;
+      // `review: 'decline'` models one whose claim refuses this address.
+      ...(overrides.review === false ? {} : {
+        openReview: (coordinates, index) => {
+          calls.review.push([coordinates, index])
+          return overrides.review !== 'decline'
+        },
+      }),
     },
   }
 }
@@ -421,6 +436,131 @@ console.log('[wrapSidebarRight]')
     ok(typeof dispose === 'function', '方法缺席 → no-op disposer')
     dispose()
   }
+
+  // 11) 变更审查地址 → 认领（原生命令不触）；坐标与原地址逐字一致、index 取自 params
+  {
+    const { right, seen } = makeRight()
+    const { deps, calls } = makeDeps()
+    const dispose = wrapSidebarRight(right, deps)
+    right.openResource('dsh-resource://changes-review/session/sess-FORK/42/7', { params: { index: 3 } })
+    // Destructured defensively: a claim that never fires must read as FAIL
+    // below, not throw and take every later assertion in the file with it.
+    const [first] = calls.review
+    const coordinates = first?.[0]
+    const index = first?.[1]
+    ok(calls.review.length === 1 && coordinates?.sessionId === 'sess-FORK' && coordinates?.seq === 42
+      && coordinates?.turn === 7 && index === 3, 'changes-review 地址 → openReview(坐标, index)')
+    ok(seen.length === 0 && calls.sidebar.length === 0, '认领审查地址时不触 original、不当文件打开')
+    dispose()
+  }
+
+  // 12) 未接线 openReview（旧客户端半）→ 穿透，行为与本次改动前一致
+  {
+    const { right, seen } = makeRight()
+    const { deps, calls } = makeDeps({ review: false })
+    const dispose = wrapSidebarRight(right, deps)
+    right.openResource('dsh-resource://changes-review/session/s1/42/7', { params: { index: 0 } })
+    ok(seen.length === 1 && calls.sidebar.length === 0 && calls.reveal.length === 0,
+      'openReview 未接线 → 穿透 original')
+    dispose()
+  }
+
+  // 13) 认领方拒绝（返回 false）→ 仍穿透，不吞掉调用方的请求
+  {
+    const { right, seen } = makeRight()
+    const { deps } = makeDeps({ review: 'decline' })
+    const dispose = wrapSidebarRight(right, deps)
+    right.openResource('dsh-resource://changes-review/session/s1/42/7')
+    ok(seen.length === 1, 'openReview 拒绝 → 穿透 original')
+    dispose()
+  }
+
+  // 14) 点名 kind / takeover off → 审查地址同样不抢
+  {
+    const { right, seen } = makeRight()
+    const { deps } = makeDeps()
+    const dispose = wrapSidebarRight(right, deps)
+    right.openResource('dsh-resource://changes-review/session/s1/42/7', { kind: 'changes-review' })
+    ok(seen.length === 1, 'options.kind 存在 → 审查地址也穿透')
+    dispose()
+  }
+  {
+    const { right, seen } = makeRight()
+    const { deps } = makeDeps({ enabled: false })
+    const dispose = wrapSidebarRight(right, deps)
+    right.openResource('dsh-resource://changes-review/session/s1/42/7')
+    ok(seen.length === 1, 'takeover off → 审查地址穿透')
+    dispose()
+  }
+
+  // 15) 回归：审查地址的认领不改变 file 家族的三条既有行为
+  {
+    const { right } = makeRight()
+    const { deps, calls } = makeDeps()
+    const dispose = wrapSidebarRight(right, deps)
+    right.openResource('dsh-resource://file/session/sess-FORK/src/a.ts')
+    right.openResource('dsh-resource://file/absolute/w/repo/src/b.ts')
+    right.openResource('dsh-resource://file/session/sess-1/')
+    ok(calls.sidebar.length === 2 && calls.reveal.length === 1 && calls.review.length === 0,
+      'file 家族：两条进编辑器、根地址进 explorer、零次误入审查认领')
+    dispose()
+  }
+}
+
+// ── changes-review 地址语法（原生审查手势的接管契约）───────────
+console.log('[changes-review 地址]')
+{
+  const full = parseChangesReviewAddress('dsh-resource://changes-review/session/sess-1/42/7')
+  ok(full?.sessionId === 'sess-1' && full.seq === 42 && full.turn === 7, '完整地址 → {sessionId, seq, turn}')
+
+  // 上游 builder 不带守卫地插值 turn：手搓地址里的 "undefined" 必须被丢掉，不能当 0/NaN 带上
+  const noTurn = parseChangesReviewAddress('dsh-resource://changes-review/session/s1/42/undefined')
+  ok(noTurn !== undefined && noTurn.seq === 42 && noTurn.turn === undefined, 'turn=undefined 字面量 → turn 缺席')
+
+  const encoded = parseChangesReviewAddress('dsh-resource://changes-review/session/sess%2Fwith%20space/7/1')
+  ok(encoded?.sessionId === 'sess/with space', 'Session id 百分号解码')
+
+  ok(parseChangesReviewAddress('qilin-resource://changes-review/session/s1/42/7')?.seq === 42,
+    'QiLin 通道改名的 scheme 同样认领')
+
+  const withQuery = parseChangesReviewAddress('dsh-resource://changes-review/session/s1/42/7?x=1#frag')
+  ok(withQuery?.seq === 42 && withQuery.turn === 7, '查询串/片段后缀被忽略')
+
+  // 反例：任何一条都不许猜
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/session/s1') === undefined, '缺 seq → 拒绝')
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/session//42/7') === undefined, '空 Session id → 拒绝')
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/session/s1/abc/7') === undefined, 'seq 非数字 → 拒绝')
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/session/s1/-1/7') === undefined, 'seq 负数 → 拒绝')
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/session/s1/1.5/7') === undefined, 'seq 非整数 → 拒绝')
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/session/s1/%E0%A4%A/7') === undefined,
+    '坏百分号转义 → 拒绝（不抛）')
+  ok(parseChangesReviewAddress('dsh-resource://file/session/s1/a.ts') === undefined, 'file 地址 → 不是审查地址')
+  ok(parseChangesReviewAddress('dsh-resource://changes-review/absolute/42') === undefined, '非 session 作用域 → 拒绝')
+  ok(parseChangesReviewAddress(undefined) === undefined && parseChangesReviewAddress(42) === undefined,
+    '非字符串 → 拒绝')
+
+  // params.index：调用方点的行号；任何不合规形态都当"没点名"
+  ok(reviewIndexFromOptions({ params: { index: 3 } }) === 3, 'params.index 数字 → 透传')
+  ok(reviewIndexFromOptions({ params: { index: '3' } }) === undefined, 'params.index 字符串 → 拒绝')
+  ok(reviewIndexFromOptions({ params: { index: -1 } }) === undefined, 'params.index 负数 → 拒绝')
+  ok(reviewIndexFromOptions({ params: {} }) === undefined && reviewIndexFromOptions({}) === undefined
+    && reviewIndexFromOptions(undefined) === undefined, '无 params / 无 index → undefined')
+
+  // 摘要取值：结构不可信，任何一条不成立都不猜路径
+  const summary = { turn: 7, files: [{ path: 'src/a.ts' }, { path: 'README.md' }] }
+  ok(reviewedPath(summary, 1) === 'README.md', '按 index 取该行文件')
+  ok(reviewedPath(summary, 9) === 'src/a.ts', 'index 越界 → 退回首个文件（与原生审查页签同默认）')
+  ok(reviewedPath(summary, undefined) === 'src/a.ts', '未点名 index → 首个文件')
+  ok(reviewedPath({ files: [] }, 0) === undefined, '空 files → undefined')
+  ok(reviewedPath({ files: [{ display: 'x' }] }, 0) === undefined, '行内无 path → undefined')
+  ok(reviewedPath({ files: [{ path: '' }] }, 0) === undefined, '空 path → undefined')
+  ok(reviewedPath(null, 0) === undefined && reviewedPath('nope', 0) === undefined, '摘要非对象 → undefined')
+
+  // 路由形态：必须与运行时 changesSummaryUrl 逐字一致（文档相对，非绝对路径）
+  ok(changesSummaryUrl({ sessionId: 'sess-1', seq: 42 }) === 'api/changes.summary?sessionId=sess-1&seq=42',
+    '摘要 URL = 运行时 changesSummaryUrl 的文档相对形态')
+  ok(changesSummaryUrl({ sessionId: 'a b/c', seq: 7 }) === `api/changes.summary?${new URLSearchParams({ sessionId: 'a b/c', seq: '7' })}`,
+    'Session id 按 URLSearchParams 编码')
 }
 
 // ── hasDeclaredDeliveries（交付让位判定）────────────────────────

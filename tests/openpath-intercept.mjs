@@ -27,6 +27,7 @@
  * the takeover logic is unit-testable and the file stays importable from the
  * test runtime.
  */
+import { parseChangesReviewAddress, reviewIndexFromOptions, } from './review-address.mjs';
 /**
  * The success envelope ui-chat's openFile expects from the RPC
  * (`if (!result.ok) throw` on the ClientResult); an intercepted open must
@@ -248,14 +249,26 @@ export function fileTargetOfAddress(address) {
  * The address is decoded and rerouted into the sidebar editor; the
  * folder-reveal gesture reaches the explorer, exactly like the older doors.
  *
- * Two declines keep the wrapper honest: an address no file scope claims, and a
+ * TWO address families are claimed here, and the second one is why the wrapper
+ * cannot decline blindly:
+ *
+ * - `dsh-resource://file/…` (the file funnel above);
+ * - `dsh-resource://changes-review/…` — the changed-files card's REVIEW
+ *   gesture, which no file scope claims. Left to fall through it reaches the
+ *   NATIVE right Sidebar, which KCoder suppresses on purpose (铁律 1), so the
+ *   gesture produced a blank column and never showed the clicked file
+ *   (2026-10-05 现场). {@link OpenPathInterceptDeps.openReview} claims it.
+ *
+ * Three declines keep the wrapper honest: an address neither family claims, a
  * call whose `options.kind` names the page type the caller demands (that caller
  * is addressing the right Sidebar on purpose, so rerouting would silently
- * ignore its request). The Session the address names wins over the current one
- * — a fork's file belongs to the fork, and `ctx.sessions…current` is whatever
- * conversation the user is looking at. `openResource` is a prototype method on
- * the controller, so the raw reference is captured and reassigned; a remount
- * that swaps the controller replaces the wrapper with the new instance's own.
+ * ignore its request), and — for the review family — a client half that wired
+ * no `openReview` (the address then passes through as before). The Session the
+ * address names wins over the current one — a fork's file belongs to the fork,
+ * and `ctx.sessions…current` is whatever conversation the user is looking at.
+ * `openResource` is a prototype method on the controller, so the raw reference
+ * is captured and reassigned; a remount that swaps the controller replaces the
+ * wrapper with the new instance's own.
  * @param right - the `ctx.sidebarRight` face.
  * @param deps - per-call takeover decisions (same face as the older doors).
  * @returns the disposer restoring the original method (HMR-safe); a no-op when
@@ -266,18 +279,23 @@ export function wrapSidebarRight(right, deps) {
     if (typeof original !== 'function')
         return () => { };
     right.openResource = function (address, options) {
-        const target = (deps.takeoverEnabled() && options?.kind === undefined)
-            ? fileTargetOfAddress(address)
-            : undefined;
-        const sessionId = target?.sessionId ?? deps.currentSessionId();
-        if (target !== undefined && sessionId !== undefined) {
-            // An empty path is the workspace root itself (the address twin of the
-            // `'.'` reveal gesture), and has no editor content of its own.
-            if (target.path === '' || isFolderRevealPath(target.path))
-                deps.revealInExplorer(target.path, sessionId);
-            else
-                deps.openInSidebar(target.path, sessionId);
-            return;
+        if (deps.takeoverEnabled() && options?.kind === undefined) {
+            // The review family is claimed first: its addresses share the resource
+            // scheme but name no file, so the file scope below would only decline.
+            const review = parseChangesReviewAddress(address);
+            if (review !== undefined && deps.openReview?.(review, reviewIndexFromOptions(options)) === true)
+                return;
+            const target = fileTargetOfAddress(address);
+            const sessionId = target?.sessionId ?? deps.currentSessionId();
+            if (target !== undefined && sessionId !== undefined) {
+                // An empty path is the workspace root itself (the address twin of the
+                // `'.'` reveal gesture), and has no editor content of its own.
+                if (target.path === '' || isFolderRevealPath(target.path))
+                    deps.revealInExplorer(target.path, sessionId);
+                else
+                    deps.openInSidebar(target.path, sessionId);
+                return;
+            }
         }
         return original.call(this, address, options);
     };

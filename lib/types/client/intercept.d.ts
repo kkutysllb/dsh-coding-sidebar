@@ -1,5 +1,6 @@
 import type { Context } from '../context-types.ts';
 import { type SidebarStore } from './state.ts';
+import { type ChangesReviewCoordinates } from './review-address.ts';
 /**
  * Open one http(s) URL in this plugin's own browser tab — the landing spot for
  * every native `openTab('browser', …)` the claim below takes over, and for the
@@ -13,6 +14,32 @@ import { type SidebarStore } from './state.ts';
 export declare function openSidebarBrowser(ctx: Context, store: SidebarStore, url: string): void;
 /** Open a file in the sidebar's editor (used by the intercepted row and the explorer). */
 export declare function openSidebarFile(ctx: Context, store: SidebarStore, sessionId: string, path: string): string;
+/**
+ * Take over the changed-files card's review gesture
+ * (`dsh-resource://changes-review/…`) — see `review-address.ts` for why the
+ * address exists and who used to answer it.
+ *
+ * The address names one turn's review, not a path: the Session and the
+ * announcing event key the Host's change summary (`api/changes.summary`), and
+ * the caller's index names the row the user clicked. The file that summary
+ * reports is opened in the sidebar editor — exactly where the built-in
+ * review's per-file inspect button already lands, so a changed file reaches the
+ * same preview either way.
+ *
+ * The claim never falls through, deliberately: the native panel this address
+ * would otherwise reach is suppressed by product decision (铁律 1), so
+ * declining would show the user nothing at all. A summary the Host no longer
+ * serves (or a row with no usable path) therefore lands on the editor tab's own
+ * home for the address's Session instead of a silent no-op.
+ *
+ * The read is fired and forgotten: `openResource` is a synchronous funnel, and
+ * the tab opens when the summary settles.
+ * @param ctx - client context (the sidebar service is read through `ctx.get`).
+ * @param store - the sidebar store (panel/tab preferences).
+ * @param coordinates - the Session and announcing event the address names.
+ * @param index - the changed-file index the caller navigated to, if any.
+ */
+export declare function openReviewInSidebar(ctx: Context, store: SidebarStore, coordinates: ChangesReviewCoordinates, index: number | undefined): void;
 /**
  * Reveal the produced files in the sidebar explorer: expand their parent
  * directories, highlight the rows, and focus the explorer tab (expanding the
@@ -74,5 +101,10 @@ export declare function hasChangesAnnouncement(owner: unknown): boolean;
  * migrations. Gated by BOTH the `interceptOpenPath` pref and the editor tab's
  * enable switch; declined opens fall through to the original method. Returns
  * the disposer restoring all three doors (HMR-safe).
+ *
+ * The `openResource` door carries a SECOND address family on top of the file
+ * funnel: `dsh-resource://changes-review/…`, the changed-files card's review
+ * gesture (see {@link openReviewInSidebar}). It is claimed so the gesture lands
+ * in this sidebar instead of the native panel KCoder suppresses.
  */
 export declare function registerOpenPathInterception(ctx: Context, store: SidebarStore): () => void;
