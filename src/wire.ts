@@ -22,7 +22,6 @@ export type SidebarErrorCode =
   | 'shell-not-found'
   | 'job-error'
   | 'cdp-down'
-  | 'sidechat-error'
   | 'subagents-unavailable'
   | 'settings-rejected'
   | 'settings-conflict'

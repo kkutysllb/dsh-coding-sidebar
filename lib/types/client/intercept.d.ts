@@ -5,11 +5,6 @@ import { type ChangesReviewCoordinates } from './review-address.ts';
  * Open one http(s) URL in this plugin's own browser tab — the landing spot for
  * every native `openTab('browser', …)` the claim below takes over, and for the
  * document-level link interception.
- *
- * The browser tab's own enable switch is honoured: a user who turned the tab
- * off does not get it reopened behind their back — the URL goes to the system
- * browser instead (the old pre-sidebar behaviour, and the only remaining
- * option once the native panel is suppressed by product policy).
  */
 export declare function openSidebarBrowser(ctx: Context, store: SidebarStore, url: string): void;
 /** Open a file in the sidebar's editor (used by the intercepted row and the explorer). */

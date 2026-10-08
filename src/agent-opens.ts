@@ -28,7 +28,6 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Context } from './context-types.ts'
-import type { SidebarPrefs } from './prefs-shared.ts'
 
 /** What the model asked to open. */
 export type AgentOpenKind = 'file' | 'folder' | 'url'
@@ -181,25 +180,20 @@ function isWindowsDrivePrefix(raw: string): boolean {
 /**
  * Register the `sidebar_open` tool against the host tool registry. The tool
  * is gated by the side-card setting `agentOpenTools` (the caller registers
- * and unregisters it); `readPrefs` supplies the live prefs so a disabled
- * target tab type (editor/browser) is reported to the model instead of
- * silently no-oping on the client. `resolveCwd` threads the calling
- * session's live cwd so relative paths resolve the same way the sidebar's
- * own routes do.
+ * and unregisters it). `resolveCwd` threads the calling session's live cwd
+ * so relative paths resolve the same way the sidebar's own routes do.
  * @param ctx - host plugin context (carries the tools service).
  * @param registry - the open-request registry (per-session queue + views).
  * @param resolveCwd - async cwd resolver for one session id. Resolves through
  *  the session header, the client-supplied cwd, and the persistence index
  *  before falling back to the host process cwd (production always provides
  *  persistence, so the fallback is reached only in tests / stripped-down hosts).
- * @param readPrefs - live resolved side card prefs (for tab enable gates).
  * @returns a disposer that unregisters the tool.
  */
 export function registerOpenTool(
   ctx: Context,
   registry: AgentOpenRegistry,
   resolveCwd: (sessionId: string) => Promise<string>,
-  readPrefs: () => SidebarPrefs,
 ): () => void {
   return ctx.tools.register(defineTool({
     name: 'sidebar_open',
@@ -212,7 +206,7 @@ export function registerOpenTool(
       + 'The open lands in the CALLING session\'s sidebar: while that session\'s sidebar view is not connected '
       + '(e.g. the session is not the active one), the open is queued and delivered when the session sidebar is next shown — '
       + 'the result reports `delivered` so you know whether it is visible right now. '
-      + 'The side card setting "model opens files/folders/pages in the sidebar" must be on, and the target tab type must be enabled in that session\'s settings.',
+      + 'The side card setting "model opens files/folders/pages in the sidebar" must be on.',
     parameters: {
       target: {
         type: 'string',
@@ -250,13 +244,6 @@ export function registerOpenTool(
       const sessionId = sessionIdOf(exec)
       const cwd = await resolveCwd(sessionId)
       const { kind, target, title: defaultTitle } = await classifyTarget(args.target, cwd)
-      // A disabled target tab type would make the client no-op the open:
-      // report the real cause to the model instead of a silent success.
-      const prefs = readPrefs()
-      const tab = kind === 'url' ? 'browser' : 'editor'
-      if (prefs.tabsEnabled[tab] === false) {
-        throw new Error(`the built-in ${tab} tab is disabled in the side card settings; ask the user to enable it (or disable this tool)`)
-      }
       const title = args.title !== undefined && args.title.trim() !== '' ? args.title : defaultTitle
       const { delivered } = registry.enqueue(sessionId, kind, target, title)
       return { kind, target, title, delivered }

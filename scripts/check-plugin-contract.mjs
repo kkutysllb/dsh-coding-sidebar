@@ -11,17 +11,8 @@
  *    缺少该面的载具上**整体不挂载**。⇒ 点分路径必须整体出现在 inject 清单里，
  *    否则只能走 `ctx.get('remote')` 或 `ctx.inject(['remote.<面>'], cb)`。
  *
- * ④ **侧边对话的读/流/节拍不得退化**（2026-09-25 现场，5 个真 bug 的回归闸）：
- *    - 读路径必须是**插件自家路由** `sidechat.events`：通用 `session.history` 对 subagent 来源的
- *      会话直接拒绝（`session/agent-busy` fencing），而侧边对话的子会话正是这一类；
- *    - 不得再用 `connection.api` 做**前置能力探测**（当前载体没有该面 ⇒ 探测失败即 return，
- *      表现是「面板永远空白」且**连自家路由都不会被调用**）；
- *    - 轮询**不得以 `running` 为前提**：引擎不给 subagent 来源的会话产生 running 状态（恒假）
- *      ⇒ 只拉一次 ⇒ 没有流式；
- *    - 节拍的「还在长」判据必须含 `threadTrailingPending`（等回复期间不得退避，否则整个流式
- *      窗口会落在两次轮询之间）；
- *    - 实时缓冲必须 `{ global: true }` 订阅 `agent/assistant-stream`：帧是作用域事件，且
- *      0.1.5 起流式文本**不进会话日志**（旧 `assistant/chunk` 永不再来）。
+ * ④ **侧边对话读/流/节拍回归闸**（2026-09-25 现场，5 个真 bug）：1.0.40 起侧边对话
+ *    功能整体移除，这一组检查随之撤销（历史见 git log 与 docs/plugin-dev-checklist.md）。
  *
  * ③ **展开判据本身不得退化**：`service.ts` 里 `openTab` 的「内容型」条件必须同时认
  *    `path` / `url` / `meta`（静态钉住形状）。为什么要这一条：行为级的抽取需要改
@@ -233,11 +224,8 @@ if (!/needsPanelExpansion\s*\(/.test(serviceText)) {
   )
 }
 
-// ── ④ 侧边对话读/流/节拍的回归闸（见文件头）────────────────────────────────
-const SIDE_CHAT = join(SRC, 'client', 'SideChatView.tsx')
-const LIVE = join(SRC, 'assistant-live.ts')
 /**
- * 剥掉行注释再断言：这些坑的**历史说明**就写在注释里（「这里曾有一道 `if (!running) return`」），
+ * 剥掉行注释再断言：这些坑的**历史说明**就写在注释里（「这里曾有 `if (!running) return`」），
  * 拿原文做正则必然误伤——注释不是代码，这条在本仓已经踩过好几次。
  * @param text - 源文件内容。
  * @returns 去掉 `//` 行注释与 `/* … *\/` 块注释后的文本。
@@ -245,64 +233,11 @@ const LIVE = join(SRC, 'assistant-live.ts')
 function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
 }
-const sideChat = stripComments(readFileSync(SIDE_CHAT, 'utf8'))
-const liveBuffer = stripComments(readFileSync(LIVE, 'utf8'))
-
-const pins = [
-  {
-    ok: sideChat.includes('sidechatEvents') && !/connection\.api\.sessions/.test(sideChat),
-    why: 'src/client/SideChatView.tsx 必须走自家路由 `sidechatEvents`，且不得再用 `connection.api.sessions`'
-      + '（当前载体没有该面；此前那段前置探测让 transcript 从不拉取 ⇒ 面板永远空白）',
-  },
-  {
-    ok: !/if \(!running\) return/.test(sideChat),
-    why: 'src/client/SideChatView.tsx 的轮询不得以 `!running` 提前返回（引擎不给 subagent 来源会话'
-      + '产生 running 状态 ⇒ 恒假 ⇒ 只拉一次 ⇒ 没有流式）',
-  },
-  {
-    ok: /threadTrailingPending\(/.test(sideChat),
-    why: 'src/client/SideChatView.tsx 的节拍判据必须含 `threadTrailingPending`（等回复期间不得退避：'
-      + '否则模型开始产出前的 ~3s 加上整段流式会一起落在两次轮询之间）',
-  },
-  {
-    ok: /'agent\/assistant-stream'/.test(liveBuffer) && /global: true/.test(liveBuffer),
-    why: 'src/assistant-live.ts 必须以 `{ global: true }` 订阅 `agent/assistant-stream`'
-      + '（作用域事件；0.1.5 起流式文本不进会话日志，旧 assistant/chunk 永不再来）',
-  },
-]
-for (const pin of pins) if (!pin.ok) violations.push(`[④侧边对话] ${pin.why}`)
-if (pins.every(pin => pin.ok)) console.log('[plugin-contract] 侧边对话读/流/节拍四项回归闸 ✓')
-
-/**
- * ⑥ **回答路径不得退化**（2026-09-25 现场：子会话提问后，在输入框敲答案回车毫无反应）：
- *   引擎把每个提问登记成 Session 级 pending interaction（`uiSession.sessionStatus`），只有调它的
- *   `answer()` 才把答案交回服务器；本插件此前只会 `sidechat.prompt`（把回答当追问送出去）——
- *   子会话正卡在提问上，于是两边都不动。
- *   - `SideChatView.tsx` 的提交路径必须**先判**待答提问（`answerFromComposer(`），
- *     不得只有 prompt 一条路；
- *   - 待答面必须用 waitable `ctx.inject(['uiSession']` 捕获（别的插件提供的服务，裸 `ctx.get`
- *     读不到），且**不得**把 `uiSession` 写进全必需的 `inject` 清单（缺该面的载具会整体不挂载）。
- */
-const entryText = stripComments(readFileSync(ENTRY, 'utf8'))
-const answerPins = [
-  {
-    ok: /answerFromComposer\(/.test(sideChat) && /answer\(answer\)|current\.answer\(/.test(sideChat),
-    why: 'src/client/SideChatView.tsx 的提交路径必须含回答分支（`answerFromComposer(` + 调 pending 的 `answer(`）：'
-      + '否则回车只会把答案当追问送出，提问永远无人作答',
-  },
-  {
-    ok: /ctx\.inject\(\['uiSession'\]/.test(entryText) && !/inject = \[[^\]]*'uiSession'/.test(entryText),
-    why: "src/client/index.tsx 必须以 `ctx.inject(['uiSession']` 捕获待答面，且不得写进 `export const inject`"
-      + '（all-required：没有该面的载具会整体不挂载）',
-  },
-]
-for (const pin of answerPins) if (!pin.ok) violations.push(`[⑥回答路径] ${pin.why}`)
-if (answerPins.every(pin => pin.ok)) console.log('[plugin-contract] 回答路径两项回归闸 ✓')
 
 /**
  * ⑤ **CSS Modules 的 `css.<名>` 必须在本文件 import 的那张表里定义**（2026-09-25 现场）：
- *    CSS Modules 按**文件**哈希类名，`SideChatView.tsx` 里写 `css.sidechatCard` 而类定义在
- *    `sidebar.module.css` 时，运行时取到 `undefined`（`Record<string,string>` 声明让它静默通过
+ *    CSS Modules 按**文件**哈希类名，组件里写 `css.card` 而类定义在别的
+ *    `*.module.css` 时，运行时取到 `undefined`（`Record<string,string>` 声明让它静默通过
  *    tsc）⇒ 卡片**无声无样式**。P3 的三张结构化卡就是这样上线且没人看出来的：内容照常显示，
  *    只是没有排版。这条按「引用点 vs 定义点」静态比对，永久挡住这一类静默失败。
  */
@@ -326,60 +261,6 @@ for (const entry of readdirSync(SRC_CLIENT)) {
 }
 for (const violation of cssViolations) violations.push(`[⑤CSS类名] ${violation}`)
 if (cssViolations.length === 0) console.log('[plugin-contract] css.<类名> 引用点均在各自 CSS 表内 ✓')
-
-/**
- * ⑦ **子会话必须装订模型选择**（2026-09-25 现场：侧边对话永远跑默认模型，不跟主会话）：
- *    引擎 `composeAgent` 的 setup 第一步是 `installSelection(agent)`（= 服务公开方法
- *    `selectionFor(agent)`），装的是**会话自己日志投影出来的**模型（`pending ?? lastUsed`）；
- *    而 `agent.options` 只是 agent 创建时的启动参数（引擎自己传的是部署默认），用户在会话里
- *    换的模型从不回写它。插件的子会话 setup 是自己写的 ⇒ 少了这一步 ⇒ 退回启动参数。
- *    断言：主机侧必须用 `installModelSelection(` 装订、对齐必须改 `ref.current`、且每次投递前都要对齐。
- */
-const routesText = stripComments(readFileSync(join(SRC, 'sidechat-routes.ts'), 'utf8'))
-const installSites = (routesText.match(/installAgentModelSelection\(/g) ?? []).length
-const modelPins = [
-  {
-    ok: /installModelSelection\(/.test(routesText),
-    why: 'src/sidechat-routes.ts 必须用引擎公开装配面 `installModelSelection(` 装订：'
-      + '`ctx.get("agents")` 是核心 AgentRegistry，**没有** selectionFor/selectForNextRequest'
-      + '（那两处在私有 controller 上，调用恒为 no-op——第一版就是这么错的）',
-  },
-  {
-    ok: /ref\.current = asAgentSelection\(/.test(routesText),
-    why: '对齐必须**改本插件持有的 ref.current**（引擎 agent/request 读它）：'
-      + '换模型若只写事件/只改其它状态，请求组装不会跟着变',
-  },
-  {
-    ok: (routesText.match(/alignThreadModelToParent\(/g) ?? []).length >= 2,
-    why: 'src/sidechat-routes.ts 的 `sidechat.prompt` 每次投递前必须对齐模型'
-      + '（`alignThreadModelToParent(`）：只装订开局那一次，用户之后在主会话换模型时已有线程不会跟随',
-  },
-  {
-    ok: installSites >= 4,
-    why: `src/sidechat-routes.ts 的**两处** setup 都要装订模型选择（新建 + 冷恢复，含各自的服务缺席分支）：`
-      + `当前 installAgentModelSelection( 出现 ${String(installSites)} 处，期望 ≥ 4`,
-  },
-]
-for (const pin of modelPins) if (!pin.ok) violations.push(`[⑦模型跟随] ${pin.why}`)
-if (modelPins.every(pin => pin.ok)) console.log(`[plugin-contract] 模型跟随 ${String(modelPins.length)} 项回归闸 ✓`)
-
-/**
- * ⑧ **队列卡不得消失**（2026-09-25 现场）：追问走 `agent.followup` 的**排队**语义，消息在引擎领取
- *    前**不进会话日志** ⇒ 转录里看不到 ⇒ 用户以为「发出去了却没反应」。唯一知道队列的是收件箱的
- *    `nextTurn`。断言：主机侧必须把它读出来（`queuedFollowups(`），客户端必须把它画出来。
- */
-const queuePins = [
-  {
-    ok: /queuedFollowups\(/.test(routesText) && /queuedFollowups\(/.test(stripComments(readFileSync(join(SRC, 'sidechat-core.ts'), 'utf8'))),
-    why: 'src/sidechat-routes.ts 必须读 `queuedFollowups(`（收件箱 nextTurn）——不读，队列在界面上不存在',
-  },
-  {
-    ok: /info\?\.queued/.test(sideChat) && /sidechatQueue\b/.test(sideChat),
-    why: 'src/client/SideChatView.tsx 必须把 info.queued 渲染成队列卡（`css.sidechatQueue`）',
-  },
-]
-for (const pin of queuePins) if (!pin.ok) violations.push(`[⑧追问队列] ${pin.why}`)
-if (queuePins.every(pin => pin.ok)) console.log('[plugin-contract] 追问队列两项回归闸 ✓')
 
 console.log(`[plugin-contract] inject 清单：${inject.join(', ')}`)
 console.log(`[plugin-contract] ctx.remote.<面> 直读 ${faceReads} 处；openTab 调用点：`)

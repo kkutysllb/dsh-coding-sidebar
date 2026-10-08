@@ -159,14 +159,12 @@ const TabContent = memo(function TabContent(props: TabContentProps) {
 
 /** The + menu options for the current state, driven by the tab registry.
  * Hidden tabs (editor/diff) never show; `available` returning false shows
- * a disabled row (e.g. terminal at capacity) instead of hiding the option.
- * Tabs the user disabled in the side card settings are filtered out
- * entirely — re-enabling them is the settings page's job. */
+ * a disabled row (e.g. terminal at capacity) instead of hiding the option. */
 function buildNewTabOptions(state: SidebarState, ctx: Context, scope: SessionScope): NewTabOption[] {
   const service = ctx.get('betterSidebar')
   if (service === undefined) return []
   return service.getTabs()
-    .filter(d => !d.hidden && service.isTabEnabled(d.id))
+    .filter(d => !d.hidden)
     .sort((a, b) => (a.order ?? 100) - (b.order ?? 100))
     .map(d => ({
       id: d.id,
@@ -414,9 +412,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
         try {
           const list = JSON.parse(event.data) as Array<{ uuid: string; title: string; command: string; exited: boolean; waiting?: { needle: string; since: number } | null }>
           if (!Array.isArray(list)) return
-          store.reduce(s => ctx.get('betterSidebar')?.isTabEnabled('terminal') === false
-            ? s
-            : reconcileAgentTerminals(s, list))
+          store.reduce(s => reconcileAgentTerminals(s, list))
         } catch {
           // Malformed push: ignore (the next push will reconcile).
         }
@@ -544,7 +540,6 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
       autoOpenPendingRef.current = null
       if (!detectNewDirectSubagent(baseline, ctx.sessions.list.getSnapshot(), sessionId)) return
       if (!store.getPrefs().autoOpenSubagent) return
-      if (ctx.get('betterSidebar')?.isTabEnabled('subagent') === false) return
       // Read the viewport when the delayed activation fires: a resize while
       // the debounce is armed must not let background activity force the
       // narrow full-screen drawer open over the chat.
@@ -596,7 +591,6 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     if (sessionId === undefined || prev === undefined || jobsRows === undefined) return
     if (!detectNewJob(prev, jobsRows, sessionId)) return
     if (!store.getPrefs().autoOpenJobs) return
-    if (ctx.get('betterSidebar')?.isTabEnabled('subagent') === false) return
     if (!isNarrowWidth(window.innerWidth)) {
       store.reduce(s => s.panelOpen ? s : togglePanel(s))
     }

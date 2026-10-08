@@ -179,23 +179,6 @@ export interface SidebarPrefs {
    */
   browserInterceptHttps: boolean
   /**
-   * Per-tab enable switches, keyed by tab descriptor id (`'explorer'`,
-   * `'my-plugin:db'`). An ABSENT key means enabled — only an explicit
-   * `false` disables a tab type (hidden from the + menu, `openTab` refuses,
-   * and derived flows like subagent auto-open / agent-terminal tabs stop).
-   * Already-open tabs of a disabled type keep rendering (closing one
-   * prevents reopening), matching the "existing conversations keep their
-   * own layouts" rule.
-   */
-  tabsEnabled: Record<string, boolean>
-  /**
-   * Per-viewer enable switches, keyed by file viewer descriptor id
-   * (`'image'`, `'my-plugin:csv'`). An ABSENT key means enabled; a disabled
-   * viewer is skipped by `matchFileViewer` so files fall through to the
-   * next matching viewer (or the download button when none match).
-   */
-  viewersEnabled: Record<string, boolean>
-  /**
    * Plugin-owned settings blobs (v0.12.0+), keyed by descriptor id: each
    * registered tab/viewer that declares `settings.pluginToggles` (or writes
    * through `settings.render`'s `updatePluginSetting`) persists its values
@@ -255,8 +238,6 @@ export const SIDEBAR_PREFS_DEFAULTS: SidebarPrefs = {
   // 浏览器），（c）产品铁律 1 下**任何**落回原生右栏的打开都是空白——链接
   // 必须由我们接住。用户仍可在设置里单独关掉 https 接管。
   browserInterceptHttps: true,
-  tabsEnabled: {},
-  viewersEnabled: {},
   pluginSettings: {},
 }
 

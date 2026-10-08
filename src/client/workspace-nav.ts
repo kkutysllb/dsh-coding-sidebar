@@ -90,10 +90,9 @@ export function resetUiWorkspaceObserver(): void {
 /**
  * Invoke one opener AS A METHOD of its face — never extract and call it
  * detached. Host service methods read `this` (UiWorkspaceService.openSession
- * → this.replaceMain/this.lifetime; sessions.open reads this.list — the same
- * trap SideChatView documents for `fork`): an unbound reference throws
- * TypeError, which would surface as a silent "opened nothing, warned
- * nothing useful" navigation failure.
+ * → this.replaceMain/this.lifetime; sessions.open reads this.list): an
+ * unbound reference throws TypeError, which would surface as a silent
+ * "opened nothing, warned nothing useful" navigation failure.
  */
 function callOpen(
   face: object | null | undefined,

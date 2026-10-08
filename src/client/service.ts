@@ -363,17 +363,7 @@ export interface BetterSidebarService {
   /** Find a tab descriptor by id (undefined if not registered). */
   getTab(id: string): TabDescriptor | undefined
   /**
-   * Whether a tab type is enabled in the side card prefs. An absent
-   * `tabsEnabled[id]` entry means enabled — only an explicit `false`
-   * disables the type (hidden from the + menu, `openTab` refuses, and
-   * derived flows gate on it).
-   */
-  isTabEnabled(id: string): boolean
-  /** Whether a file viewer is enabled (absent `viewersEnabled[id]` = enabled). */
-  isViewerEnabled(id: string): boolean
-  /**
    * Find a file viewer for a path (priority desc; detect first, then exts).
-   * Disabled viewers are skipped, so files fall through to the next match.
    */
   matchFileViewer(path: string, head?: Uint8Array): FileViewerDescriptor | undefined
   /**
@@ -502,9 +492,8 @@ function baseNameOf(path: string): string {
  * Walks the descriptors in REGISTRATION order and returns the first one
  * that declares `urlTarget` and matches `url`; a throwing predicate is
  * swallowed (console.error, type skipped) so one broken plugin can never
- * break the whole link pipeline. The caller passes the ENABLED tab
- * descriptors (enablement is the caller's prefs domain — filter
- * `service.getTabs()` through `tabsEnabled` before matching) and falls
+ * break the whole link pipeline. The caller passes the tab descriptors to
+ * consider (normally `service.getTabs()`) and falls
  * back to the built-in browser tab when nothing claims the URL (the
  * browser never declares `urlTarget` itself, so it can never shadow a
  * plugin claim).
@@ -636,11 +625,6 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
   const getFileViewers = (): readonly FileViewerDescriptor[] => Array.from(viewers.values())
   const getTab = (id: string): TabDescriptor | undefined => tabs.get(id)
 
-  // The enable switches come from the user's side card prefs (the shared
-  // store the service is bound to): an absent key means enabled.
-  const isTabEnabled = (id: string): boolean => store.getPrefs().tabsEnabled[id] !== false
-  const isViewerEnabled = (id: string): boolean => store.getPrefs().viewersEnabled[id] !== false
-
   const matchFileViewer = (path: string, head?: Uint8Array): FileViewerDescriptor | undefined => {
     const ext = extOfPath(path)
     // Single pass in priority order (descending; stable for equal
@@ -648,11 +632,10 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
     // its own turn: `detect` (when head bytes are available) beats its own
     // `exts`, and `exts: []` is a catch-all matching any path — so the
     // catch-all `code` viewer (-100) only sees paths no higher-priority
-    // descriptor claimed. Disabled viewers are skipped entirely.
+    // descriptor claimed.
     for (const v of Array.from(viewers.values()).sort(
       (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
     )) {
-      if (!isViewerEnabled(v.id)) continue
       // Content sniff first (only when head bytes are available).
       if (head !== undefined && v.detect !== undefined) {
         if (v.detect(path, head)) return v
@@ -672,13 +655,6 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
   }
 
   const openTab = (seed: OpenTabSeed, scope?: SessionScope): void => {
-    // A type the user disabled in settings never opens — neither from the
-    // + menu nor from derived flows (file opens, subagent auto-open,
-    // external plugins). Already-open tabs keep rendering.
-    if (!isTabEnabled(seed.type)) {
-      console.warn(`[dsh-coding-sidebar] tab type "${seed.type}" is disabled in the side card settings`)
-      return
-    }
     const descriptor = tabs.get(seed.type)
     if (descriptor === undefined) return
     // A scope targets another session: the open lands in THAT session's
@@ -899,8 +875,6 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
     getTabs,
     getFileViewers,
     getTab,
-    isTabEnabled,
-    isViewerEnabled,
     matchFileViewer,
     openTab,
     closeTab,

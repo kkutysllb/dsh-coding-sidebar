@@ -119,8 +119,6 @@ export function parsePrefs(value: unknown): SidebarPrefs {
     browserInterceptHttps: typeof record.browserInterceptHttps === 'boolean'
       ? record.browserInterceptHttps
       : SIDEBAR_PREFS_DEFAULTS.browserInterceptHttps,
-    tabsEnabled: booleanMapOf(record.tabsEnabled),
-    viewersEnabled: booleanMapOf(record.viewersEnabled),
     pluginSettings: pluginSettingsMapOf(record.pluginSettings),
   }
 }
@@ -138,20 +136,6 @@ function pluginSettingsMapOf(value: unknown): Record<string, Record<string, unkn
     if (blob !== null && typeof blob === 'object' && !Array.isArray(blob)) {
       out[id] = blob as Record<string, unknown>
     }
-  }
-  return out
-}
-
-/**
- * Validate one enable-switch map (per-tab / per-viewer). Only boolean values
- * survive; a non-object or a non-boolean entry falls back to the empty map /
- * drops the entry — an absent key means the feature stays enabled.
- */
-function booleanMapOf(value: unknown): Record<string, boolean> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
-  const out: Record<string, boolean> = {}
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof item === 'boolean') out[key] = item
   }
   return out
 }

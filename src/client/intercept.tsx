@@ -43,17 +43,8 @@ import css from './sidebar.module.css'
  * Open one http(s) URL in this plugin's own browser tab — the landing spot for
  * every native `openTab('browser', …)` the claim below takes over, and for the
  * document-level link interception.
- *
- * The browser tab's own enable switch is honoured: a user who turned the tab
- * off does not get it reopened behind their back — the URL goes to the system
- * browser instead (the old pre-sidebar behaviour, and the only remaining
- * option once the native panel is suppressed by product policy).
  */
 export function openSidebarBrowser(ctx: Context, store: SidebarStore, url: string): void {
-  if (store.getPrefs().tabsEnabled['browser'] === false) {
-    window.open(url, '_blank', 'noopener,noreferrer')
-    return
-  }
   let title: string | undefined
   try { title = new URL(url).hostname } catch { /* keep the descriptor's default title */ }
   ctx.get('betterSidebar')?.openTab({ type: 'browser', url, ...(title !== undefined ? { title } : {}) })
@@ -250,7 +241,6 @@ export function registerTurnTailInterception(ctx: Context, store: SidebarStore):
     readonly sessionId?: string
   } & Record<string, unknown>): ReactElement | null {
     if (store.getSuspended()) return null
-    if (store.getPrefs().tabsEnabled['editor'] === false) return null
     if (hasDeclaredDeliveries(props)) return null
     // The built-in changed-files card claims announced turns (list semantics:
     // it renders its own row). Decline so the same files never list twice —
@@ -340,8 +330,7 @@ export function hasChangesAnnouncement(owner: unknown): boolean {
 export function registerOpenPathInterception(ctx: Context, store: SidebarStore): () => void {
   const deps = {
     takeoverEnabled: () => !store.getSuspended()
-      && store.getPrefs().interceptOpenPath !== false
-      && store.getPrefs().tabsEnabled['editor'] !== false,
+      && store.getPrefs().interceptOpenPath !== false,
     currentSessionId: () => ctx.sessions.list.getSnapshot().current,
     openInSidebar: (path: string, sessionId: string) => { openSidebarFile(ctx, store, sessionId, path) },
     revealInExplorer: (_path: string, sessionId: string) => { revealInExplorer(ctx, store, sessionId, lastProduced) },

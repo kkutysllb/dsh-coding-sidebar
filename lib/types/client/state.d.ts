@@ -163,8 +163,7 @@ export type DefaultSeed = 'editor-home' | 'none';
  * `seed` picks the seeded tab: 'editor-home' places the EMPTY files window
  * (an editor tab with no path whose tree panel starts open,
  * `meta.treeOpen: true`) — in BOTH editorExplorer modes that window is the
- * file explorer page — and 'none' starts with an empty pane (the store
- * passes it when the user disabled the editor tab type in settings). */
+ * file explorer page — and 'none' starts with an empty pane. */
 export declare function makeDefaultState(width?: number, panelOpen?: boolean, seed?: DefaultSeed): SidebarState;
 /** Which tree owns a pane/split id. The bottom panel was removed in v1.0.0 —
  *  only the right tree remains; kept as a function so call sites stay

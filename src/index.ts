@@ -56,8 +56,6 @@ import { buildJobsApi, type SidebarJobsRoutes } from './jobs-routes.ts'
 import { buildSubagentLiveApi, type SidebarSubagentLiveRoutes } from './subagent-live-route.ts'
 import { buildSubagentWorkflowApi, type SidebarSubagentWorkflowRoutes } from './subagent-workflow-route.ts'
 import { buildArchiveApi, type SidebarArchiveRoutes } from './archive-routes.ts'
-import { buildTeamApi, type SidebarTeamRoutes } from './team-routes.ts'
-import { buildSidechatApi } from './sidechat-routes.ts'
 import { readJsonBody, requireString, SettingsConflictError, SidebarError, writeError, writeJson, writeOk } from './wire.ts'
 
 export { Config }
@@ -323,12 +321,7 @@ function buildApi(
   // 多选压缩下载（上游 v0.24.1）：宿主侧打包成任务，build 立即返回、status 报
   // done/total、result 交付字节（TTL 5 分钟，一次下载后释放）。
   const archiveApi: SidebarArchiveRoutes = buildArchiveApi(ctx, cwdOf)
-  // Agent Teams bridge（2026-09-19）：读上游 ctx.agentTeams 的名册/任务看板并
-  // 转发 CAS 变更。上游「智能体团队」插件未启用时返回 service-missing——侧栏
-  // 的团队 tab 据此渲染"去启用"空态（不自动挂载该服务：它会替换 subagent 工具）。
-  const teamApi: SidebarTeamRoutes = buildTeamApi(ctx)
   return {
-    ...teamApi,
     'session.cwd': async (payload) => {
       const { sessionId, cwd } = await cwdOf(payload)
       return { sessionId, cwd, root: rootLabel(cwd), parent: parentOf(cwd) ?? null }
@@ -820,14 +813,6 @@ function buildApi(
     // the menu shows these next to the URL-scheme editors. Scanned once a
     // minute; a remote workspace simply never asks (they are host-local).
     'apps.list': async () => ({ apps: await listNativeApps() }),
-    // Side Chat: create a side-thread child seeded with the parent's full
-    // log up to now, deliver follow-ups (cold-resuming when the thread's
-    // agent is gone), abort a running thread, and release a thread's agent.
-    // Every operation runs through these routes because subagent-origin
-    // identities are fenced from the generic session RPCs (agent-lookup
-    // ownership), and the thread is created with a CUSTOM seed the stock
-    // fork APIs cannot express.
-    ...buildSidechatApi(ctx),
   }
 }
 
@@ -938,7 +923,6 @@ export function apply(ctx: Context, config?: SidebarConfig): void {
           ctx,
           agentOpenRegistry,
           (sessionId) => sessionCwdOf(ctx, sessionId),
-          () => prefsSnapshot(),
         )
       }
     } else if (openToolsDisposers !== null) {

@@ -15,13 +15,19 @@ import type {
   SidebarSessionSummary,
   SidebarSubagentCatalog,
 } from '../context-types.ts'
-import { SIDE_LABEL_PREFIX } from '../sidechat-core.ts'
 
 /**
- * Side Chat threads ride the subagent origin (main-list hiding + the RPC
- * ownership fence) but they are NOT subagent topology: they carry the
- * durable 'Side: ' label and live as sidebar tabs. Excluding them here
- * keeps the auto-open trigger and the Subagent page counts clean.
+ * The durable thread-label prefix the removed Side Chat feature pinned on its
+ * child sessions (kept so summaries written by older builds still filter out
+ * of the subagent topology).
+ */
+export const SIDE_LABEL_PREFIX = 'Side: '
+
+/**
+ * Side Chat threads rode the subagent origin (main-list hiding + the RPC
+ * ownership fence) but were NOT subagent topology: they carried the durable
+ * 'Side: ' label and lived as sidebar tabs. Excluding them here keeps the
+ * auto-open trigger and the Subagent page counts clean.
  */
 export function isSideThreadSummary(summary: SidebarSessionSummary): boolean {
   return summary.origin === 'subagent' && summary.displayTitle.startsWith(SIDE_LABEL_PREFIX)

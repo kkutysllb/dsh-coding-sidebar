@@ -48,7 +48,6 @@ import {
   rootAncestor,
 } from './subagent-detect.ts'
 import { type LastActivity } from '../subagent-activity.ts'
-import { SIDE_LABEL_PREFIX } from '../sidechat-core.ts'
 import { deriveCatalogs } from './subagent-catalogs.ts'
 import { useJobsRows } from './use-jobs-rows.ts'
 import {

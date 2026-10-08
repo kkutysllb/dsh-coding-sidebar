@@ -251,8 +251,6 @@ export function prefsOf(config: SidebarConfig | undefined): SidebarPrefs {
     browserInterceptLinks: read('browserInterceptLinks'),
     browserInterceptHttp: read('browserInterceptHttp'),
     browserInterceptHttps: read('browserInterceptHttps'),
-    tabsEnabled: read('tabsEnabled'),
-    viewersEnabled: read('viewersEnabled'),
     pluginSettings: read('pluginSettings'),
   }
 }
@@ -318,8 +316,6 @@ export const Config: ConfigSchema = z.object({
   browserInterceptLinks: z.boolean().default(SIDEBAR_PREFS_DEFAULTS.browserInterceptLinks).volatile(),
   browserInterceptHttp: z.boolean().default(SIDEBAR_PREFS_DEFAULTS.browserInterceptHttp).volatile(),
   browserInterceptHttps: z.boolean().default(SIDEBAR_PREFS_DEFAULTS.browserInterceptHttps).volatile(),
-  tabsEnabled: z.dict(z.boolean()).default({}).volatile(),
-  viewersEnabled: z.dict(z.boolean()).default({}).volatile(),
   pluginSettings: z.dict(z.dict(z.any())).default({}).volatile(),
 }) as unknown as ConfigSchema
 
@@ -356,11 +352,6 @@ export const PrefsSchema: ConfigSchema = z.object({
   browserInterceptLinks: z.boolean().default(true),
   browserInterceptHttp: z.boolean().default(true),
   browserInterceptHttps: z.boolean().default(false),
-  // Per-feature enable switches are OPEN maps (any tab/viewer id, built-in or
-  // external): an absent key means enabled, so old documents resolve to {}
-  // (everything on) with no migration. Non-boolean values fail validation.
-  tabsEnabled: z.dict(z.boolean()).default({}),
-  viewersEnabled: z.dict(z.boolean()).default({}),
   // Plugin-owned settings blobs (v0.12.0+) are an OPEN nested map: any
   // descriptor id may carry any JSON-serializable values. This is the
   // "settings seam" opening — without it the seam would drop third-party

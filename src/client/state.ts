@@ -215,8 +215,7 @@ export type DefaultSeed = 'editor-home' | 'none'
  * `seed` picks the seeded tab: 'editor-home' places the EMPTY files window
  * (an editor tab with no path whose tree panel starts open,
  * `meta.treeOpen: true`) — in BOTH editorExplorer modes that window is the
- * file explorer page — and 'none' starts with an empty pane (the store
- * passes it when the user disabled the editor tab type in settings). */
+ * file explorer page — and 'none' starts with an empty pane. */
 export function makeDefaultState(width = PANEL_DEFAULT, panelOpen = true, seed: DefaultSeed = 'editor-home'): SidebarState {
   const leaf: SidebarLeaf = { kind: 'leaf', id: uid('pane'), tabs: [], active: null }
   if (seed === 'editor-home') {
@@ -1094,18 +1093,17 @@ function loadState(sessionId: string, prefs: SidebarPrefs): SidebarState {
   // chosen percent of the window (clamped to the panel floor and the
   // viewport so a huge percent can never crush the app shell), the panel
   // starts open only when the preference says so, and the seed tab is the
-  // empty files window (tree panel open) in BOTH editorExplorer modes — a
-  // disabled editor type seeds nothing. On a NARROW viewport a brand-new
-  // session starts collapsed instead — the panel is a full-screen drawer
-  // there, and auto-opening it on first paint would cover the conversation
-  // before the user asked. Persisted layouts follow the same narrow-load
-  // visibility rule above, while their workbench contents remain intact.
+  // empty files window (tree panel open) in BOTH editorExplorer modes. On a
+  // NARROW viewport a brand-new session starts collapsed instead — the
+  // panel is a full-screen drawer there, and auto-opening it on first paint
+  // would cover the conversation before the user asked. Persisted layouts
+  // follow the same narrow-load visibility rule above, while their
+  // workbench contents remain intact.
   const width = globalWidth ?? (viewport === undefined
     ? PANEL_DEFAULT
     : defaultWidthFor(viewport, prefs.defaultWidthPercent))
   const openByDefault = prefs.openByDefault && (viewport === undefined || !isNarrowWidth(viewport))
-  const seed: DefaultSeed = prefs.tabsEnabled['editor'] === false ? 'none' : 'editor-home'
-  return makeDefaultState(width, openByDefault, seed)
+  return makeDefaultState(width, openByDefault)
 }
 
 /**

@@ -330,17 +330,7 @@ export interface BetterSidebarService {
     /** Find a tab descriptor by id (undefined if not registered). */
     getTab(id: string): TabDescriptor | undefined;
     /**
-     * Whether a tab type is enabled in the side card prefs. An absent
-     * `tabsEnabled[id]` entry means enabled — only an explicit `false`
-     * disables the type (hidden from the + menu, `openTab` refuses, and
-     * derived flows gate on it).
-     */
-    isTabEnabled(id: string): boolean;
-    /** Whether a file viewer is enabled (absent `viewersEnabled[id]` = enabled). */
-    isViewerEnabled(id: string): boolean;
-    /**
      * Find a file viewer for a path (priority desc; detect first, then exts).
-     * Disabled viewers are skipped, so files fall through to the next match.
      */
     matchFileViewer(path: string, head?: Uint8Array): FileViewerDescriptor | undefined;
     /**
@@ -458,9 +448,8 @@ export interface BetterSidebarService {
  * Walks the descriptors in REGISTRATION order and returns the first one
  * that declares `urlTarget` and matches `url`; a throwing predicate is
  * swallowed (console.error, type skipped) so one broken plugin can never
- * break the whole link pipeline. The caller passes the ENABLED tab
- * descriptors (enablement is the caller's prefs domain — filter
- * `service.getTabs()` through `tabsEnabled` before matching) and falls
+ * break the whole link pipeline. The caller passes the tab descriptors to
+ * consider (normally `service.getTabs()`) and falls
  * back to the built-in browser tab when nothing claims the URL (the
  * browser never declares `urlTarget` itself, so it can never shadow a
  * plugin claim).

@@ -2,29 +2,28 @@
  * "Side card" settings section: the user-facing preferences for the sidebar
  * panel, rendered natively in the DSH Settings shell (nav label "Side card").
  *
- * The section is DECLARATIVE — it renders the enable/disable inventory from
- * the sidebar service's registries instead of hardcoding rows:
+ * The section is DECLARATIVE — it renders the feature inventory from the
+ * sidebar service's registries instead of hardcoding rows. Every page and
+ * viewer is always on (1.0.40 removed the per-feature enable switches):
  *  - 常规: new conversations open the panel by default (a toggle row), the
  *    default panel width as a percent of the window (number input row), and
  *    the open-path interception toggle — the DSH settings-row recipe
  *    (title/desc left + control right, hairline separators).
- *  - 侧边栏内容: one SMALL CARD per REGISTERED tab type (built-ins and
- *    external plugins alike), laid out in a responsive grid that wraps
- *    several cards per row — icon chip + title + type id, clicked to toggle
- *    the switch persisted in `prefs.tabsEnabled[id]`.
- *  - 文件预览: one SMALL CARD per REGISTERED file viewer — icon chip + title
- *    + the extensions it covers, clicked to toggle `prefs.viewersEnabled[id]`.
+ *  - 侧边栏内容: one CARD per REGISTERED tab type (built-ins and external
+ *    plugins alike), laid out in a responsive grid that wraps several cards
+ *    per row — icon chip + title + type id; a feature that declares related
+ *    settings carries a settings strip opening its popup.
+ *  - 文件预览: one CARD per REGISTERED file viewer — icon chip + title + the
+ *    extensions it covers (the HTML viewer's card opens its sandbox rows).
  *
  * Every group lives in a container card (the DSH PluginCard recipe: l2
  * hairline, 16px radius, layer-3 fill) with a heading and an inventory count
  * badge (the settings catalogHeading recipe); the section opens with a
  * one-line intro (the DSH section heading+intro recipe).
  *
- * A card's on/off state is its VISUAL STATE: enabled = highlighted (brand
- * border + tinted fill + a compact switch knob at the card's far right),
- * disabled = neutral and dimmed. Features that declare
- * `settings.toggles` carry a labeled settings strip at the card's bottom
- * edge that opens a native Modal (wider than the primitive default) with
+ * Features that declare `settings.toggles` carry a labeled settings strip
+ * at the card's bottom edge that opens a native Modal (wider than the
+ * primitive default) with
  * the related settings as title/desc + custom-switch rows and a Done
  * footer; the popup body scrolls internally when a feature declares many
  * rows (e.g. Terminal's six). The toggles themselves are custom
@@ -48,7 +47,6 @@ import {
   Menu,
   Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import clsx from 'clsx'
 // Type-only: pulls the settings shell's SlotMap merges ('settings.section').
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -585,12 +583,12 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
   // Whether the "add plugin" modal (a dashed card at the end of the
   // 侧边栏内容 / 文件预览 grids) is open, and for which extension point
   // (null = closed).
-  // The LATEST optimistic prefs, kept in sync with the state. Nested-map
-  // merges (tabsEnabled / viewersEnabled / pluginSettings) MUST build from
-  // this ref, not from the render-time `prefs`: two same-tick writes (e.g.
-  // a settings panel updating several plugin keys at once) would otherwise
-  // both spread the stale map and the later patch would drop the earlier
-  // key even though the commits are serialized.
+  // The LATEST optimistic prefs, kept in sync with the state. The nested-map
+  // merge (pluginSettings) MUST build from this ref, not from the
+  // render-time `prefs`: two same-tick writes (e.g. a settings panel
+  // updating several plugin keys at once) would otherwise both spread the
+  // stale map and the later patch would drop the earlier key even though
+  // the commits are serialized.
   const optimisticRef = useRef(prefs)
   useEffect(() => { optimisticRef.current = prefs }, [prefs])
 
@@ -673,16 +671,6 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
 
   const onToggle = (next: boolean): void => {
     applyPref({ openByDefault: next })
-  }
-
-  /** Flip one per-tab enable switch (merge into the tabsEnabled map). */
-  const onToggleTab = (id: string, next: boolean): void => {
-    applyPref({ tabsEnabled: { ...optimisticRef.current.tabsEnabled, [id]: next } })
-  }
-
-  /** Flip one per-viewer enable switch (merge into the viewersEnabled map). */
-  const onToggleViewer = (id: string, next: boolean): void => {
-    applyPref({ viewersEnabled: { ...optimisticRef.current.viewersEnabled, [id]: next } })
   }
 
   /** Flip one declaratively-declared toggle (a SidebarPrefs boolean field). */
@@ -791,50 +779,33 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
     void commit({ defaultWidthPercent: clamped }).then(outcome => applyOutcome(previous, outcome))
   }
 
-  /**
-   * One SMALL toggle card for the responsive inventory grid: the card's main
-   * area is the switch (click to flips, visual state IS the state), the icon
-   * sits in a rounded chip, the check badge pins to the far right, and a
-   * feature that declares related settings gets a labeled SETTINGS STRIP
-   * across the card's bottom edge (gear icon + text) opening its settings
-   * popup — discoverable at rest, not a hover-only ghost corner button.
-   */
+  /* One inventory card: icon + title + description, with a SETTINGS STRIP
+     across the card's bottom edge (gear icon + text) when the feature
+     declares related settings — discoverable at rest, not a hover-only
+     ghost corner button. Every feature is always on: the sidebar's built-in
+     pages and file viewers are not user-toggleable (1.0.40), the card is an
+     inventory entry and, when applicable, a settings entry point. */
   const renderCard = (props: {
     title: string
     desc: string
     icon?: ReactNode
-    enabled: boolean
-    onToggle: (next: boolean) => void
     /** A feature with declared related settings shows the settings strip. */
     onOpenSettings?: () => void
   }) => {
     const hasSettings = props.onOpenSettings !== undefined
     return (
       <div
-        className={clsx(css.card, props.enabled && css.cardOn)}
+        className={css.card}
       >
-        <button
-          type="button"
-          className={css.cardMain}
-          aria-pressed={props.enabled}
-          title={props.desc}
-          onClick={() => { props.onToggle(!props.enabled) }}
-        >
+        <div className={css.cardMain} title={props.desc}>
           <span className={css.cardTop}>
             {props.icon !== null && props.icon !== undefined && (
               <span className={css.cardIconChip}>{props.icon}</span>
             )}
             <span className={css.cardTitle}>{props.title}</span>
-            {props.enabled && (
-              <span className={css.cardSwitch} aria-hidden="true">
-                <span className={css.cardSwitchTrack}>
-                  <span className={css.cardSwitchThumb} />
-                </span>
-              </span>
-            )}
           </span>
           <span className={css.cardDesc}>{props.desc}</span>
-        </button>
+        </div>
         {hasSettings && (
           <button
             type="button"
@@ -968,9 +939,10 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
         </div>
       </div>
 
-      {/* 侧边栏内容: one small card per registered tab type in a responsive
+      {/* 侧边栏内容: one inventory card per registered tab type in a responsive
           grid; features declaring `settings.toggles` open their settings in
-          the popup (gear corner button) instead of nested inline rows. */}
+          the popup (gear strip) instead of nested inline rows. Every page is
+          always on — the cards are the inventory + settings entry points. */}
       <div className={css.group}>
         <div className={css.groupHeading}>
           <span>{t('settingsTabsTitle')}</span>
@@ -983,11 +955,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
                 title: textOf(tab.title),
                 desc: tab.id,
                 icon: iconOf(tab.icon, 16),
-                enabled: prefs.tabsEnabled[tab.id] !== false,
-                onToggle: (next) => { onToggleTab(tab.id, next) },
-                // The settings gear only while the feature is enabled: its
-                // related settings are dormant while the feature is off.
-                onOpenSettings: prefs.tabsEnabled[tab.id] !== false && hasSettings(tab)
+                onOpenSettings: hasSettings(tab)
                   ? () => { setSettingsFor(tab) }
                   : undefined,
               })}
@@ -996,7 +964,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
         </div>
       </div>
 
-      {/* 文件预览: one small card per registered file viewer. */}
+      {/* 文件预览: one inventory card per registered file viewer. */}
       <div className={css.group}>
         <div className={css.groupHeading}>
           <span>{t('settingsViewersTitle')}</span>
@@ -1009,9 +977,7 @@ export function SideCardSection({ store, service }: SideCardSectionProps) {
                 title: textOf(viewer.title) || viewer.id,
                 desc: viewer.exts.length === 0 ? t('settingsViewerCatchAll') : viewer.exts.join(' · '),
                 icon: iconOf(viewer.icon, 16),
-                enabled: prefs.viewersEnabled[viewer.id] !== false,
-                onToggle: (next) => { onToggleViewer(viewer.id, next) },
-                onOpenSettings: prefs.viewersEnabled[viewer.id] !== false && hasSettings(viewer)
+                onOpenSettings: hasSettings(viewer)
                   ? () => { setSettingsFor(viewer) }
                   : undefined,
               })}

@@ -17,12 +17,10 @@
 import type { ReactNode } from 'react'
 import { FileTypeIcon } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  VscCommentDiscussion,
   VscGitCommit,
   VscGlobe,
   VscGraph,
   VscLayers,
-  VscOrganization,
   VscTasklist,
   VscTerminal,
 } from 'react-icons/vsc'
@@ -30,7 +28,7 @@ import styles from './tab-icons.module.css'
 
 /** The styled wrapper classes; typed so a renamed rule fails the build. */
 const css = styles as Record<
-  'files' | 'changes' | 'tasks' | 'plans' | 'sidechat' | 'terminal' | 'browser' | 'trajectory' | 'team',
+  'files' | 'changes' | 'tasks' | 'plans' | 'terminal' | 'browser' | 'trajectory',
   string
 >
 
@@ -69,10 +67,6 @@ export const tasksTabIcon: TabIcon = (size) =>
 export const plansTabIcon: TabIcon = (size) =>
   themed(css.plans, <VscTasklist size={size} />)
 
-/** Side chat — the conversational/secondary accent. */
-export const sidechatTabIcon: TabIcon = (size) =>
-  themed(css.sidechat, <VscCommentDiscussion size={size} />)
-
 /**
  * Terminal — primary ink, the shell is text. Rendered one step down from the
  * strip's 14px: the VSCodicon terminal is a wide filled rectangle and read
@@ -81,16 +75,9 @@ export const sidechatTabIcon: TabIcon = (size) =>
 export const terminalTabIcon: TabIcon = (size) =>
   themed(css.terminal, <VscTerminal size={Math.max(10, Math.round(size * 0.85))} />)
 
-/** Browser — the same secondary accent as the side chat's sibling surfaces. */
+/** Browser — the link-takeover family's secondary accent. */
 export const browserTabIcon: TabIcon = (size) =>
   themed(css.browser, <VscGlobe size={size} />)
-
-/**
- * Agent Teams — the roster glyph, in the side-chat family: both are the
- * collaboration surfaces beside the lead conversation.
- */
-export const teamTabIcon: TabIcon = (size) =>
-  themed(css.team, <VscOrganization size={size} />)
 
 /**
  * Trajectory — the flow glyph, in the model/request accent: this page and the

@@ -51,8 +51,6 @@ export const SIDEBAR_PREFS_DEFAULTS = {
     // 浏览器），（c）产品铁律 1 下**任何**落回原生右栏的打开都是空白——链接
     // 必须由我们接住。用户仍可在设置里单独关掉 https 接管。
     browserInterceptHttps: true,
-    tabsEnabled: {},
-    viewersEnabled: {},
     pluginSettings: {},
 };
 /** Clamp one width percent into the contract range (shared by schema and client reads). */

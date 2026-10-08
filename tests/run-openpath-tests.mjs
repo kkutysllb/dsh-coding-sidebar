@@ -1,6 +1,6 @@
 /**
  * wrapOpenPath / wrapRemoteOpenPath / wrapSidebarRight / hasDeclaredDeliveries
- * / createFileIconRegistry / buildTrajectoryGraph / layoutTrajectoryGraph
+
  * / resolveTrajectorySource / git 面板补齐（上游·推送·分支·行数·gh）
  * 行为单测（node 直跑，零依赖）：
  * 对应 src/client/openpath-intercept.ts 的三门接管语义、
@@ -67,11 +67,9 @@
  *     --skipLibCheck --noCheck --outDir /tmp/csb-nav
  *   cp /tmp/csb-nav/client/workspace-nav.js tests/workspace-nav.mjs
  *   ./node_modules/.bin/tsc src/client/subagent-tasks-model.ts src/client/subagent-tasks-layout.ts \
- *     src/client/team-projection.ts --target es2022 --module esnext --skipLibCheck --noCheck \
- *     --outDir /tmp/csb-tasks
+ *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-tasks
  *   cp /tmp/csb-tasks/client/subagent-tasks-model.js tests/subagent-tasks-model.mjs
  *   cp /tmp/csb-tasks/client/subagent-tasks-layout.js tests/subagent-tasks-layout.mjs
- *   cp /tmp/csb-tasks/client/team-projection.js tests/team-projection.mjs
  *   ./node_modules/.bin/tsc src/client/browser.ts src/client/browser-nav.ts \
  *     --target es2022 --module esnext --skipLibCheck --noCheck --outDir /tmp/csb-browser
  *   cp /tmp/csb-browser/browser.js tests/browser-url.mjs
@@ -92,11 +90,6 @@ import { BrowserNavigation, MAX_BROWSER_HISTORY, restoreBrowserTabState } from '
 import { normalizeBrowserUrl } from './browser-url.mjs'
 import { registerLinkInterception, shouldInterceptLink } from './link-intercept.mjs'
 import { readScopeOf } from './editor-read-scope.mjs'
-import {
-  EMPTY_TEAM_DRAFT, isTeamDraftCommittable, isTeamMemberAssignable, isTeamMemberOpenable,
-  sameTeamDependencies, teamDraftOfTask, teamFailureText, teamItems, teamMemberStatusKey,
-  teamMemberTone, teamMutationOutcome, teamTaskIds, teamTaskStatusKey,
-} from './team-model.mjs'
 import { hasDeclaredDeliveries } from './deliveries.mjs'
 import { createFileIconRegistry } from './file-icon-registry.mjs'
 import { buildTrajectoryGraph, searchTrajectoryNodes, slowestTools, windowTrajectoryGraph } from './trajectory-graph.mjs'
@@ -128,7 +121,6 @@ import { parseRange } from './media-range.mjs'
 import { openViaUiWorkspace, observeUiWorkspaceFace, resetUiWorkspaceObserver } from './workspace-nav.mjs'
 import { buildTasksViewModel, FOLD_MIN } from './subagent-tasks-model.mjs'
 import { layoutTasksViewModel, TASK_NODE_W, TASK_NODE_H } from './subagent-tasks-layout.mjs'
-import { deriveTeamView } from './team-projection.mjs'
 import { foldWorkflowRuns } from './subagent-workflow.mjs'
 import { mergedActivity, lastActivity } from './subagent-activity.mjs'
 import { clampPane, defaultPaneRect, resizePane, PANE_MIN_W, PANE_MIN_H } from './floating-geometry.mjs'
@@ -2034,46 +2026,6 @@ console.log('[readScopeOf]')
   ok(same.sessionId === 'active' && same.cwd === '/w/active', '同会话记录与页签会话等价')
 }
 
-/* ───────────────────── 智能体团队：纯模型（草稿/状态/变更结果） ───────────────────── */
-console.log('[team-model]')
-{
-  ok(teamItems('a, b ,a,,  c ').join('|') === 'a|b|c', '逗号列表去空去重保序')
-  ok(teamItems('').length === 0, '空串 → 空列表')
-  ok(teamTaskIds('T1, T2').join(',') === 'T1,T2', '任务 ID 列表解析')
-  ok(!isTeamDraftCommittable(EMPTY_TEAM_DRAFT), '空草稿不可提交')
-  ok(!isTeamDraftCommittable({ ...EMPTY_TEAM_DRAFT, subject: ' x ' }), '只有标题不可提交（描述必填，与服务一致）')
-  ok(isTeamDraftCommittable({ subject: ' x ', description: ' y ', blockers: '', scopes: '' }), '标题+描述齐备可提交')
-
-  const task = {
-    id: 'T1', revision: 3, subject: 's', description: 'd', status: 'pending',
-    blockedBy: ['T0'], writeScopes: ['src/a'], ready: false, writeScopeWarnings: [],
-  }
-  const draft = teamDraftOfTask(task)
-  ok(draft.subject === 's' && draft.description === 'd' && draft.blockers === 'T0' && draft.scopes === 'src/a', '编辑草稿由任务行播种')
-  ok(sameTeamDependencies(['T0'], ['T0']) && !sameTeamDependencies(['T0'], ['T1']) && !sameTeamDependencies(['T0'], []), '依赖比较：等长且逐项相等')
-
-  ok(teamMutationOutcome({ ok: true, value: task }).kind === 'ok', '成功 → ok')
-  ok(teamMutationOutcome({ ok: false, error: { code: 'team-task-conflict', message: 'stale' } }).kind === 'conflict', '旧 revision → conflict（重载并提示）')
-  const rejected = teamMutationOutcome({ ok: false, error: { code: 'team-rejected', message: 'nope' } })
-  ok(rejected.kind === 'rejected' && rejected.code === 'team-rejected' && rejected.message === 'nope', '业务拒绝原样带出')
-
-  ok(teamFailureText({ code: 'c', message: 'm' }) === 'm (c)', '失败文案沿用上游格式')
-  ok(teamTaskStatusKey('pending') === 'statusPending' && teamTaskStatusKey('in_progress') === 'statusInProgress'
-    && teamTaskStatusKey('completed') === 'statusCompleted' && teamTaskStatusKey('deleted') === 'statusCompleted', '任务状态 → 文案键')
-  ok(teamMemberStatusKey('running') === 'memberRunning' && teamMemberStatusKey('idle') === 'memberIdle'
-    && teamMemberStatusKey('inactive') === 'memberInactive' && teamMemberStatusKey('provisioning') === 'memberProvisioning'
-    && teamMemberStatusKey('failed') === 'memberFailed', '成员状态 → 文案键')
-  ok(teamMemberTone('running') === 'ongoing' && teamMemberTone('failed') === 'error' && teamMemberTone('idle') === 'done', '状态点色阶')
-
-  const lead = { id: 'L', name: 'lead', role: 'lead', status: 'running', diagnostics: [] }
-  const mate = { id: 'M', name: 'mate', role: 'teammate', status: 'idle', diagnostics: [] }
-  const provisioning = { id: 'P', name: 'p', role: 'teammate', status: 'provisioning', diagnostics: [] }
-  const failed = { id: 'F', name: 'f', role: 'teammate', status: 'failed', diagnostics: [] }
-  ok(!isTeamMemberOpenable(lead) && isTeamMemberOpenable(mate), '只有队友可打开（lead 不可点）')
-  ok(!isTeamMemberOpenable(provisioning) && !isTeamMemberOpenable(failed), '创建中/失败的队友不可打开')
-  ok(isTeamMemberAssignable(mate) && isTeamMemberAssignable(lead) && !isTeamMemberAssignable(failed), '可视成员可被指派')
-}
-
 // ── chunk 加载重试（瞬时路由失败不冒泡成死 tab）────────────────
 console.log('[chunk-loader retry]')
 {
@@ -2230,11 +2182,11 @@ console.log('[config/volatile]')
     '偏好默认与 SIDEBAR_PREFS_DEFAULTS 对齐（https 接管为 true）')
 }
 
-// 2) volatile 标记矩阵：26 偏好 true、8 宿主不标
+// 2) volatile 标记矩阵：24 偏好 true、8 宿主不标
 {
   const hostKeys = ['readLimit', 'mediaLimit', 'uploadLimit', 'listLimit', 'terminalsPerSession', 'reconnectGraceMs', 'shell', 'shellArgs']
   const prefKeys = Object.keys(SIDEBAR_PREFS_DEFAULTS)
-  ok(prefKeys.length === 26, `偏好字段 26 个（实际 ${prefKeys.length}）`)
+  ok(prefKeys.length === 24, `偏好字段 24 个（实际 ${prefKeys.length}）`)
   const badPref = prefKeys.filter(k => Config.dict[k]?.meta?.volatile !== true)
   const badHost = hostKeys.filter(k => Config.dict[k]?.meta?.volatile === true)
   ok(badPref.length === 0, `偏好字段全部带 volatile 标记（fork 原生 .volatile()；缺：${badPref.join(',') || '无'}）`)
@@ -2454,63 +2406,6 @@ console.log('[layoutTasksViewModel]')
   const leafLayout = layoutTasksViewModel(leafOnly)
   ok(leafLayout.nodes.length === 1 && leafLayout.edges.length === 0, '目录未水合 → 仅根节点、无边')
   ok(TASK_NODE_H > TASK_NODE_W - TASK_NODE_W, '常量在位（编译期数值）')
-}
-
-// ── deriveTeamView（团队 tab 的 agentTeam 投影派生）──────────────
-console.log('[deriveTeamView]')
-{
-  const lead = { id: 'lead-1', running: true, displayTitle: '领队会话', origin: undefined }
-  const mate = { id: 'mate-1', running: false, displayTitle: '队友会话', origin: 'subagent', parentId: 'lead-1' }
-  const byId = { 'lead-1': lead, 'mate-1': mate }
-  const projection = {
-    state: 'ready',
-    values: {
-      agentTeam: {
-        members: [
-          { id: 'lead-1', name: 'lead', role: 'lead', phase: 'active' },
-          { id: 'mate-1', name: '张三', role: 'teammate', phase: 'active' },
-          { id: 'mate-2', name: '李四', role: 'teammate', phase: 'provisioning' },
-          { id: 'mate-3', name: '王五', role: 'teammate', phase: 'failed', error: 'boom' },
-        ],
-        tasks: [
-          { id: 'task-1', revision: 3, subject: '实现', description: 'd', status: 'in_progress',
-            blockedBy: [], writeScopes: ['src'], ownerName: '张三', ready: true, writeScopeWarnings: [] },
-        ],
-      },
-    },
-  }
-  const result = deriveTeamView(projection, byId, 'lead-1')
-  ok(result.status === 'ready', '有投影 → ready')
-  if (result.status === 'ready') {
-    const view = result.view
-    ok(view.members.length === 4, '四行名册（lead + 三队友）')
-    const leadRow = view.members[0]
-    ok(leadRow.role === 'lead' && leadRow.name === '领队会话', 'lead 行名字用会话显示标题富化')
-    ok(leadRow.status === 'running', 'lead 活动态从摘要派生（running）')
-    const mate1 = view.members[1]
-    ok(mate1.name === '张三' && mate1.status === 'idle', '队友名字保持 durable 名 + 摘要派生 idle')
-    const mate2 = view.members[2]
-    ok(mate2.status === 'provisioning', 'phase provisioning → provisioning')
-    const mate3 = view.members[3]
-    ok(mate3.status === 'failed' && mate3.diagnostics[0] === 'boom', 'phase failed → failed，error 入 diagnostics')
-    ok(view.tasks.length === 1 && view.tasks[0].id === 'task-1' && view.tasks[0].revision === 3,
-      '任务板原样透传（形状与 wire 视图一致）')
-    ok(view.failure === undefined, '无 failure 时字段缺席')
-  }
-
-  const failedProj = deriveTeamView(
-    { state: 'ready', values: { agentTeam: { members: [], tasks: [], failure: 'journal 坏了' } } },
-    byId, 'lead-1',
-  )
-  ok(failedProj.status === 'ready' && failedProj.view.failure === 'journal 坏了', '投影 failure → view.failure')
-
-  ok(deriveTeamView(undefined, byId, 'lead-1').status === 'loading', '无投影 → loading')
-  ok(deriveTeamView({ state: 'idle' }, byId, 'lead-1').status === 'loading', 'idle 且无值 → loading')
-  ok(deriveTeamView({ state: 'loading' }, byId, 'lead-1').status === 'loading', 'loading → loading')
-  const notTeam = deriveTeamView({ state: 'ready' }, byId, 'lead-1')
-  ok(notTeam.status === 'not-team', '读完成但无 agentTeam → not-team（非团队会话终态）')
-  const notTeam2 = deriveTeamView({ state: 'ready', values: {} }, byId, 'lead-1')
-  ok(notTeam2.status === 'not-team', 'values 空对象同样 → not-team')
 }
 
 // ── foldWorkflowRuns（tool-workflow/* → run 行）+ 模型 run 入图 ──

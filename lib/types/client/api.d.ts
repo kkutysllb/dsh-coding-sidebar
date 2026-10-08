@@ -1,25 +1,12 @@
 import type { LastActivity } from '../subagent-activity.ts';
-import type { SidebarHistoryEntry, SidebarWorkflowRunRow } from '../context-types.ts';
-import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts';
+import type { SidebarWorkflowRunRow } from '../context-types.ts';
 import type { BrowserProbeResult } from './browser.ts';
-import type { CreateTeamTaskRequest, TeamMutationEnvelope, UpdateTeamTaskRequest } from '../team-types.ts';
 /** One wire failure. */
 export declare class SidebarApiError extends Error {
     readonly code: string;
     constructor(code: string, message: string);
 }
 /** Explorer row (host fs-tree shape). */
-/** 一次「跟随主会话模型」的结果（失败原因会显示在面板上）。 */
-export interface SidechatModelFollow {
-    ok: boolean;
-    switched: boolean;
-    model?: {
-        provider: string;
-        model: string;
-        reasoningEffort?: string;
-    };
-    reason?: string;
-}
 export interface FsEntry {
     name: string;
     path: string;
@@ -230,13 +217,6 @@ export declare const api: {
         root: string;
         parent: string | null;
     }>;
-    /**
-     * Agent Teams: the roster + task board the upstream `ctx.agentTeams` service
-     * reports for this Session's team. `available: false` is an ordinary answer
-    /** Create one shared task (subject + description are required by the service). */
-    teamCreateTask: (scope: SessionScope, input: CreateTeamTaskRequest, signal?: AbortSignal) => Promise<TeamMutationEnvelope>;
-    /** Apply one compare-and-set task mutation (`expectedRevision` guards the row). */
-    teamUpdateTask: (scope: SessionScope, input: UpdateTeamTaskRequest, signal?: AbortSignal) => Promise<TeamMutationEnvelope>;
     fsTree: (scope: SessionScope, path: string, signal?: AbortSignal) => Promise<{
         path: string;
         entries: FsEntry[];
@@ -465,45 +445,6 @@ export declare const api: {
         runs: SidebarWorkflowRunRow[];
     }>;
     subagentsLive: (rootSessionId: string, signal?: AbortSignal) => Promise<SubagentLiveResult>;
-    /** Create a Side Chat thread: a child session seeded with the parent's
-     *  full log up to now. Empty question = immediate create (Codex-style):
-     *  the thread opens empty, the first prompt carries the boundary. */
-    sidechatStart: (sessionId: string, question?: string) => Promise<{
-        childId: string;
-    }>;
-    /** Deliver one follow-up message to a Side Chat thread. */
-    sidechatPrompt: (childId: string, text: string) => Promise<{
-        accepted: true;
-        modelFollow?: SidechatModelFollow;
-    }>;
-    /** Abort a Side Chat thread's running turn (queued work is preserved). */
-    sidechatCancel: (childId: string) => Promise<{
-        accepted: true;
-    }>;
-    /** Release a Side Chat thread's live agent (history stays persisted). */
-    sidechatDispose: (childId: string) => Promise<{
-        accepted: true;
-    }>;
-    /** Live state + agent identity (provider/model/preset) of a thread. */
-    sidechatInfo: (childId: string) => Promise<SidechatThreadInfo>;
-    /**
-     * The thread's own events (inherited fork seed already cut host-side) plus the
-     * CURRENT attempt's live rows.
-     *
-     * This must not be the generic `session.history` RPC: that one **rejects
-     * subagent-origin sessions** (`session/agent-busy` fencing in the session
-     * controller), and side-chat children are exactly that — polling it left the
-     * panel permanently blank. Live rows are non-durable: they are replaced on
-     * every poll and superseded by the settled `assistant/message`.
-     */
-    sidechatEvents: (childId: string, options?: {
-        afterSeq?: number;
-        beforeSeq?: number;
-        maxEvents?: number;
-    }) => Promise<{
-        events: SidebarHistoryEntry[];
-        live: SidechatLiveEvent[];
-    }>;
     /** The effective terminal shell and its display name (plugin-global). */
     shellGet: () => Promise<{
         shell: string;

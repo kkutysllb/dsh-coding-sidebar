@@ -17,9 +17,15 @@
  *   the batch still returns.
  */
 import type { Context, SidebarSubagentsService } from './context-types.ts'
-import { SIDE_LABEL_PREFIX } from './sidechat-core.ts'
 import { lastActivity, mergedActivity, type LastActivity } from './subagent-activity.ts'
 import { requireString, SidebarError } from './wire.ts'
+
+/**
+ * The durable thread-label prefix the removed Side Chat feature pinned on its
+ * child sessions (kept so summaries written by older builds still filter out
+ * of the live map — same gate the client's `isSideThreadSummary` applies).
+ */
+const SIDE_LABEL_PREFIX = 'Side: '
 
 /** The live-preview routes of the /sidebar JSON API. */
 export interface SidebarSubagentLiveRoutes {

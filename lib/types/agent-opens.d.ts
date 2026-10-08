@@ -1,5 +1,4 @@
 import type { Context } from './context-types.ts';
-import type { SidebarPrefs } from './prefs-shared.ts';
 /** What the model asked to open. */
 export type AgentOpenKind = 'file' | 'folder' | 'url';
 /** One pending/broadcast open request (the wire face over the push socket). */
@@ -47,19 +46,15 @@ export declare class AgentOpenRegistry {
 /**
  * Register the `sidebar_open` tool against the host tool registry. The tool
  * is gated by the side-card setting `agentOpenTools` (the caller registers
- * and unregisters it); `readPrefs` supplies the live prefs so a disabled
- * target tab type (editor/browser) is reported to the model instead of
- * silently no-oping on the client. `resolveCwd` threads the calling
- * session's live cwd so relative paths resolve the same way the sidebar's
- * own routes do.
+ * and unregisters it). `resolveCwd` threads the calling session's live cwd
+ * so relative paths resolve the same way the sidebar's own routes do.
  * @param ctx - host plugin context (carries the tools service).
  * @param registry - the open-request registry (per-session queue + views).
  * @param resolveCwd - async cwd resolver for one session id. Resolves through
  *  the session header, the client-supplied cwd, and the persistence index
  *  before falling back to the host process cwd (production always provides
  *  persistence, so the fallback is reached only in tests / stripped-down hosts).
- * @param readPrefs - live resolved side card prefs (for tab enable gates).
  * @returns a disposer that unregisters the tool.
  */
-export declare function registerOpenTool(ctx: Context, registry: AgentOpenRegistry, resolveCwd: (sessionId: string) => Promise<string>, readPrefs: () => SidebarPrefs): () => void;
+export declare function registerOpenTool(ctx: Context, registry: AgentOpenRegistry, resolveCwd: (sessionId: string) => Promise<string>): () => void;
 export {};

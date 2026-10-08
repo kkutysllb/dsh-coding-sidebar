@@ -1,6 +1,6 @@
 /**
- * The 7 built-in tab descriptors: the plugin registers its own pages
- * (editor / git / subagent / sidechat / terminal / browser / diff) through
+ * The built-in tab descriptors: the plugin registers its own pages
+ * (editor / git / subagent / terminal / browser / diff) through
  * the same {@link BetterSidebarService} external plugins use — eating its
  * own dogfood. The terminal descriptor owns its quota (`TERMINAL_LIMIT`)
  * and mints `terminal:<uuid>` ids through `createTab`; the browser mints
@@ -10,8 +10,8 @@
 import { IconCodeOutlineRegular, IconPanelLeftOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../../context-types.ts'
 import {
-  browserTabIcon, changesTabIcon, filesTabIcon, plansTabIcon, sidechatTabIcon, tasksTabIcon,
-  teamTabIcon, terminalTabIcon, trajectoryTabIcon,
+  browserTabIcon, changesTabIcon, filesTabIcon, plansTabIcon, tasksTabIcon,
+  terminalTabIcon, trajectoryTabIcon,
 } from './tab-icons.tsx'
 import { allLeaves, editorTabKey, isAgentTabId, type SidebarState } from '../state.ts'
 import { t } from '../locales.ts'
@@ -24,9 +24,6 @@ import { PlansView } from '../PlansView.tsx'
 import { readScheduleTaskTarget } from '../ScheduleTaskPreview.tsx'
 import { DiffTab } from '../DiffTab.tsx'
 import { SubagentView } from '../SubagentView.tsx'
-import { TeamView } from '../TeamView.tsx'
-import { consumeSidechatSeed, SideChatView, sidechatThreadIdOf } from '../SideChatView.tsx'
-import { api } from '../api.ts'
 import { BrowserView } from '../BrowserView.tsx'
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '../../prefs-shared.ts'
 import type { ComponentType } from 'react'
@@ -205,20 +202,6 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
       ),
     },
     {
-      // Agent Teams（2026-09-19）：把上游「智能体团队」的名册与任务看板做进自家
-      // 侧栏（产品铁律 1：不用上游 UI，只用它的数据面 ctx.agentTeams）。官方
-      // bundle 是 opt-in 且会替换 subagent 工具，故本 tab 不自动挂载它：未启用
-      // 时渲染「去启用」空态。
-      id: 'team',
-      title: () => t('teamTitle'),
-      icon: teamTabIcon,
-      order: 31,
-      single: true,
-      component: ({ ctx, store, scope, tab, visible }) => (
-        <TeamView ctx={ctx} store={store} scope={scope} tab={tab} visible={visible} />
-      ),
-    },
-    {
       // Task plans: the markdown planning docs the workspace's convention
       // declares (plans/, docs/plans/, .plans/ + plan.md & friends). The
       // retired git panel carried this list as a section inside its card;
@@ -261,51 +244,6 @@ export function builtinTabs(ctx: Context, options: BuiltinTabOptions = {}): read
       single: true,
       component: ({ ctx, scope, visible }) => (
         <LazyTrajectory ctx={ctx} scope={scope} active={visible} />
-      ),
-    },
-    {
-      id: 'sidechat',
-      title: () => t('sideChat'),
-      icon: sidechatTabIcon,
-      order: 35,
-      // Codex-style: EVERY side conversation is its own tab. A plain open
-      // mints a fresh tab flagged `autoCreate` (the view creates the EMPTY
-      // thread on mount); a thread switch from the header menu parks the
-      // target id for a deterministic `sidechat:<threadId>` reattach tab.
-      createTab: () => {
-        const threadId = consumeSidechatSeed()
-        if (threadId !== undefined) {
-          return {
-            tab: {
-              id: `sidechat:${threadId}`,
-              type: 'sidechat',
-              title: t('sideChat'),
-              meta: { threadId },
-            },
-          }
-        }
-        return {
-          tab: {
-            id: `sidechat:new-${crypto.randomUUID()}`,
-            type: 'sidechat',
-            title: t('sideChatUntitled'),
-            meta: { autoCreate: true },
-          },
-        }
-      },
-      // One tab per thread: an already-open thread focuses instead of
-      // duplicating; unbound fresh tabs never dedupe (each mints its own).
-      dedupeKey: (tab) => sidechatThreadIdOf(tab),
-      // Closing the tab releases the thread's live agent; the session and
-      // its history stay persisted (reopen from any thread's header menu).
-      onClose: (tab) => {
-        const threadId = sidechatThreadIdOf(tab)
-        if (threadId !== undefined) {
-          void api.sidechatDispose(threadId).catch(() => {})
-        }
-      },
-      component: ({ ctx, scope, tab, visible }) => (
-        <SideChatView ctx={ctx} scope={scope} tab={tab} visible={visible} />
       ),
     },
     {
